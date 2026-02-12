@@ -1,0 +1,22 @@
+version: "3.8"
+
+services:
+  frontend:
+    image: nginx:alpine
+    volumes:
+      - ./dist:/usr/share/nginx/html:ro
+      - ./nginx/spa.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - traefik_public
+    deploy:
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.whats-frontend.rule=Host(`${FRONTEND_DOMAIN}`)"
+        - "traefik.http.routers.whats-frontend.entrypoints=websecure"
+        - "traefik.http.routers.whats-frontend.tls.certresolver=${CERT_RESOLVER:-letsencrypt}"
+        - "traefik.http.services.whats-frontend.loadbalancer.server.port=80"
+
+networks:
+  traefik_public:
+    external: true
+    name: ${TRAEFIK_NETWORK:-traefik_public}
