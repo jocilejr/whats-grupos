@@ -71,8 +71,8 @@ export default function Auth() {
           </CardTitle>
           <CardDescription>
             {isLogin
-              ? "Acesse seu painel de automação WhatsApp"
-              : "Crie sua conta para começar"}
+              ? "Acesse o Whats Grupos"
+              : "Crie sua conta no Whats Grupos"}
           </CardDescription>
         </CardHeader>
         <CardContent>
