@@ -6,7 +6,7 @@ http:
         - websecure
       service: supabase-kong
       tls:
-        certResolver: "{{CERT_RESOLVER}}"
+        certResolver: "letsencryptresolver"
 
   services:
     supabase-kong:

@@ -13,10 +13,10 @@ services:
         - "traefik.enable=true"
         - "traefik.http.routers.whats-frontend.rule=Host(`${FRONTEND_DOMAIN}`)"
         - "traefik.http.routers.whats-frontend.entrypoints=websecure"
-        - "traefik.http.routers.whats-frontend.tls.certresolver=${CERT_RESOLVER:-letsencrypt}"
+        - "traefik.http.routers.whats-frontend.tls.certresolver=${CERT_RESOLVER:-letsencryptresolver}"
         - "traefik.http.services.whats-frontend.loadbalancer.server.port=80"
 
 networks:
   traefik_public:
     external: true
-    name: ${TRAEFIK_NETWORK:-traefik_public}
+    name: ${TRAEFIK_NETWORK:-traefik-public}

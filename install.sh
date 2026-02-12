@@ -50,7 +50,7 @@ PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 USE_TRAEFIK=false
 TRAEFIK_NETWORK=""
-CERT_RESOLVER="letsencrypt"
+CERT_RESOLVER="letsencryptresolver"
 
 if command -v docker &>/dev/null; then
   SWARM_STATE=$(docker info --format '{{.Swarm.LocalNodeState}}' 2>/dev/null || echo "inactive")
@@ -72,7 +72,7 @@ if command -v docker &>/dev/null; then
         TRAEFIK_NETWORK=$(docker network ls --format '{{.Name}}' | grep -i traefik | head -1)
       fi
       if [ -z "$TRAEFIK_NETWORK" ]; then
-        TRAEFIK_NETWORK="traefik_public"
+        TRAEFIK_NETWORK="traefik-public"
       fi
       log_info "Rede do Traefik: ${TRAEFIK_NETWORK}"
 
@@ -426,31 +426,28 @@ if [ "$USE_TRAEFIK" = true ]; then
   if [ -n "$TRAEFIK_DYNAMIC_DIR" ]; then
     log_info "Criando rota Traefik para API em ${TRAEFIK_DYNAMIC_DIR}..."
     mkdir -p "$TRAEFIK_DYNAMIC_DIR"
-    sed "s|{{API_DOMAIN}}|${API_DOMAIN}|g; s|{{CERT_RESOLVER}}|${CERT_RESOLVER}|g" \
-      "${PROJECT_DIR}/traefik/supabase-api.yml" \
-      > "${TRAEFIK_DYNAMIC_DIR}/supabase-api.yml"
-    log_success "Rota da API configurada no Traefik."
-  else
-    # Tentar caminhos comuns do file provider
-    for DIR in /opt/traefik/dynamic /etc/traefik/dynamic /opt/traefik/conf.d; do
-      if [ -d "$DIR" ]; then
-        TRAEFIK_DYNAMIC_DIR="$DIR"
-        break
-      fi
-    done
-
-    if [ -n "$TRAEFIK_DYNAMIC_DIR" ]; then
-      log_info "Usando diretorio dinamico detectado: ${TRAEFIK_DYNAMIC_DIR}"
       sed "s|{{API_DOMAIN}}|${API_DOMAIN}|g; s|{{CERT_RESOLVER}}|${CERT_RESOLVER}|g" \
         "${PROJECT_DIR}/traefik/supabase-api.yml" \
         > "${TRAEFIK_DYNAMIC_DIR}/supabase-api.yml"
       log_success "Rota da API configurada no Traefik."
     else
-      log_warn "Diretorio dinamico do Traefik nao encontrado automaticamente."
-      log_warn "Copie manualmente o arquivo traefik/supabase-api.yml para o diretorio"
-      log_warn "de configuracao dinamica do Traefik e substitua os placeholders."
+      # Copiar via docker cp para dentro do container do Traefik
+      log_info "Copiando rota da API via docker cp para o container do Traefik..."
+      TRAEFIK_CONTAINER=$(docker ps -q -f name=traefik | head -1)
+      if [ -n "$TRAEFIK_CONTAINER" ]; then
+        # Gerar arquivo temporario com placeholders substituidos
+        TEMP_API_YML=$(mktemp)
+        sed "s|{{API_DOMAIN}}|${API_DOMAIN}|g; s|{{CERT_RESOLVER}}|${CERT_RESOLVER}|g" \
+          "${PROJECT_DIR}/traefik/supabase-api.yml" \
+          > "$TEMP_API_YML"
+        docker cp "$TEMP_API_YML" "${TRAEFIK_CONTAINER}:/etc/traefik/dynamic/supabase-api.yml"
+        rm -f "$TEMP_API_YML"
+        log_success "Rota da API copiada para o container do Traefik."
+      else
+        log_warn "Container do Traefik nao encontrado. Copie manualmente:"
+        log_warn "  docker cp traefik/supabase-api.yml <traefik_container>:/etc/traefik/dynamic/"
+      fi
     fi
-  fi
 
   # Deploy do frontend como stack no Swarm
   log_info "Deployando frontend no Docker Swarm..."
