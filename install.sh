@@ -293,12 +293,6 @@ log_success "Cron job configurado."
 
 log_step "6/9 - Fazendo deploy das Edge Functions"
 
-# Instalar Supabase CLI se necessario
-if ! command -v supabase &>/dev/null; then
-  log_info "Instalando Supabase CLI..."
-  npm install -g supabase@latest
-fi
-
 # Copiar funcoes para o diretorio do Supabase Docker
 FUNCTIONS_DIR="${SUPABASE_DIR}/docker/volumes/functions"
 mkdir -p "$FUNCTIONS_DIR"
