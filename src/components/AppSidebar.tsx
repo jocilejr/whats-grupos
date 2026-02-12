@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate, useLocation } from "react-router-dom";
 import {
@@ -10,6 +11,7 @@ import {
   Settings,
   LogOut,
   MessageSquare,
+  Clock,
 } from "lucide-react";
 import {
   Sidebar,
@@ -40,6 +42,12 @@ export function AppSidebar() {
   const navigate = useNavigate();
   const location = useLocation();
 
+  const [time, setTime] = useState(new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
   return (
     <Sidebar>
       <SidebarHeader className="p-4">
@@ -50,6 +58,15 @@ export function AppSidebar() {
           <div>
             <h2 className="text-sm font-semibold text-sidebar-foreground">WA Automator</h2>
             <p className="text-xs text-sidebar-foreground/60">Grupos WhatsApp</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 mt-3 rounded-lg bg-sidebar-accent/50 px-3 py-2">
+          <Clock className="h-3.5 w-3.5 text-sidebar-foreground/60" />
+          <div className="flex flex-col">
+            <span className="text-[10px] text-sidebar-foreground/50 uppercase tracking-wider leading-none">Hora do sistema</span>
+            <span className="text-sm font-mono font-semibold text-sidebar-foreground tabular-nums">
+              {time.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+            </span>
           </div>
         </div>
       </SidebarHeader>
