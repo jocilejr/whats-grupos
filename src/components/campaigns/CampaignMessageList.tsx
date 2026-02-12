@@ -132,7 +132,7 @@ export function CampaignMessageList({ campaignId, apiConfigId, instanceName, gro
   }
 
   return (
-    <div className="space-y-3">
+    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
       {messages.map((msg) => {
         const Icon = typeIcons[msg.message_type] || FileText;
         const active = msg.is_active;
@@ -145,108 +145,85 @@ export function CampaignMessageList({ campaignId, apiConfigId, instanceName, gro
         return (
           <div
             key={msg.id}
-            className={`rounded-xl border overflow-hidden transition-all ${
+            className={`rounded-xl border overflow-hidden transition-all flex flex-col ${
               active
                 ? "border-border/50 bg-background/40 hover:bg-background/60"
                 : "border-border/30 bg-muted/20 opacity-60"
             }`}
           >
-            {/* Image/Video preview banner */}
+            {/* Media preview */}
             {hasImage && (
-              <div className="relative h-36 w-full bg-muted/30">
+              <div className="relative h-28 w-full bg-muted/30">
                 <img src={c.mediaUrl} alt="Preview" className="h-full w-full object-cover" />
                 <div className="absolute inset-0 bg-gradient-to-t from-background/80 to-transparent" />
-                {c.caption && (
-                  <p className="absolute bottom-2 left-3 right-3 text-xs text-foreground font-medium line-clamp-2 drop-shadow-sm">
-                    {c.caption}
-                  </p>
-                )}
               </div>
             )}
             {hasVideo && (
-              <div className="relative h-36 w-full bg-muted/30 flex items-center justify-center">
+              <div className="relative h-28 w-full bg-muted/30">
                 <video src={c.mediaUrl} className="h-full w-full object-cover" muted />
                 <div className="absolute inset-0 bg-gradient-to-t from-background/80 to-transparent" />
                 <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="h-10 w-10 rounded-full bg-background/80 flex items-center justify-center">
-                    <Video className="h-5 w-5 text-primary" />
+                  <div className="h-8 w-8 rounded-full bg-background/80 flex items-center justify-center">
+                    <Video className="h-4 w-4 text-primary" />
                   </div>
                 </div>
-                {c.caption && (
-                  <p className="absolute bottom-2 left-3 right-3 text-xs text-foreground font-medium line-clamp-2 drop-shadow-sm">
-                    {c.caption}
-                  </p>
-                )}
               </div>
             )}
 
-            <div className="flex items-start gap-4 p-4">
-              {/* Type icon */}
-              {!hasImage && !hasVideo && (
-                <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${active ? "bg-primary/10" : "bg-muted"}`}>
-                  <Icon className={`h-5 w-5 ${active ? "text-primary" : "text-muted-foreground"}`} />
-                </div>
-              )}
+            {/* No media → icon header */}
+            {!hasImage && !hasVideo && (
+              <div className={`flex items-center justify-center py-5 ${active ? "bg-primary/5" : "bg-muted/30"}`}>
+                <Icon className={`h-7 w-7 ${active ? "text-primary" : "text-muted-foreground"}`} />
+              </div>
+            )}
 
-              {/* Content */}
-              <div className="flex-1 min-w-0 space-y-2">
-                {/* Preview text (hide for image/video since caption is shown in banner) */}
-                {!hasImage && !hasVideo && (
-                  <p className="text-sm font-medium line-clamp-2">{getPreview(msg)}</p>
+            {/* Card body */}
+            <div className="flex-1 p-3 space-y-2">
+              <p className="text-xs font-medium line-clamp-2 leading-snug">{getPreview(msg)}</p>
+
+              <div className="flex flex-wrap gap-1">
+                <Badge variant="secondary" className="text-[10px] gap-0.5 font-normal px-1.5 py-0">
+                  {typeLabels[msg.message_type] || msg.message_type}
+                </Badge>
+                {hasMention && (
+                  <Badge variant="outline" className="text-[10px] gap-0.5 font-normal border-primary/30 text-primary px-1.5 py-0">
+                    <AtSign className="h-2.5 w-2.5" />@
+                  </Badge>
                 )}
-
-                {/* Meta badges */}
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <Badge variant="secondary" className="text-[11px] gap-1 font-normal">
-                    <Icon className="h-3 w-3" />{typeLabels[msg.message_type] || msg.message_type}
+                {msg.message_type === "text" && c.linkPreview === false && (
+                  <Badge variant="outline" className="text-[10px] gap-0.5 font-normal border-border/50 text-muted-foreground px-1.5 py-0">
+                    <Link2 className="h-2.5 w-2.5" />
                   </Badge>
-                  <Badge variant="outline" className="text-[11px] gap-1 font-normal border-border/50">
-                    {msg.schedule_type === "once" ? <Clock className="h-3 w-3" /> : <Repeat className="h-3 w-3" />}
-                    {getScheduleInfo(msg)}
-                  </Badge>
-                  {hasMention && (
-                    <Badge variant="outline" className="text-[11px] gap-1 font-normal border-primary/30 text-primary">
-                      <AtSign className="h-3 w-3" />Menção
-                    </Badge>
-                  )}
-                  {msg.message_type === "text" && c.linkPreview === false && (
-                    <Badge variant="outline" className="text-[11px] gap-1 font-normal border-border/50 text-muted-foreground">
-                      <Link2 className="h-3 w-3" />Sem preview
-                    </Badge>
-                  )}
-                </div>
-
-                {/* Timing info */}
-                <div className="flex flex-wrap items-center gap-3">
-                  {nextRun && (
-                    <span className="text-[11px] text-muted-foreground">
-                      Próximo: {nextRun}
-                    </span>
-                  )}
-                  {msg.last_run_at && (
-                    <span className="text-[11px] text-muted-foreground">
-                      Último: {new Date(msg.last_run_at).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}
-                    </span>
-                  )}
-                </div>
+                )}
               </div>
 
-              {/* Actions */}
-              <div className="flex items-center gap-1.5 shrink-0">
-                <Switch
-                  checked={!!active}
-                  onCheckedChange={(checked) => toggleMutation.mutate({ id: msg.id, is_active: checked })}
-                />
-                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => onEdit(msg)}>
-                  <Pencil className="h-3.5 w-3.5" />
+              <p className="text-[10px] text-muted-foreground leading-tight">
+                {msg.schedule_type === "once" ? <Clock className="h-2.5 w-2.5 inline mr-0.5" /> : <Repeat className="h-2.5 w-2.5 inline mr-0.5" />}
+                {getScheduleInfo(msg)}
+              </p>
+              {nextRun && (
+                <p className="text-[10px] text-muted-foreground">Próx: {nextRun}</p>
+              )}
+            </div>
+
+            {/* Actions footer */}
+            <div className="flex items-center justify-between border-t border-border/30 px-3 py-2">
+              <Switch
+                checked={!!active}
+                onCheckedChange={(checked) => toggleMutation.mutate({ id: msg.id, is_active: checked })}
+                className="scale-75 origin-left"
+              />
+              <div className="flex items-center gap-0.5">
+                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onEdit(msg)}>
+                  <Pencil className="h-3 w-3" />
                 </Button>
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-8 w-8 text-destructive hover:text-destructive"
+                  className="h-7 w-7 text-destructive hover:text-destructive"
                   onClick={() => deleteMutation.mutate(msg.id)}
                 >
-                  <Trash2 className="h-3.5 w-3.5" />
+                  <Trash2 className="h-3 w-3" />
                 </Button>
               </div>
             </div>
