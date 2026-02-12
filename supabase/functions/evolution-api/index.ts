@@ -134,6 +134,83 @@ Deno.serve(async (req) => {
         break;
       }
 
+      case "sendAudio": {
+        const body = await req.json();
+        const resp = await fetch(`${apiUrl}/message/sendWhatsAppAudio/${instanceName}`, {
+          method: "POST",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        result = await resp.json();
+        break;
+      }
+
+      case "sendSticker": {
+        const body = await req.json();
+        const resp = await fetch(`${apiUrl}/message/sendSticker/${instanceName}`, {
+          method: "POST",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        result = await resp.json();
+        break;
+      }
+
+      case "sendLocation": {
+        const body = await req.json();
+        const resp = await fetch(`${apiUrl}/message/sendLocation/${instanceName}`, {
+          method: "POST",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        result = await resp.json();
+        break;
+      }
+
+      case "sendContact": {
+        const body = await req.json();
+        const resp = await fetch(`${apiUrl}/message/sendContact/${instanceName}`, {
+          method: "POST",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        result = await resp.json();
+        break;
+      }
+
+      case "sendPoll": {
+        const body = await req.json();
+        const resp = await fetch(`${apiUrl}/message/sendPoll/${instanceName}`, {
+          method: "POST",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        result = await resp.json();
+        break;
+      }
+
+      case "sendList": {
+        const body = await req.json();
+        const resp = await fetch(`${apiUrl}/message/sendList/${instanceName}`, {
+          method: "POST",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        result = await resp.json();
+        break;
+      }
+
+      case "sendButtons": {
+        const body = await req.json();
+        const resp = await fetch(`${apiUrl}/message/sendButtons/${instanceName}`, {
+          method: "POST",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        result = await resp.json();
+        break;
+      }
+
       default:
         return new Response(JSON.stringify({ error: "Invalid action" }), {
           status: 400,

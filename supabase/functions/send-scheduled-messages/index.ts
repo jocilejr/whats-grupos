@@ -73,15 +73,34 @@ Deno.serve(async (req) => {
           if (msg.message_type === "text") {
             endpoint = `${apiUrl}/message/sendText/${instanceName}`;
             body = { number: groupId, text: content.text };
-          } else {
+          } else if (msg.message_type === "image" || msg.message_type === "video" || msg.message_type === "document") {
             endpoint = `${apiUrl}/message/sendMedia/${instanceName}`;
-            body = {
-              number: groupId,
-              mediatype: msg.message_type,
-              media: content.mediaUrl,
-              caption: content.caption || "",
-              fileName: content.fileName || "",
-            };
+            body = { number: groupId, mediatype: msg.message_type, media: content.mediaUrl, caption: content.caption || "", fileName: content.fileName || "" };
+          } else if (msg.message_type === "audio") {
+            endpoint = `${apiUrl}/message/sendWhatsAppAudio/${instanceName}`;
+            body = { number: groupId, audio: content.audio };
+          } else if (msg.message_type === "sticker") {
+            endpoint = `${apiUrl}/message/sendSticker/${instanceName}`;
+            body = { number: groupId, sticker: content.sticker };
+          } else if (msg.message_type === "location") {
+            endpoint = `${apiUrl}/message/sendLocation/${instanceName}`;
+            body = { number: groupId, name: content.name || "", address: content.address || "", latitude: content.latitude, longitude: content.longitude };
+          } else if (msg.message_type === "contact") {
+            endpoint = `${apiUrl}/message/sendContact/${instanceName}`;
+            body = { number: groupId, contact: [{ fullName: content.contactName, wuid: content.contactPhone, phoneNumber: content.contactPhone }] };
+          } else if (msg.message_type === "poll") {
+            endpoint = `${apiUrl}/message/sendPoll/${instanceName}`;
+            body = { number: groupId, name: content.pollName, selectableCount: content.pollSelectable || 1, values: content.pollOptions || [] };
+          } else if (msg.message_type === "list") {
+            endpoint = `${apiUrl}/message/sendList/${instanceName}`;
+            const sections = (content.listSections || []).map((s: any) => ({ title: s.title, rows: s.rows.map((r: any, i: number) => ({ title: r.title, description: r.description || "", rowId: `row_${i}` })) }));
+            body = { number: groupId, title: content.listTitle, description: content.listDescription, buttonText: content.listButtonText || "Ver opções", footerText: content.listFooter || "", sections };
+          } else if (msg.message_type === "buttons") {
+            endpoint = `${apiUrl}/message/sendButtons/${instanceName}`;
+            body = { number: groupId, title: content.btnTitle, description: content.btnDescription || "", footer: content.btnFooter || "", buttons: (content.btnButtons || []).map((b: any) => ({ type: b.type || "reply", body: b.body })) };
+          } else {
+            endpoint = `${apiUrl}/message/sendText/${instanceName}`;
+            body = { number: groupId, text: content.text || "" };
           }
 
           const resp = await fetch(endpoint, {
