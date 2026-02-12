@@ -16,6 +16,9 @@ Deno.serve(async (req) => {
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
+    const DELAY_BETWEEN_MESSAGES_MS = 10_000; // 10 seconds between each send
+    const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
     // Fetch active scheduled messages that are due
     const { data: messages, error: fetchError } = await supabase
       .from("scheduled_messages")
@@ -39,6 +42,7 @@ Deno.serve(async (req) => {
 
     let processed = 0;
     let errors = 0;
+    let isFirstSend = true;
 
     for (const msg of messages) {
       const campaign = msg.campaigns;
@@ -67,6 +71,12 @@ Deno.serve(async (req) => {
 
       for (const groupId of groupIds) {
         try {
+          // Wait before sending (skip delay for the very first message)
+          if (!isFirstSend) {
+            console.log(`Waiting ${DELAY_BETWEEN_MESSAGES_MS / 1000}s before next send...`);
+            await delay(DELAY_BETWEEN_MESSAGES_MS);
+          }
+          isFirstSend = false;
           let endpoint: string;
           let body: any;
 
