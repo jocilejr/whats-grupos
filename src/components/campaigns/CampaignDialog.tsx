@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { GroupSelector } from "./GroupSelector";
+import { CampaignMessageList } from "./CampaignMessageList";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Megaphone, Server, Users, Zap } from "lucide-react";
 
@@ -71,6 +72,7 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
         setName(campaign.name || "");
         setDescription(campaign.description || "");
         setConfigId(campaign.api_config_id || "");
+        setEvolutionInstance(campaign.instance_name || "");
         setGroupIds(campaign.group_ids || []);
         setIsActive(campaign.is_active ?? true);
       } else {
@@ -95,6 +97,7 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
           name: name.trim(),
           description: description.trim() || null,
           api_config_id: configId,
+          instance_name: evolutionInstance || null,
           group_ids: groupIds,
           is_active: isActive,
         }).eq("id", campaign.id);
@@ -106,6 +109,7 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
           name: name.trim(),
           description: description.trim() || null,
           api_config_id: configId,
+          instance_name: evolutionInstance || null,
           group_ids: groupIds,
           is_active: isActive,
         });
@@ -142,35 +146,22 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
           {/* Nome */}
           <div className="space-y-2">
             <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Nome</Label>
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Ex: Promoção Black Friday"
-              className="bg-background/50 border-border/50 focus:border-primary/50"
-            />
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex: Promoção Black Friday" className="bg-background/50 border-border/50 focus:border-primary/50" />
           </div>
 
           {/* Descrição */}
           <div className="space-y-2">
             <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Descrição (opcional)</Label>
-            <Textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Descreva o objetivo da campanha"
-              rows={2}
-              className="bg-background/50 border-border/50 focus:border-primary/50 resize-none"
-            />
+            <Textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Descreva o objetivo da campanha" rows={2} className="bg-background/50 border-border/50 focus:border-primary/50 resize-none" />
           </div>
 
-          {/* Conexão da aplicação */}
+          {/* Conexão */}
           <div className="space-y-2">
             <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
               <Server className="h-3 w-3" />Conexão
             </Label>
             <Select value={configId} onValueChange={(v) => { setConfigId(v); setEvolutionInstance(""); setGroupIds([]); }}>
-              <SelectTrigger className="bg-background/50 border-border/50">
-                <SelectValue placeholder="Selecione a conexão" />
-              </SelectTrigger>
+              <SelectTrigger className="bg-background/50 border-border/50"><SelectValue placeholder="Selecione a conexão" /></SelectTrigger>
               <SelectContent>
                 {configs?.map((c) => (
                   <SelectItem key={c.id} value={c.id}>{c.instance_name}</SelectItem>
@@ -179,7 +170,7 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
             </Select>
           </div>
 
-          {/* Instância do Evolution */}
+          {/* Instância WhatsApp */}
           {configId && (
             <div className="space-y-2">
               <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
@@ -192,9 +183,7 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
                 </div>
               ) : (
                 <Select value={evolutionInstance} onValueChange={(v) => { setEvolutionInstance(v); setGroupIds([]); }}>
-                  <SelectTrigger className="bg-background/50 border-border/50">
-                    <SelectValue placeholder="Selecione a instância" />
-                  </SelectTrigger>
+                  <SelectTrigger className="bg-background/50 border-border/50"><SelectValue placeholder="Selecione a instância" /></SelectTrigger>
                   <SelectContent>
                     {Array.isArray(evolutionInstances) && evolutionInstances.map((inst: any) => {
                       const instName = inst.instance?.instanceName || inst.name || inst.instanceName;
@@ -230,17 +219,23 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
             </div>
             <Switch checked={isActive} onCheckedChange={setIsActive} />
           </div>
+
+          {/* Mensagens Agendadas - only show when editing existing campaign */}
+          {campaign?.id && (
+            <div className="border-t border-border/30 pt-4">
+              <CampaignMessageList
+                campaignId={campaign.id}
+                apiConfigId={configId}
+                instanceName={evolutionInstance}
+                groupIds={groupIds}
+              />
+            </div>
+          )}
         </div>
 
         <DialogFooter className="gap-2">
-          <Button variant="outline" onClick={() => onOpenChange(false)} className="border-border/50">
-            Cancelar
-          </Button>
-          <Button
-            onClick={handleSave}
-            disabled={saving}
-            className="gap-2 shadow-[0_0_10px_hsl(var(--primary)/0.2)]"
-          >
+          <Button variant="outline" onClick={() => onOpenChange(false)} className="border-border/50">Cancelar</Button>
+          <Button onClick={handleSave} disabled={saving} className="gap-2 shadow-[0_0_10px_hsl(var(--primary)/0.2)]">
             {saving && <Loader2 className="h-4 w-4 animate-spin" />}
             {campaign ? "Salvar" : "Criar Campanha"}
           </Button>

@@ -112,6 +112,28 @@ Deno.serve(async (req) => {
         break;
       }
 
+      case "sendText": {
+        const body = await req.json();
+        const resp = await fetch(`${apiUrl}/message/sendText/${instanceName}`, {
+          method: "POST",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        result = await resp.json();
+        break;
+      }
+
+      case "sendMedia": {
+        const body = await req.json();
+        const resp = await fetch(`${apiUrl}/message/sendMedia/${instanceName}`, {
+          method: "POST",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        result = await resp.json();
+        break;
+      }
+
       default:
         return new Response(JSON.stringify({ error: "Invalid action" }), {
           status: 400,
