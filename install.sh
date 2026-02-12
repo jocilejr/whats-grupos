@@ -246,6 +246,14 @@ for i in $(seq 1 30); do
 done
 log_success "Supabase rodando."
 
+# Remover porta 80 do Kong (Nginx sera o unico gateway externo)
+log_info "Configurando Kong para acesso apenas interno..."
+cd "${SUPABASE_DIR}/docker"
+sed -i 's/- "${KONG_HTTP_PORT}:8000"/# - "${KONG_HTTP_PORT}:8000"/' docker-compose.yml
+sed -i 's/- "8000:8000"/# - "8000:8000"/' docker-compose.yml
+docker compose up -d kong --force-recreate
+log_success "Kong configurado para acesso apenas interno (porta 80 livre para Nginx)."
+
 # ============================================================
 # 3. Executar migracoes do banco
 # ============================================================
@@ -340,22 +348,7 @@ log_success "Frontend buildado em dist/."
 
 log_step "8/9 - Configurando Nginx"
 
-# Verificar se porta 80 esta disponivel
 HTTP_PORT=80
-if ss -tlnp | grep -q ':80 '; then
-  log_warn "Porta 80 em uso. Procurando porta alternativa..."
-  for PORT in 81 8080 8081 8082; do
-    if ! ss -tlnp | grep -q ":${PORT} "; then
-      HTTP_PORT=$PORT
-      break
-    fi
-  done
-  if [ "$HTTP_PORT" -eq 80 ]; then
-    log_error "Nenhuma porta HTTP alternativa disponivel (80, 81, 8080, 8081, 8082)."
-    exit 1
-  fi
-  log_info "Nginx usara porta alternativa: ${HTTP_PORT}"
-fi
 
 # Remover config default
 rm -f /etc/nginx/sites-enabled/default
@@ -385,92 +378,35 @@ log_success "Nginx configurado."
 
 log_step "9/9 - Configurando SSL com Certbot"
 
-# Parar kong temporariamente para liberar porta 80
-cd "${SUPABASE_DIR}/docker"
-log_info "Parando gateway temporariamente para validacao SSL..."
-docker compose stop kong 2>/dev/null || true
-sleep 2
+# Criar arquivos SSL auxiliares se nao existirem (necessarios para config do Nginx)
+if [ ! -f /etc/letsencrypt/options-ssl-nginx.conf ]; then
+  mkdir -p /etc/letsencrypt
+  cat > /etc/letsencrypt/options-ssl-nginx.conf <<'SSLCONF'
+ssl_session_cache shared:le_nginx_SSL:10m;
+ssl_session_timeout 1440m;
+ssl_protocols TLSv1.2 TLSv1.3;
+ssl_prefer_server_ciphers off;
+ssl_ciphers "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384";
+SSLCONF
+  log_success "Arquivo options-ssl-nginx.conf criado."
+fi
 
-# Emitir certificado (standalone, 100% automatico)
-certbot certonly --standalone \
-  -d "$DOMAIN" -d "$API_DOMAIN" \
+if [ ! -f /etc/letsencrypt/ssl-dhparams.pem ]; then
+  curl -sS https://raw.githubusercontent.com/certbot/certbot/main/certbot/certbot/ssl-dhparams.pem \
+    -o /etc/letsencrypt/ssl-dhparams.pem
+  log_success "Arquivo ssl-dhparams.pem baixado."
+fi
+
+# Emitir certificado SSL via plugin Nginx (sem parar nenhum servico)
+certbot --nginx -d "$DOMAIN" -d "$API_DOMAIN" \
   --non-interactive --agree-tos -m "$SSL_EMAIL" 2>&1
 CERT_RESULT=$?
 
-# Reiniciar kong imediatamente
-log_info "Reiniciando gateway..."
-docker compose start kong 2>/dev/null || true
-
 if [ $CERT_RESULT -eq 0 ]; then
-  CERT_PATH="/etc/letsencrypt/live/${DOMAIN}"
-
-  # Adicionar bloco HTTPS ao frontend
-  cat >> /etc/nginx/sites-available/whats-grupos <<SSLEOF
-
-server {
-    listen 443 ssl;
-    server_name ${DOMAIN};
-    ssl_certificate ${CERT_PATH}/fullchain.pem;
-    ssl_certificate_key ${CERT_PATH}/privkey.pem;
-    include /etc/letsencrypt/options-ssl-nginx.conf;
-    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
-
-    root ${PROJECT_DIR}/dist;
-    index index.html;
-    location / { try_files \$uri \$uri/ /index.html; }
-}
-SSLEOF
-
-  # Adicionar bloco HTTPS a API
-  cat >> /etc/nginx/sites-available/whats-grupos-api <<SSLEOF
-
-server {
-    listen 443 ssl;
-    server_name ${API_DOMAIN};
-    ssl_certificate ${CERT_PATH}/fullchain.pem;
-    ssl_certificate_key ${CERT_PATH}/privkey.pem;
-    include /etc/letsencrypt/options-ssl-nginx.conf;
-    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
-
-    client_max_body_size 50M;
-    location / {
-        proxy_pass http://localhost:8000;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
-    }
-}
-SSLEOF
-
-  nginx -t && systemctl restart nginx
   log_success "SSL configurado automaticamente."
-
-  # Configurar renovacao automatica do SSL
-  mkdir -p /etc/letsencrypt/renewal-hooks/pre /etc/letsencrypt/renewal-hooks/post
-
-  cat > /etc/letsencrypt/renewal-hooks/pre/stop-kong.sh <<HOOKEOF
-#!/bin/bash
-cd ${SUPABASE_DIR}/docker && docker compose stop kong
-HOOKEOF
-
-  cat > /etc/letsencrypt/renewal-hooks/post/start-kong.sh <<HOOKEOF
-#!/bin/bash
-cd ${SUPABASE_DIR}/docker && docker compose start kong
-HOOKEOF
-
-  chmod +x /etc/letsencrypt/renewal-hooks/pre/stop-kong.sh
-  chmod +x /etc/letsencrypt/renewal-hooks/post/start-kong.sh
-  log_success "Renovacao automatica do SSL configurada."
 else
-  log_warn "SSL automatico falhou."
-  log_info "Configure manualmente depois:"
-  log_info "  1. cd ${SUPABASE_DIR}/docker && docker compose stop kong"
-  log_info "  2. certbot certonly --standalone -d ${DOMAIN} -d ${API_DOMAIN} --agree-tos -m ${SSL_EMAIL}"
-  log_info "  3. cd ${SUPABASE_DIR}/docker && docker compose start kong"
+  log_warn "SSL automatico falhou. Configure manualmente:"
+  log_info "  certbot --nginx -d ${DOMAIN} -d ${API_DOMAIN} --agree-tos -m ${SSL_EMAIL}"
 fi
 
 # ============================================================
@@ -485,9 +421,6 @@ echo ""
 echo -e "  Frontend:        ${CYAN}https://${DOMAIN}${NC}"
 echo -e "  API Supabase:    ${CYAN}https://${API_DOMAIN}${NC}"
 echo -e "  Supabase Studio: ${CYAN}https://${API_DOMAIN}/project/default${NC}"
-if [ "$HTTP_PORT" -ne 80 ]; then
-  echo -e "  ${YELLOW}NOTA: Nginx rodando na porta ${HTTP_PORT} (porta 80 estava em uso)${NC}"
-fi
 echo ""
 echo -e "  Studio Login:"
 echo -e "    Usuario: ${YELLOW}admin${NC}"
