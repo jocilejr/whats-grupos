@@ -242,19 +242,19 @@ export function CampaignMessageList({ campaignId, apiConfigId, instanceName, gro
                 <div className="flex min-h-[200px]">
                   {/* LEFT: Full media preview */}
                   {(hasImage || hasVideo) && (
-                    <div className="w-52 shrink-0 bg-black/5 relative overflow-hidden">
+                    <div className="shrink-0 bg-black/5 flex items-start justify-center p-2">
                       {hasImage && (
-                        <img src={c.mediaUrl} alt="Preview" className="w-full h-full object-cover absolute inset-0" />
+                        <img src={c.mediaUrl} alt="Preview" className="max-w-[220px] max-h-[400px] rounded-lg object-contain" />
                       )}
                       {hasVideo && (
-                        <>
-                          <video src={c.mediaUrl} className="w-full h-full object-cover absolute inset-0" muted />
-                          <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                        <div className="relative">
+                          <video src={c.mediaUrl} className="max-w-[220px] max-h-[400px] rounded-lg object-contain" muted />
+                          <div className="absolute inset-0 flex items-center justify-center bg-black/20 rounded-lg">
                             <div className="h-10 w-10 rounded-full bg-background/80 flex items-center justify-center">
                               <Video className="h-5 w-5 text-primary" />
                             </div>
                           </div>
-                        </>
+                        </div>
                       )}
                     </div>
                   )}
