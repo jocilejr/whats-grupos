@@ -16,10 +16,11 @@ import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
+import { Switch } from "@/components/ui/switch";
 import {
   Loader2, CalendarClock, FileText, Image, Video, File,
   Upload, CalendarIcon, BookTemplate, Mic, Sticker, MapPin,
-  Contact, BarChart3, List, MousePointerClick, Plus, Trash2,
+  Contact, BarChart3, List, Plus, Trash2, AtSign,
 } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
@@ -46,7 +47,6 @@ const MESSAGE_TYPES = [
   { value: "contact", icon: Contact, label: "Contato" },
   { value: "poll", icon: BarChart3, label: "Enquete" },
   { value: "list", icon: List, label: "Lista" },
-  { value: "buttons", icon: MousePointerClick, label: "Botões" },
 ];
 
 const WEEKDAYS = [
@@ -66,6 +66,7 @@ export function ScheduledMessageForm({
 
   // Text
   const [textContent, setTextContent] = useState("");
+  const [mentionAll, setMentionAll] = useState(false);
   // Media (image/video/document/audio/sticker)
   const [mediaUrl, setMediaUrl] = useState("");
   const [caption, setCaption] = useState("");
@@ -112,6 +113,7 @@ export function ScheduledMessageForm({
       if (message) {
         setMessageType(message.message_type || "text");
         setTextContent(c.text || "");
+        setMentionAll(c.mentionsEveryOne || false);
         setMediaUrl(c.mediaUrl || c.audio || c.sticker || "");
         setCaption(c.caption || "");
         setLocName(c.name || ""); setLocAddress(c.address || "");
@@ -133,7 +135,7 @@ export function ScheduledMessageForm({
         setRunTime(c.runTime || "08:00");
         setWeekDays(c.weekDays || [1]); setMonthDay(c.monthDay || 1);
       } else {
-        setMessageType("text"); setTextContent(""); setMediaUrl(""); setCaption("");
+        setMessageType("text"); setTextContent(""); setMentionAll(false); setMediaUrl(""); setCaption("");
         setLocName(""); setLocAddress(""); setLocLat(""); setLocLng("");
         setContactName(""); setContactPhone("");
         setPollName(""); setPollOptions(["", ""]); setPollSelectable(1);
@@ -207,7 +209,7 @@ export function ScheduledMessageForm({
   const buildContent = () => {
     const base: any = {};
     switch (messageType) {
-      case "text": base.text = textContent; break;
+      case "text": base.text = textContent; if (mentionAll) base.mentionsEveryOne = true; break;
       case "image": case "video": case "document":
         base.mediaUrl = mediaUrl; base.caption = caption; base.fileName = mediaUrl.split("/").pop(); break;
       case "audio": base.audio = mediaUrl; break;
@@ -223,9 +225,6 @@ export function ScheduledMessageForm({
         base.listTitle = listTitle; base.listDescription = listDescription;
         base.listButtonText = listButtonText; base.listFooter = listFooter;
         base.listSections = listSections; break;
-      case "buttons":
-        base.btnTitle = btnTitle; base.btnDescription = btnDescription;
-        base.btnFooter = btnFooter; base.btnButtons = btnButtons; break;
     }
     if (scheduleType !== "once") {
       base.runTime = runTime;
@@ -250,10 +249,6 @@ export function ScheduledMessageForm({
         } break;
       case "list":
         if (!listTitle || !listDescription) { toast({ title: "Preencha título e descrição da lista", variant: "destructive" }); return false; } break;
-      case "buttons":
-        if (!btnTitle || btnButtons.filter(b => b.body.trim()).length === 0) {
-          toast({ title: "Preencha título e ao menos 1 botão", variant: "destructive" }); return false;
-        } break;
     }
     if (scheduleType === "once" && !scheduledDate) { toast({ title: "Selecione a data", variant: "destructive" }); return false; }
     if (scheduleType === "weekly" && weekDays.length === 0) { toast({ title: "Selecione ao menos um dia", variant: "destructive" }); return false; }
@@ -350,10 +345,22 @@ export function ScheduledMessageForm({
 
               {/* === CONTENT FIELDS === */}
               {messageType === "text" && (
-                <div className="space-y-2">
-                  <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Mensagem</Label>
-                  <Textarea value={textContent} onChange={(e) => setTextContent(e.target.value)} rows={4} placeholder="Digite sua mensagem..." className="bg-background/50 border-border/50 resize-none" />
-                  <p className="text-[11px] text-muted-foreground">{textContent.length} caracteres</p>
+                <div className="space-y-3">
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Mensagem</Label>
+                    <Textarea value={textContent} onChange={(e) => setTextContent(e.target.value)} rows={4} placeholder="Digite sua mensagem..." className="bg-background/50 border-border/50 resize-none" />
+                    <p className="text-[11px] text-muted-foreground">{textContent.length} caracteres</p>
+                  </div>
+                  <div className="flex items-center justify-between rounded-lg border border-border/40 bg-background/30 px-3 py-2.5">
+                    <div className="flex items-center gap-2">
+                      <AtSign className="h-4 w-4 text-primary" />
+                      <div>
+                        <p className="text-sm font-medium">Mencionar todos</p>
+                        <p className="text-[11px] text-muted-foreground">Marca todos os participantes do grupo</p>
+                      </div>
+                    </div>
+                    <Switch checked={mentionAll} onCheckedChange={setMentionAll} />
+                  </div>
                 </div>
               )}
 
@@ -520,41 +527,6 @@ export function ScheduledMessageForm({
                     <Button variant="outline" size="sm" className="text-xs gap-1 w-full border-dashed" onClick={() => setListSections([...listSections, { title: "", rows: [{ title: "", description: "" }] }])}>
                       <Plus className="h-3 w-3" />Adicionar seção
                     </Button>
-                  </div>
-                </div>
-              )}
-
-              {messageType === "buttons" && (
-                <div className="space-y-3">
-                  <div className="space-y-1.5">
-                    <Label className="text-xs text-muted-foreground">Título *</Label>
-                    <Input value={btnTitle} onChange={(e) => setBtnTitle(e.target.value)} placeholder="Título da mensagem" className="bg-background/50 border-border/50" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs text-muted-foreground">Descrição</Label>
-                    <Textarea value={btnDescription} onChange={(e) => setBtnDescription(e.target.value)} rows={2} placeholder="Descrição" className="bg-background/50 border-border/50 resize-none" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs text-muted-foreground">Rodapé</Label>
-                    <Input value={btnFooter} onChange={(e) => setBtnFooter(e.target.value)} placeholder="Texto do rodapé" className="bg-background/50 border-border/50" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs text-muted-foreground">Botões (máx. 3)</Label>
-                    {btnButtons.map((btn, i) => (
-                      <div key={i} className="flex gap-2">
-                        <Input value={btn.body} onChange={(e) => { const b = [...btnButtons]; b[i].body = e.target.value; setBtnButtons(b); }} placeholder={`Botão ${i + 1}`} className="bg-background/50 border-border/50" />
-                        {btnButtons.length > 1 && (
-                          <Button variant="ghost" size="icon" className="h-9 w-9 text-destructive shrink-0" onClick={() => setBtnButtons(btnButtons.filter((_, j) => j !== i))}>
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        )}
-                      </div>
-                    ))}
-                    {btnButtons.length < 3 && (
-                      <Button variant="outline" size="sm" className="text-xs gap-1 w-full border-dashed" onClick={() => setBtnButtons([...btnButtons, { type: "reply", body: "" }])}>
-                        <Plus className="h-3 w-3" />Adicionar botão
-                      </Button>
-                    )}
                   </div>
                 </div>
               )}
