@@ -385,27 +385,27 @@ log_success "Nginx configurado."
 
 log_step "9/9 - Configurando SSL com Certbot"
 
-# Tentar com plugin nginx (modo preferido - configura tudo)
-certbot --nginx -d "$DOMAIN" -d "$API_DOMAIN" \
+# Parar kong temporariamente para liberar porta 80
+cd "${SUPABASE_DIR}/docker"
+log_info "Parando gateway temporariamente para validacao SSL..."
+docker compose stop kong 2>/dev/null || true
+sleep 2
+
+# Emitir certificado (standalone, 100% automatico)
+certbot certonly --standalone \
+  -d "$DOMAIN" -d "$API_DOMAIN" \
   --non-interactive --agree-tos -m "$SSL_EMAIL" 2>&1
+CERT_RESULT=$?
 
-if [ $? -ne 0 ]; then
-  log_warn "Certbot --nginx falhou. Usando validacao DNS manual..."
-  echo ""
-  echo -e "${YELLOW}O Certbot vai pedir que voce adicione registros TXT no DNS.${NC}"
-  echo -e "${YELLOW}Adicione os registros no painel do seu provedor de dominio e pressione Enter.${NC}"
-  echo ""
+# Reiniciar kong imediatamente
+log_info "Reiniciando gateway..."
+docker compose start kong 2>/dev/null || true
 
-  certbot certonly --manual --preferred-challenges dns \
-    -d "$DOMAIN" -d "$API_DOMAIN" \
-    --agree-tos -m "$SSL_EMAIL"
+if [ $CERT_RESULT -eq 0 ]; then
+  CERT_PATH="/etc/letsencrypt/live/${DOMAIN}"
 
-  if [ $? -eq 0 ]; then
-    # Adicionar SSL aos configs do Nginx
-    CERT_PATH="/etc/letsencrypt/live/${DOMAIN}"
-
-    # Adicionar bloco HTTPS ao frontend
-    cat >> /etc/nginx/sites-available/whats-grupos <<SSLEOF
+  # Adicionar bloco HTTPS ao frontend
+  cat >> /etc/nginx/sites-available/whats-grupos <<SSLEOF
 
 server {
     listen 443 ssl;
@@ -421,8 +421,8 @@ server {
 }
 SSLEOF
 
-    # Adicionar bloco HTTPS a API
-    cat >> /etc/nginx/sites-available/whats-grupos-api <<SSLEOF
+  # Adicionar bloco HTTPS a API
+  cat >> /etc/nginx/sites-available/whats-grupos-api <<SSLEOF
 
 server {
     listen 443 ssl;
@@ -446,14 +446,31 @@ server {
 }
 SSLEOF
 
-    nginx -t && systemctl restart nginx
-    log_success "SSL configurado (validacao DNS + config manual)."
-  else
-    log_warn "SSL nao configurado."
-    log_info "Configure manualmente depois: certbot certonly --manual --preferred-challenges dns -d ${DOMAIN} -d ${API_DOMAIN}"
-  fi
+  nginx -t && systemctl restart nginx
+  log_success "SSL configurado automaticamente."
+
+  # Configurar renovacao automatica do SSL
+  mkdir -p /etc/letsencrypt/renewal-hooks/pre /etc/letsencrypt/renewal-hooks/post
+
+  cat > /etc/letsencrypt/renewal-hooks/pre/stop-kong.sh <<HOOKEOF
+#!/bin/bash
+cd ${SUPABASE_DIR}/docker && docker compose stop kong
+HOOKEOF
+
+  cat > /etc/letsencrypt/renewal-hooks/post/start-kong.sh <<HOOKEOF
+#!/bin/bash
+cd ${SUPABASE_DIR}/docker && docker compose start kong
+HOOKEOF
+
+  chmod +x /etc/letsencrypt/renewal-hooks/pre/stop-kong.sh
+  chmod +x /etc/letsencrypt/renewal-hooks/post/start-kong.sh
+  log_success "Renovacao automatica do SSL configurada."
 else
-  log_success "SSL configurado."
+  log_warn "SSL automatico falhou."
+  log_info "Configure manualmente depois:"
+  log_info "  1. cd ${SUPABASE_DIR}/docker && docker compose stop kong"
+  log_info "  2. certbot certonly --standalone -d ${DOMAIN} -d ${API_DOMAIN} --agree-tos -m ${SSL_EMAIL}"
+  log_info "  3. cd ${SUPABASE_DIR}/docker && docker compose start kong"
 fi
 
 # ============================================================
