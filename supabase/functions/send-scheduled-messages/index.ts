@@ -73,6 +73,7 @@ Deno.serve(async (req) => {
           if (msg.message_type === "text") {
             endpoint = `${apiUrl}/message/sendText/${instanceName}`;
             body = { number: groupId, text: content.text };
+            if (content.mentionsEveryOne) body.mentionsEveryOne = true;
           } else if (msg.message_type === "image" || msg.message_type === "video" || msg.message_type === "document") {
             endpoint = `${apiUrl}/message/sendMedia/${instanceName}`;
             body = { number: groupId, mediatype: msg.message_type, media: content.mediaUrl, caption: content.caption || "", fileName: content.fileName || "" };
@@ -95,9 +96,6 @@ Deno.serve(async (req) => {
             endpoint = `${apiUrl}/message/sendList/${instanceName}`;
             const sections = (content.listSections || []).map((s: any) => ({ title: s.title, rows: s.rows.map((r: any, i: number) => ({ title: r.title, description: r.description || "", rowId: `row_${i}` })) }));
             body = { number: groupId, title: content.listTitle, description: content.listDescription, buttonText: content.listButtonText || "Ver opções", footerText: content.listFooter || "", sections };
-          } else if (msg.message_type === "buttons") {
-            endpoint = `${apiUrl}/message/sendButtons/${instanceName}`;
-            body = { number: groupId, title: content.btnTitle, description: content.btnDescription || "", footer: content.btnFooter || "", buttons: (content.btnButtons || []).map((b: any) => ({ type: b.type || "reply", body: b.body })) };
           } else {
             endpoint = `${apiUrl}/message/sendText/${instanceName}`;
             body = { number: groupId, text: content.text || "" };
