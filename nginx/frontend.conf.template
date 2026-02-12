@@ -1,0 +1,23 @@
+server {
+    listen 80;
+    server_name {{DOMAIN}};
+
+    root {{PROJECT_DIR}}/dist;
+    index index.html;
+
+    # Rotas do React SPA
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Cache de assets estaticos
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # Gzip
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml text/javascript image/svg+xml;
+    gzip_min_length 256;
+}
