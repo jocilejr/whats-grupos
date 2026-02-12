@@ -1,74 +1,110 @@
 
+# Plano: Reestruturar Navegacao, Adicionar Status e Sistema de Campanhas
 
-# 📱 WhatsApp Group Automation — Plano Completo
+## Resumo
 
-## Visão Geral
-Sistema web para envio automático de mensagens para grupos do WhatsApp via Evolution API, com agendamento recorrente, suporte a todos os tipos de mensagem e autenticação de usuários.
-
----
-
-## 🔐 1. Autenticação e Controle de Acesso
-- Tela de **login/cadastro** com email e senha
-- Área protegida — apenas usuários autenticados acessam o painel
-- Perfil básico do usuário (nome, email)
-
-## ⚙️ 2. Configuração da Evolution API
-- Tela de **configurações** onde o usuário insere a URL da Evolution API e a API Key
-- Dados armazenados de forma segura no backend (Supabase secrets/banco)
-- Teste de conexão — botão para verificar se a API está acessível
-- Suporte a múltiplas **instâncias** da Evolution API
-
-## 📋 3. Gerenciamento de Grupos
-- **Listar grupos** conectados à instância do WhatsApp
-- Busca e filtro de grupos por nome
-- Selecionar grupos favoritos para acesso rápido
-- Visualizar detalhes do grupo (nome, participantes, foto)
-
-## ✉️ 4. Criação e Envio de Mensagens
-- Editor de mensagens com suporte a:
-  - **Texto** (com formatação do WhatsApp: negrito, itálico, etc.)
-  - **Imagens e mídia** (upload de fotos, vídeos, documentos)
-  - **Mensagens com botões e listas** (interativas)
-  - **Áudio e localização**
-- **Envio imediato** para um ou múltiplos grupos simultaneamente
-- Pré-visualização da mensagem antes do envio
-
-## 📅 5. Agendamento e Automação
-- **Agendar envio** para data e horário específico
-- **Mensagens recorrentes** — configurar frequência:
-  - Diário, semanal, mensal, ou personalizado (cron)
-- Painel de **agendamentos ativos** com opção de pausar, editar ou cancelar
-- Fila de envio com controle de intervalo entre mensagens (evitar bloqueio)
-
-## 📝 6. Templates de Mensagens
-- Criar e salvar **modelos de mensagens** reutilizáveis
-- Organizar templates por **categorias/tags**
-- Variáveis dinâmicas nos templates (ex: {{data}}, {{nome_grupo}})
-
-## 📊 7. Histórico e Relatórios
-- **Log completo** de todas as mensagens enviadas
-- Status de cada envio (enviado, falha, pendente)
-- Filtros por grupo, data, tipo de mensagem
-- Estatísticas resumidas no **dashboard** (total enviados, falhas, agendados)
-
-## 🏠 8. Dashboard Principal
-- Visão geral com **cards** de resumo:
-  - Mensagens enviadas hoje/semana/mês
-  - Próximos agendamentos
-  - Grupos conectados
-  - Status da conexão com a API
-- Atalhos rápidos para enviar mensagem e criar agendamento
+Remover a aba "Grupos", criar uma pagina de "Status" para monitorar instancias conectadas, e transformar "Agendamentos" em um sistema completo de **Campanhas** -- onde cada campanha agrupa grupos-alvo, mensagens agendadas e um controle de ativacao.
 
 ---
 
-## 🛠️ Infraestrutura
-- **Backend**: Lovable Cloud (Supabase) para banco de dados, autenticação e Edge Functions
-- **Edge Functions** para se comunicar com a Evolution API de forma segura (sem expor chaves no frontend)
-- **Cron jobs** (pg_cron) para disparar mensagens agendadas/recorrentes
-- Banco de dados para armazenar: mensagens, agendamentos, templates, histórico de envios
+## 1. Remover a aba "Grupos"
 
-## 🎨 Design
-- Interface limpa e moderna com sidebar de navegação
-- Totalmente responsivo para uso em desktop e mobile
-- Tema claro com possibilidade de tema escuro
+- Remover a entrada "Grupos" do menu lateral (`AppSidebar.tsx`)
+- Remover a rota `/groups` do `App.tsx`
+- Remover o arquivo `src/pages/Groups.tsx`
+- Remover o import de `Groups` no `App.tsx`
 
+---
+
+## 2. Nova pagina: Status das Instancias
+
+Criar a pagina `/status` que mostra todas as instancias configuradas com seu estado de conexao em tempo real.
+
+**Funcionalidades:**
+- Lista todas as instancias do usuario (tabela `api_configs`)
+- Para cada instancia, faz uma chamada a edge function (`action=connectionState`) para verificar o status
+- Exibe badges visuais: "Conectado" (verde), "Desconectado" (vermelho), "Verificando..." (loading)
+- Botao "Reconectar" que chama `action=connectInstance`
+- Botao "Atualizar Tudo" para verificar todas de uma vez
+
+**Menu lateral atualizado:**
+- Dashboard
+- Status (nova, com icone de atividade/sinal)
+- Enviar Mensagem
+- Campanhas (substitui Agendamentos)
+- Templates
+- Historico
+- Configuracoes
+
+---
+
+## 3. Sistema de Campanhas (substitui Agendamentos)
+
+### Conceito
+
+Uma **Campanha** e um container que agrupa:
+- **Grupos-alvo**: quais grupos de WhatsApp receberao as mensagens
+- **Mensagens agendadas**: uma ou mais mensagens com horarios programados
+- **Status ativo/inativo**: so dispara mensagens quando a campanha estiver ativa
+
+Isso permite criar, por exemplo, uma campanha "Promocao Black Friday" com 5 grupos e 3 mensagens em horarios diferentes, e ligar/desligar tudo com um unico switch.
+
+### Mudancas no banco de dados
+
+**Nova tabela: `campaigns`**
+| Coluna | Tipo | Descricao |
+|---|---|---|
+| id | uuid (PK) | Identificador |
+| user_id | uuid | Dono da campanha |
+| api_config_id | uuid | Instancia da API |
+| name | text | Nome da campanha |
+| description | text | Descricao opcional |
+| group_ids | text[] | IDs dos grupos selecionados |
+| is_active | boolean | Liga/desliga a campanha |
+| created_at | timestamptz | Criacao |
+| updated_at | timestamptz | Atualizacao |
+
+**Alteracao na tabela `scheduled_messages`:**
+- Adicionar coluna `campaign_id` (uuid, nullable, FK para campaigns)
+- Remover `group_ids` desta tabela (os grupos ficam na campanha)
+
+**RLS:** Politica padrao `auth.uid() = user_id` para a tabela campaigns.
+
+### Interface da pagina de Campanhas (`/campaigns`)
+
+**Tela principal:**
+- Lista de campanhas em cards com: nome, descricao, quantidade de grupos, quantidade de mensagens agendadas, status (switch ativo/inativo)
+- Botao "Nova Campanha"
+
+**Criar/Editar Campanha (dialog ou pagina dedicada):**
+1. **Dados basicos**: nome e descricao
+2. **Selecionar instancia**: dropdown das instancias configuradas
+3. **Selecionar grupos**: busca grupos via edge function e permite selecionar multiplos com checkboxes
+4. **Mensagens da campanha**: listar mensagens agendadas desta campanha, com botao para adicionar nova mensagem
+5. **Cada mensagem**: tipo (texto/imagem/documento), conteudo, data/hora ou recorrencia (once, daily, weekly, monthly, cron)
+6. **Switch geral**: ativar/desativar campanha
+
+---
+
+## 4. Detalhes Tecnicos
+
+### Arquivos a criar:
+- `src/pages/StatusPage.tsx` -- monitoramento de instancias
+- `src/pages/Campaigns.tsx` -- listagem de campanhas
+- `src/components/campaigns/CampaignDialog.tsx` -- dialog de criacao/edicao
+- `src/components/campaigns/GroupSelector.tsx` -- componente de selecao de grupos
+- `src/components/campaigns/CampaignMessageList.tsx` -- mensagens dentro da campanha
+
+### Arquivos a modificar:
+- `src/components/AppSidebar.tsx` -- atualizar menu
+- `src/App.tsx` -- atualizar rotas
+- `supabase/functions/evolution-api/index.ts` -- sem mudancas necessarias (ja suporta fetchGroups e connectionState)
+
+### Arquivos a remover:
+- `src/pages/Groups.tsx`
+- `src/pages/Schedules.tsx`
+
+### Migracao SQL:
+- Criar tabela `campaigns` com RLS
+- Adicionar `campaign_id` a `scheduled_messages`
+- Trigger de `updated_at` na tabela `campaigns`
