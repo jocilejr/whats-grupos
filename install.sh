@@ -61,6 +61,15 @@ if [ -z "$DOMAIN" ]; then
   exit 1
 fi
 
+# Limpar protocolo, www e barra final do dominio
+DOMAIN=$(echo "$DOMAIN" | sed -e 's|^https\?://||' -e 's|/$||' -e 's|^www\.||' | xargs)
+
+# Validar formato basico do dominio
+if [[ ! "$DOMAIN" =~ \. ]]; then
+  log_error "Dominio invalido: '${DOMAIN}'. Use o formato: meusistema.com"
+  exit 1
+fi
+
 read -p "Digite seu email (para certificado SSL): " SSL_EMAIL
 if [ -z "$SSL_EMAIL" ]; then
   log_error "Email e obrigatorio para o SSL."
