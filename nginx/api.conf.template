@@ -1,5 +1,5 @@
 server {
-    listen 80;
+    listen {{HTTP_PORT}};
     server_name {{API_DOMAIN}};
 
     # Tamanho maximo de upload (para media/storage)

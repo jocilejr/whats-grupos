@@ -344,16 +344,33 @@ log_success "Frontend buildado em dist/."
 
 log_step "8/9 - Configurando Nginx"
 
+# Verificar se porta 80 esta disponivel
+HTTP_PORT=80
+if ss -tlnp | grep -q ':80 '; then
+  log_warn "Porta 80 em uso. Procurando porta alternativa..."
+  for PORT in 81 8080 8081 8082; do
+    if ! ss -tlnp | grep -q ":${PORT} "; then
+      HTTP_PORT=$PORT
+      break
+    fi
+  done
+  if [ "$HTTP_PORT" -eq 80 ]; then
+    log_error "Nenhuma porta HTTP alternativa disponivel (80, 81, 8080, 8081, 8082)."
+    exit 1
+  fi
+  log_info "Nginx usara porta alternativa: ${HTTP_PORT}"
+fi
+
 # Remover config default
 rm -f /etc/nginx/sites-enabled/default
 
 # Frontend
-sed "s|{{DOMAIN}}|${DOMAIN}|g; s|{{PROJECT_DIR}}|${PROJECT_DIR}|g" \
+sed "s|{{DOMAIN}}|${DOMAIN}|g; s|{{PROJECT_DIR}}|${PROJECT_DIR}|g; s|{{HTTP_PORT}}|${HTTP_PORT}|g" \
   "${PROJECT_DIR}/nginx/frontend.conf.template" \
   > /etc/nginx/sites-available/whats-grupos
 
 # API proxy
-sed "s|{{API_DOMAIN}}|${API_DOMAIN}|g" \
+sed "s|{{API_DOMAIN}}|${API_DOMAIN}|g; s|{{HTTP_PORT}}|${HTTP_PORT}|g" \
   "${PROJECT_DIR}/nginx/api.conf.template" \
   > /etc/nginx/sites-available/whats-grupos-api
 
@@ -372,7 +389,13 @@ log_success "Nginx configurado."
 
 log_step "9/9 - Configurando SSL com Certbot"
 
-certbot --nginx -d "$DOMAIN" -d "$API_DOMAIN" --non-interactive --agree-tos -m "$SSL_EMAIL"
+if [ "$HTTP_PORT" -eq 80 ]; then
+  certbot --nginx -d "$DOMAIN" -d "$API_DOMAIN" --non-interactive --agree-tos -m "$SSL_EMAIL"
+else
+  log_warn "Nginx em porta ${HTTP_PORT}. Certbot usara --http-01-port ${HTTP_PORT}."
+  certbot --nginx -d "$DOMAIN" -d "$API_DOMAIN" --non-interactive --agree-tos -m "$SSL_EMAIL" \
+    --http-01-port "$HTTP_PORT"
+fi
 check_error "Falha ao configurar SSL."
 
 log_success "SSL configurado."
@@ -389,6 +412,9 @@ echo ""
 echo -e "  Frontend:        ${CYAN}https://${DOMAIN}${NC}"
 echo -e "  API Supabase:    ${CYAN}https://${API_DOMAIN}${NC}"
 echo -e "  Supabase Studio: ${CYAN}https://${API_DOMAIN}/project/default${NC}"
+if [ "$HTTP_PORT" -ne 80 ]; then
+  echo -e "  ${YELLOW}NOTA: Nginx rodando na porta ${HTTP_PORT} (porta 80 estava em uso)${NC}"
+fi
 echo ""
 echo -e "  Studio Login:"
 echo -e "    Usuario: ${YELLOW}admin${NC}"
