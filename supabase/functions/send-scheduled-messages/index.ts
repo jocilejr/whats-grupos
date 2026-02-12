@@ -212,6 +212,7 @@ async function processMessage(
         next_run_at: null,
         sent_group_index: 0,
         processing_started_at: null,
+        last_completed_at: now.toISOString(),
       }).eq("id", msg.id);
     } else {
       const nextRunAt = calculateNextRunAt(msg, now);
@@ -220,6 +221,7 @@ async function processMessage(
         next_run_at: nextRunAt,
         sent_group_index: 0,
         processing_started_at: null,
+        last_completed_at: now.toISOString(),
       }).eq("id", msg.id);
     }
     console.log(`Message ${msg.id}: ALL ${allGroupIds.length} groups completed.`);
