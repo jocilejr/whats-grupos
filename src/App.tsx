@@ -8,10 +8,10 @@ import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { AppLayout } from "@/components/AppLayout";
 import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
-import Groups from "./pages/Groups";
+import StatusPage from "./pages/StatusPage";
 import Messages from "./pages/Messages";
 import Templates from "./pages/Templates";
-import Schedules from "./pages/Schedules";
+import Campaigns from "./pages/Campaigns";
 import HistoryPage from "./pages/HistoryPage";
 import SettingsPage from "./pages/SettingsPage";
 import NotFound from "./pages/NotFound";
@@ -35,10 +35,10 @@ const App = () => (
               }
             >
               <Route path="/" element={<Dashboard />} />
-              <Route path="/groups" element={<Groups />} />
+              <Route path="/status" element={<StatusPage />} />
               <Route path="/messages" element={<Messages />} />
+              <Route path="/campaigns" element={<Campaigns />} />
               <Route path="/templates" element={<Templates />} />
-              <Route path="/schedules" element={<Schedules />} />
               <Route path="/history" element={<HistoryPage />} />
               <Route path="/settings" element={<SettingsPage />} />
             </Route>
