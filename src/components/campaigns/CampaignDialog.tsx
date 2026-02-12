@@ -58,7 +58,7 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
       } else {
         setName("");
         setDescription("");
-        setConfigId(configs?.[0]?.id || "");
+        setConfigId("");
         setGroupIds([]);
         setIsActive(true);
       }
