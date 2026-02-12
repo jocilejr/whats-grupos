@@ -390,11 +390,15 @@ certbot --nginx -d "$DOMAIN" -d "$API_DOMAIN" \
   --non-interactive --agree-tos -m "$SSL_EMAIL" 2>&1
 
 if [ $? -ne 0 ]; then
-  log_warn "Certbot --nginx falhou. Tentando modo standalone..."
-  systemctl stop nginx 2>/dev/null || true
+  log_warn "Certbot --nginx falhou. Usando validacao DNS manual..."
+  echo ""
+  echo -e "${YELLOW}O Certbot vai pedir que voce adicione registros TXT no DNS.${NC}"
+  echo -e "${YELLOW}Adicione os registros no painel do seu provedor de dominio e pressione Enter.${NC}"
+  echo ""
 
-  certbot certonly --standalone -d "$DOMAIN" -d "$API_DOMAIN" \
-    --non-interactive --agree-tos -m "$SSL_EMAIL"
+  certbot certonly --manual --preferred-challenges dns \
+    -d "$DOMAIN" -d "$API_DOMAIN" \
+    --agree-tos -m "$SSL_EMAIL"
 
   if [ $? -eq 0 ]; then
     # Adicionar SSL aos configs do Nginx
@@ -442,12 +446,11 @@ server {
 }
 SSLEOF
 
-    systemctl start nginx
-    log_success "SSL configurado (modo standalone + config manual)."
+    nginx -t && systemctl restart nginx
+    log_success "SSL configurado (validacao DNS + config manual)."
   else
-    systemctl start nginx
-    log_warn "SSL nao configurado automaticamente."
-    log_info "Configure manualmente: certbot --nginx -d ${DOMAIN} -d ${API_DOMAIN}"
+    log_warn "SSL nao configurado."
+    log_info "Configure manualmente depois: certbot certonly --manual --preferred-challenges dns -d ${DOMAIN} -d ${API_DOMAIN}"
   fi
 else
   log_success "SSL configurado."
