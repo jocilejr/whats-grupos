@@ -9,19 +9,20 @@ import { Search, Loader2, Users, WifiOff, CheckCircle2 } from "lucide-react";
 
 interface GroupSelectorProps {
   configId: string;
+  instanceName?: string;
   selectedIds: string[];
   onSelectionChange: (ids: string[]) => void;
 }
 
-export function GroupSelector({ configId, selectedIds, onSelectionChange }: GroupSelectorProps) {
+export function GroupSelector({ configId, instanceName, selectedIds, onSelectionChange }: GroupSelectorProps) {
   const [search, setSearch] = useState("");
 
   const { data: groups, isLoading, error } = useQuery({
-    queryKey: ["groups", configId],
+    queryKey: ["groups", configId, instanceName],
     queryFn: async () => {
-      if (!configId) return [];
+      if (!configId || !instanceName) return [];
       const { data: { session } } = await supabase.auth.getSession();
-      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/evolution-api?action=fetchGroups&configId=${configId}`;
+      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/evolution-api?action=fetchGroups&configId=${configId}&instanceName=${encodeURIComponent(instanceName)}`;
       const resp = await fetch(url, {
         headers: {
           Authorization: `Bearer ${session?.access_token}`,
@@ -31,7 +32,7 @@ export function GroupSelector({ configId, selectedIds, onSelectionChange }: Grou
       if (!resp.ok) throw new Error("Erro ao buscar grupos");
       return await resp.json();
     },
-    enabled: !!configId,
+    enabled: !!configId && !!instanceName,
   });
 
   const filteredGroups = Array.isArray(groups)
@@ -51,11 +52,11 @@ export function GroupSelector({ configId, selectedIds, onSelectionChange }: Grou
   const selectAll = () => onSelectionChange(filteredGroups.map((g: any) => g.id || g.jid));
   const deselectAll = () => onSelectionChange([]);
 
-  if (!configId) {
+  if (!configId || !instanceName) {
     return (
       <div className="rounded-xl border border-dashed border-border/50 p-6 text-center">
         <Users className="h-6 w-6 text-muted-foreground mx-auto mb-2" />
-        <p className="text-sm text-muted-foreground">Selecione uma instância primeiro.</p>
+        <p className="text-sm text-muted-foreground">Selecione a conexão e a instância primeiro.</p>
       </div>
     );
   }

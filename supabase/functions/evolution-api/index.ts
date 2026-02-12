@@ -69,7 +69,7 @@ Deno.serve(async (req) => {
 
     const apiUrl = config.api_url.replace(/\/$/, "");
     const apiKey = config.api_key;
-    const instanceName = config.instance_name;
+    const instanceName = url.searchParams.get("instanceName") || config.instance_name;
     const headers = { apikey: apiKey };
 
     let result: any;
