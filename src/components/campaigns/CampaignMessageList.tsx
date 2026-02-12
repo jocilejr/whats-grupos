@@ -252,34 +252,33 @@ export function CampaignMessageList({ campaignId, apiConfigId, instanceName, gro
 
                   {/* ---- CONTENT TAB ---- */}
                   <TabsContent value="content" className="space-y-4 mt-0">
-                    {/* Media */}
+                    {/* Media + Caption side by side */}
                     {(hasImage || hasVideo) && (
-                      <div className="flex justify-center bg-black/5 rounded-lg p-3">
-                        {hasImage && (
-                          <img src={c.mediaUrl} alt="Preview" className="max-w-full max-h-[400px] rounded-lg object-contain" />
-                        )}
-                        {hasVideo && (
-                          <div className="relative">
-                            <video src={c.mediaUrl} className="max-w-full max-h-[400px] rounded-lg object-contain" muted />
-                            <div className="absolute inset-0 flex items-center justify-center bg-black/20 rounded-lg">
-                              <div className="h-10 w-10 rounded-full bg-background/80 flex items-center justify-center">
-                                <Video className="h-5 w-5 text-primary" />
+                      <div className="flex gap-4 items-start">
+                        <div className="shrink-0 w-40 bg-black/5 rounded-lg p-2 flex items-center justify-center">
+                          {hasImage && (
+                            <img src={c.mediaUrl} alt="Preview" className="max-w-full max-h-40 rounded-lg object-contain" />
+                          )}
+                          {hasVideo && (
+                            <div className="relative w-full">
+                              <video src={c.mediaUrl} className="max-w-full max-h-40 rounded-lg object-contain" muted />
+                              <div className="absolute inset-0 flex items-center justify-center bg-black/20 rounded-lg">
+                                <div className="h-8 w-8 rounded-full bg-background/80 flex items-center justify-center">
+                                  <Video className="h-4 w-4 text-primary" />
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        )}
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Legenda</p>
+                          {c.caption ? (
+                            <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">{c.caption}</p>
+                          ) : (
+                            <p className="text-xs text-muted-foreground italic">Sem legenda</p>
+                          )}
+                        </div>
                       </div>
-                    )}
-
-                    {/* Caption */}
-                    {(hasImage || hasVideo) && c.caption && (
-                      <div className="rounded-lg bg-muted/30 border border-border/20 p-3">
-                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Legenda</p>
-                        <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">{c.caption}</p>
-                      </div>
-                    )}
-                    {(hasImage || hasVideo) && !c.caption && (
-                      <p className="text-xs text-muted-foreground italic">Sem legenda</p>
                     )}
 
                     {/* Text */}
