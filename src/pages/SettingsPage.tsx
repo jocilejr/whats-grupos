@@ -8,7 +8,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Trash2, Wifi, WifiOff, Loader2, CheckCircle2, XCircle } from "lucide-react";
+import { Plus, Trash2, Wifi, WifiOff, Loader2, CheckCircle2, XCircle, Pencil } from "lucide-react";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from "@/components/ui/dialog";
 
 export default function SettingsPage() {
   const { user } = useAuth();
@@ -68,6 +71,38 @@ export default function SettingsPage() {
 
   const [testingId, setTestingId] = useState<string | null>(null);
   const [connectionStates, setConnectionStates] = useState<Record<string, any>>({});
+
+  // Edit state
+  const [editConfig, setEditConfig] = useState<any>(null);
+  const [editName, setEditName] = useState("");
+  const [editUrl, setEditUrl] = useState("");
+  const [editKey, setEditKey] = useState("");
+
+  const openEdit = (config: any) => {
+    setEditConfig(config);
+    setEditName(config.instance_name);
+    setEditUrl(config.api_url);
+    setEditKey(config.api_key);
+  };
+
+  const updateConfig = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.from("api_configs").update({
+        instance_name: editName,
+        api_url: editUrl.replace(/\/$/, ""),
+        api_key: editKey,
+      }).eq("id", editConfig.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["api-configs"] });
+      setEditConfig(null);
+      toast({ title: "Instância atualizada!" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Erro", description: error.message, variant: "destructive" });
+    },
+  });
 
   const testConnection = async (configId: string) => {
     setTestingId(configId);
@@ -213,6 +248,13 @@ export default function SettingsPage() {
                       <Button
                         variant="ghost"
                         size="icon"
+                        onClick={() => openEdit(config)}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
                         onClick={() => deleteConfig.mutate(config.id)}
                       >
                         <Trash2 className="h-4 w-4 text-destructive" />
@@ -225,6 +267,34 @@ export default function SettingsPage() {
           )}
         </CardContent>
       </Card>
+      {/* Edit Dialog */}
+      <Dialog open={!!editConfig} onOpenChange={(o) => !o && setEditConfig(null)}>
+        <DialogContent className="sm:rounded-2xl border-border/50 bg-card">
+          <DialogHeader>
+            <DialogTitle>Editar Instância</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={(e) => { e.preventDefault(); updateConfig.mutate(); }} className="space-y-4">
+            <div className="space-y-2">
+              <Label>Nome da Instância</Label>
+              <Input value={editName} onChange={(e) => setEditName(e.target.value)} required />
+            </div>
+            <div className="space-y-2">
+              <Label>URL da API</Label>
+              <Input value={editUrl} onChange={(e) => setEditUrl(e.target.value)} required />
+            </div>
+            <div className="space-y-2">
+              <Label>API Key</Label>
+              <Input type="password" value={editKey} onChange={(e) => setEditKey(e.target.value)} required />
+            </div>
+            <DialogFooter>
+              <Button variant="outline" type="button" onClick={() => setEditConfig(null)}>Cancelar</Button>
+              <Button type="submit" disabled={updateConfig.isPending}>
+                {updateConfig.isPending ? "Salvando..." : "Salvar"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
