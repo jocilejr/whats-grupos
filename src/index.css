@@ -12,7 +12,7 @@
     --card: 220 20% 10%;
     --card-foreground: 210 15% 93%;
 
-    --popover: 220 20% 10%;
+    --popover: 220 20% 12%;
     --popover-foreground: 210 15% 93%;
 
     --primary: 142 60% 50%;
@@ -31,7 +31,7 @@
     --destructive-foreground: 0 0% 100%;
 
     --border: 220 15% 18%;
-    --input: 220 15% 18%;
+    --input: 220 15% 20%;
     --ring: 142 60% 50%;
 
     --radius: 0.75rem;
@@ -44,6 +44,14 @@
     --sidebar-accent-foreground: 210 15% 90%;
     --sidebar-border: 220 15% 12%;
     --sidebar-ring: 142 60% 50%;
+
+    /* Status colors */
+    --success: 142 60% 45%;
+    --success-foreground: 142 60% 80%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 38 92% 80%;
+    --info: 217 91% 60%;
+    --info-foreground: 217 91% 80%;
   }
 }
 

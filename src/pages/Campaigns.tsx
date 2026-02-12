@@ -2,22 +2,19 @@ import { useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { Megaphone, Plus, Users, CalendarClock, Loader2, Pencil, Trash2 } from "lucide-react";
+import {
+  Megaphone, Plus, Users, CalendarClock, Loader2, Pencil, Trash2,
+  Zap, ZapOff, Sparkles,
+} from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { CampaignDialog } from "@/components/campaigns/CampaignDialog";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
 export default function Campaigns() {
@@ -81,72 +78,142 @@ export default function Campaigns() {
   });
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
+      {/* Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Campanhas</h1>
-          <p className="text-muted-foreground">Gerencie campanhas de mensagens para seus grupos</p>
+        <div className="flex items-center gap-3">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 shadow-[0_0_20px_hsl(var(--primary)/0.15)]">
+            <Megaphone className="h-6 w-6 text-primary" />
+          </div>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Campanhas</h1>
+            <p className="text-muted-foreground text-sm">Gerencie campanhas de mensagens para seus grupos</p>
+          </div>
         </div>
-        <Button onClick={() => { setEditingCampaign(null); setDialogOpen(true); }}>
-          <Plus className="h-4 w-4 mr-2" />Nova Campanha
+        <Button
+          onClick={() => { setEditingCampaign(null); setDialogOpen(true); }}
+          className="gap-2 shadow-[0_0_15px_hsl(var(--primary)/0.25)] hover:shadow-[0_0_25px_hsl(var(--primary)/0.4)] transition-shadow"
+        >
+          <Plus className="h-4 w-4" />Nova Campanha
         </Button>
       </div>
 
+      {/* Content */}
       {isLoading ? (
-        <Card><CardContent className="py-10 text-center"><Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" /></CardContent></Card>
+        <Card className="border-border/50">
+          <CardContent className="py-16 text-center">
+            <Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" />
+            <p className="text-muted-foreground mt-3 text-sm">Carregando campanhas...</p>
+          </CardContent>
+        </Card>
       ) : !campaigns?.length ? (
-        <Card><CardContent className="py-10 text-center">
-          <Megaphone className="mx-auto h-10 w-10 text-muted-foreground mb-3" />
-          <p className="text-muted-foreground">Nenhuma campanha criada ainda.</p>
-        </CardContent></Card>
+        <Card className="border-dashed border-border/50">
+          <CardContent className="py-16 text-center">
+            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-muted mx-auto mb-4">
+              <Sparkles className="h-8 w-8 text-muted-foreground" />
+            </div>
+            <p className="text-foreground font-medium mb-1">Nenhuma campanha criada</p>
+            <p className="text-muted-foreground text-sm">Crie sua primeira campanha para começar a enviar mensagens.</p>
+          </CardContent>
+        </Card>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {campaigns.map((c: any) => (
-            <Card key={c.id} className={`transition-opacity ${!c.is_active ? "opacity-60" : ""}`}>
-              <CardHeader className="flex flex-row items-start justify-between pb-2">
-                <div className="space-y-1 flex-1 min-w-0">
-                  <CardTitle className="text-base truncate">{c.name}</CardTitle>
-                  {c.description && <p className="text-xs text-muted-foreground line-clamp-2">{c.description}</p>}
+          {campaigns.map((c: any) => {
+            const active = c.is_active;
+            const groupCount = c.group_ids?.length || 0;
+            const msgCount = scheduledCounts?.[c.id] || 0;
+
+            return (
+              <Card
+                key={c.id}
+                className={`relative overflow-hidden transition-all duration-300 group ${
+                  active
+                    ? "border-primary/20 shadow-[0_0_15px_hsl(var(--primary)/0.06)] hover:shadow-[0_0_25px_hsl(var(--primary)/0.12)]"
+                    : "border-border/40 opacity-70 hover:opacity-90"
+                }`}
+              >
+                {/* Active indicator bar */}
+                <div className={`absolute top-0 left-0 right-0 h-0.5 transition-colors ${active ? "bg-primary" : "bg-muted"}`} />
+
+                <div className="p-5">
+                  {/* Top row: icon + name + switch */}
+                  <div className="flex items-start justify-between gap-3 mb-3">
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-colors ${
+                        active ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"
+                      }`}>
+                        {active ? <Zap className="h-5 w-5" /> : <ZapOff className="h-5 w-5" />}
+                      </div>
+                      <div className="min-w-0">
+                        <h3 className="font-semibold text-foreground truncate">{c.name}</h3>
+                        {c.description && (
+                          <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">{c.description}</p>
+                        )}
+                      </div>
+                    </div>
+                    <Switch
+                      checked={active}
+                      onCheckedChange={(checked) => toggleMutation.mutate({ id: c.id, is_active: checked })}
+                      className="shrink-0"
+                    />
+                  </div>
+
+                  {/* Stats */}
+                  <div className="flex gap-2 mb-4">
+                    <Badge variant="secondary" className="gap-1.5 text-xs font-normal bg-secondary/80">
+                      <Users className="h-3 w-3 text-accent-foreground" />
+                      {groupCount} grupo{groupCount !== 1 ? "s" : ""}
+                    </Badge>
+                    <Badge variant="secondary" className="gap-1.5 text-xs font-normal bg-secondary/80">
+                      <CalendarClock className="h-3 w-3 text-accent-foreground" />
+                      {msgCount} mensage{msgCount !== 1 ? "ns" : "m"}
+                    </Badge>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="flex-1 gap-1.5 text-xs border-border/50 hover:bg-secondary hover:text-foreground"
+                      onClick={() => { setEditingCampaign(c); setDialogOpen(true); }}
+                    >
+                      <Pencil className="h-3 w-3" />Editar
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5 text-xs border-border/50 text-destructive hover:bg-destructive/10 hover:text-destructive hover:border-destructive/30"
+                      onClick={() => setDeletingId(c.id)}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  </div>
                 </div>
-                <Switch
-                  checked={c.is_active}
-                  onCheckedChange={(checked) => toggleMutation.mutate({ id: c.id, is_active: checked })}
-                />
-              </CardHeader>
-              <CardContent>
-                <div className="flex gap-2 mb-3">
-                  <Badge variant="secondary"><Users className="h-3 w-3 mr-1" />{c.group_ids?.length || 0} grupos</Badge>
-                  <Badge variant="secondary"><CalendarClock className="h-3 w-3 mr-1" />{scheduledCounts?.[c.id] || 0} mensagens</Badge>
-                </div>
-                <div className="flex gap-2">
-                  <Button size="sm" variant="outline" onClick={() => { setEditingCampaign(c); setDialogOpen(true); }}>
-                    <Pencil className="h-3 w-3 mr-1" />Editar
-                  </Button>
-                  <Button size="sm" variant="outline" className="text-destructive" onClick={() => setDeletingId(c.id)}>
-                    <Trash2 className="h-3 w-3 mr-1" />Excluir
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+              </Card>
+            );
+          })}
         </div>
       )}
 
-      <CampaignDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        campaign={editingCampaign}
-      />
+      <CampaignDialog open={dialogOpen} onOpenChange={setDialogOpen} campaign={editingCampaign} />
 
       <AlertDialog open={!!deletingId} onOpenChange={() => setDeletingId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Excluir campanha?</AlertDialogTitle>
-            <AlertDialogDescription>Esta ação não pode ser desfeita. As mensagens agendadas desta campanha serão desvinculadas.</AlertDialogDescription>
+            <AlertDialogDescription>
+              Esta ação não pode ser desfeita. As mensagens agendadas desta campanha serão desvinculadas.
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={() => deletingId && deleteMutation.mutate(deletingId)}>Excluir</AlertDialogAction>
+            <AlertDialogAction
+              className="bg-destructive hover:bg-destructive/90"
+              onClick={() => deletingId && deleteMutation.mutate(deletingId)}
+            >
+              Excluir
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
