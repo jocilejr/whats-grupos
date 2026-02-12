@@ -391,7 +391,7 @@ export function ScheduledMessageForm({
                   {(messageType === "image" || messageType === "video" || messageType === "document") && (
                     <div className="space-y-2">
                       <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Legenda (opcional)</Label>
-                      <Input value={caption} onChange={(e) => setCaption(e.target.value)} placeholder="Legenda..." className="bg-background/50 border-border/50" />
+                      <Textarea value={caption} onChange={(e) => setCaption(e.target.value)} placeholder="Legenda..." className="bg-background/50 border-border/50 min-h-[80px] resize-y" />
                     </div>
                   )}
                 </div>
