@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
 import { Plus, Trash2, Wifi, WifiOff, Loader2, CheckCircle2, XCircle, Pencil } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
@@ -34,6 +35,28 @@ export default function SettingsPage() {
       return data;
     },
     enabled: !!user,
+  });
+
+  // Fetch sent message counts per instance in the last hour
+  const { data: usageCounts } = useQuery({
+    queryKey: ["usage-counts", user?.id],
+    queryFn: async () => {
+      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+      const { data, error } = await supabase
+        .from("message_logs")
+        .select("api_config_id")
+        .eq("user_id", user!.id)
+        .eq("status", "sent")
+        .gte("created_at", oneHourAgo);
+      if (error) throw error;
+      const counts: Record<string, number> = {};
+      data?.forEach((row) => {
+        counts[row.api_config_id] = (counts[row.api_config_id] || 0) + 1;
+      });
+      return counts;
+    },
+    enabled: !!user,
+    refetchInterval: 30_000,
   });
 
   const addConfig = useMutation({
@@ -233,7 +256,25 @@ export default function SettingsPage() {
                         )}
                       </div>
                       <p className="text-sm text-muted-foreground truncate">{config.api_url}</p>
-                      <p className="text-xs text-muted-foreground">Limite: {(config as any).max_messages_per_hour ?? 100} msgs/hora</p>
+                      {(() => {
+                        const maxPerHour = config.max_messages_per_hour ?? 100;
+                        const sent = usageCounts?.[config.id] || 0;
+                        const remaining = Math.max(0, maxPerHour - sent);
+                        const pct = (sent / maxPerHour) * 100;
+                        return (
+                          <div className="mt-1 space-y-1">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="text-muted-foreground">
+                                {remaining} de {maxPerHour} restantes/hora
+                              </span>
+                              <span className={sent >= maxPerHour ? "text-destructive font-medium" : "text-muted-foreground"}>
+                                {sent}/{maxPerHour} enviadas
+                              </span>
+                            </div>
+                            <Progress value={pct} className="h-2" />
+                          </div>
+                        );
+                      })()}
                     </div>
                     <div className="flex items-center gap-2">
                       <Button
