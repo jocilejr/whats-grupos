@@ -12,14 +12,7 @@ http:
           - PATCH
           - OPTIONS
         accessControlAllowHeaders:
-          - Authorization
-          - Content-Type
-          - apikey
-          - x-client-info
-          - x-supabase-client-platform
-          - x-supabase-client-platform-version
-          - x-supabase-client-runtime
-          - x-supabase-client-runtime-version
+          - "*"
         accessControlAllowCredentials: true
         accessControlMaxAge: 3600
 
