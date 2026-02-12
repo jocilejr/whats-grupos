@@ -98,7 +98,7 @@ export function GroupSelector({ configId, selectedIds, onSelectionChange }: Grou
         </button>
       </div>
 
-      <ScrollArea className="h-48 rounded-xl border border-border/50 bg-background/30">
+      <ScrollArea className="h-36 rounded-xl border border-border/50 bg-background/30">
         {filteredGroups.length === 0 ? (
           <div className="p-6 text-center">
             <Users className="h-5 w-5 text-muted-foreground mx-auto mb-2" />

@@ -104,7 +104,7 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto sm:rounded-2xl border-border/50 bg-card">
+      <DialogContent className="max-w-lg max-h-[85vh] flex flex-col sm:rounded-2xl border-border/50 bg-card">
         <DialogHeader>
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
@@ -119,7 +119,7 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
           </div>
         </DialogHeader>
 
-        <div className="space-y-5 py-2">
+        <div className="space-y-5 py-2 overflow-y-auto flex-1 min-h-0 pr-1">
           {/* Nome */}
           <div className="space-y-2">
             <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Nome</Label>
