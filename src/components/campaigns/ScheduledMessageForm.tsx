@@ -20,7 +20,7 @@ import { Switch } from "@/components/ui/switch";
 import {
   Loader2, CalendarClock, FileText, Image, Video, File,
   Upload, CalendarIcon, BookTemplate, Mic, Sticker, MapPin,
-  Contact, BarChart3, List, Plus, Trash2, AtSign,
+  Contact, BarChart3, List, Plus, Trash2, AtSign, Link2,
 } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
@@ -67,6 +67,7 @@ export function ScheduledMessageForm({
   // Text
   const [textContent, setTextContent] = useState("");
   const [mentionAll, setMentionAll] = useState(false);
+  const [linkPreview, setLinkPreview] = useState(true);
   // Media (image/video/document/audio/sticker)
   const [mediaUrl, setMediaUrl] = useState("");
   const [caption, setCaption] = useState("");
@@ -114,6 +115,7 @@ export function ScheduledMessageForm({
         setMessageType(message.message_type || "text");
         setTextContent(c.text || "");
         setMentionAll(c.mentionsEveryOne || false);
+        setLinkPreview(c.linkPreview !== false);
         setMediaUrl(c.mediaUrl || c.audio || c.sticker || "");
         setCaption(c.caption || "");
         setLocName(c.name || ""); setLocAddress(c.address || "");
@@ -135,7 +137,7 @@ export function ScheduledMessageForm({
         setRunTime(c.runTime || "08:00");
         setWeekDays(c.weekDays || [1]); setMonthDay(c.monthDay || 1);
       } else {
-        setMessageType("text"); setTextContent(""); setMentionAll(false); setMediaUrl(""); setCaption("");
+        setMessageType("text"); setTextContent(""); setMentionAll(false); setLinkPreview(true); setMediaUrl(""); setCaption("");
         setLocName(""); setLocAddress(""); setLocLat(""); setLocLng("");
         setContactName(""); setContactPhone("");
         setPollName(""); setPollOptions(["", ""]); setPollSelectable(1);
@@ -209,7 +211,7 @@ export function ScheduledMessageForm({
   const buildContent = () => {
     const base: any = {};
     switch (messageType) {
-      case "text": base.text = textContent; if (mentionAll) base.mentionsEveryOne = true; break;
+      case "text": base.text = textContent; base.linkPreview = linkPreview; break;
       case "image": case "video": case "document":
         base.mediaUrl = mediaUrl; base.caption = caption; base.fileName = mediaUrl.split("/").pop(); break;
       case "audio": base.audio = mediaUrl; break;
@@ -226,6 +228,7 @@ export function ScheduledMessageForm({
         base.listButtonText = listButtonText; base.listFooter = listFooter;
         base.listSections = listSections; break;
     }
+    if (mentionAll) base.mentionsEveryOne = true;
     if (scheduleType !== "once") {
       base.runTime = runTime;
       if (scheduleType === "weekly") base.weekDays = weekDays;
@@ -353,13 +356,13 @@ export function ScheduledMessageForm({
                   </div>
                   <div className="flex items-center justify-between rounded-lg border border-border/40 bg-background/30 px-3 py-2.5">
                     <div className="flex items-center gap-2">
-                      <AtSign className="h-4 w-4 text-primary" />
+                      <Link2 className="h-4 w-4 text-primary" />
                       <div>
-                        <p className="text-sm font-medium">Mencionar todos</p>
-                        <p className="text-[11px] text-muted-foreground">Marca todos os participantes do grupo</p>
+                        <p className="text-sm font-medium">Preview de link</p>
+                        <p className="text-[11px] text-muted-foreground">Exibe preview de links na mensagem</p>
                       </div>
                     </div>
-                    <Switch checked={mentionAll} onCheckedChange={setMentionAll} />
+                    <Switch checked={linkPreview} onCheckedChange={setLinkPreview} />
                   </div>
                 </div>
               )}
@@ -530,6 +533,21 @@ export function ScheduledMessageForm({
                   </div>
                 </div>
               )}
+
+              {/* Global options */}
+              <div className="border-t border-border/30 pt-4 space-y-2">
+                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Opções de envio</h4>
+                <div className="flex items-center justify-between rounded-lg border border-border/40 bg-background/30 px-3 py-2.5">
+                  <div className="flex items-center gap-2">
+                    <AtSign className="h-4 w-4 text-primary" />
+                    <div>
+                      <p className="text-sm font-medium">Mencionar todos</p>
+                      <p className="text-[11px] text-muted-foreground">Marca todos os participantes do grupo</p>
+                    </div>
+                  </div>
+                  <Switch checked={mentionAll} onCheckedChange={setMentionAll} />
+                </div>
+              </div>
 
               {/* Schedule config */}
               <div className="border-t border-border/30 pt-4 space-y-3">
