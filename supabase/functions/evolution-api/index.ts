@@ -1,0 +1,124 @@
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+};
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
+  }
+
+  try {
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return new Response(JSON.stringify({ error: "No authorization header" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_PUBLISHABLE_KEY")!,
+      { global: { headers: { Authorization: authHeader } } }
+    );
+
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const url = new URL(req.url);
+    const action = url.searchParams.get("action");
+    const configId = url.searchParams.get("configId");
+
+    if (!configId) {
+      return new Response(JSON.stringify({ error: "configId is required" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Fetch the API config
+    const { data: config, error: configError } = await supabase
+      .from("api_configs")
+      .select("*")
+      .eq("id", configId)
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (configError || !config) {
+      return new Response(JSON.stringify({ error: "API config not found" }), {
+        status: 404,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const apiUrl = config.api_url.replace(/\/$/, "");
+    const apiKey = config.api_key;
+    const instanceName = config.instance_name;
+    const headers = { apikey: apiKey };
+
+    let result: any;
+
+    switch (action) {
+      case "fetchInstances": {
+        const resp = await fetch(`${apiUrl}/instance/fetchInstances`, { headers });
+        result = await resp.json();
+        break;
+      }
+
+      case "connectInstance": {
+        const resp = await fetch(`${apiUrl}/instance/connect/${instanceName}`, { headers });
+        result = await resp.json();
+        break;
+      }
+
+      case "connectionState": {
+        const resp = await fetch(`${apiUrl}/instance/connectionState/${instanceName}`, { headers });
+        result = await resp.json();
+        break;
+      }
+
+      case "fetchGroups": {
+        const resp = await fetch(
+          `${apiUrl}/group/fetchAllGroups/${instanceName}?getParticipants=false`,
+          { headers }
+        );
+        result = await resp.json();
+        break;
+      }
+
+      case "testConnection": {
+        try {
+          const resp = await fetch(`${apiUrl}/instance/connectionState/${instanceName}`, { headers });
+          result = await resp.json();
+        } catch (e) {
+          result = { error: "Cannot connect to API", details: e.message };
+        }
+        break;
+      }
+
+      default:
+        return new Response(JSON.stringify({ error: "Invalid action" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+    }
+
+    return new Response(JSON.stringify(result), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  } catch (error) {
+    return new Response(JSON.stringify({ error: error.message }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+});

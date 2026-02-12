@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { Settings, Plus, Trash2, Wifi } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Plus, Trash2, Wifi, WifiOff, Loader2, CheckCircle2, XCircle } from "lucide-react";
 
 export default function SettingsPage() {
   const { user } = useAuth();
@@ -65,6 +66,41 @@ export default function SettingsPage() {
     },
   });
 
+  const [testingId, setTestingId] = useState<string | null>(null);
+  const [connectionStates, setConnectionStates] = useState<Record<string, any>>({});
+
+  const testConnection = async (configId: string) => {
+    setTestingId(configId);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/evolution-api?action=connectionState&configId=${configId}`;
+      const resp = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${session?.access_token}`,
+          apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+        },
+      });
+      const result = await resp.json();
+      setConnectionStates((prev) => ({ ...prev, [configId]: result }));
+      const state = result?.instance?.state || result?.state;
+      if (state === "open") {
+        toast({ title: "Conexão ativa!", description: "Instância conectada ao WhatsApp." });
+      } else {
+        toast({ title: "Status: " + (state || "desconhecido"), description: "Verifique a instância.", variant: "destructive" });
+      }
+    } catch (e: any) {
+      toast({ title: "Erro ao testar", description: e.message, variant: "destructive" });
+    } finally {
+      setTestingId(null);
+    }
+  };
+
+  const getStateForConfig = (id: string) => {
+    const s = connectionStates[id];
+    if (!s) return null;
+    return s?.instance?.state || s?.state || null;
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -78,9 +114,7 @@ export default function SettingsPage() {
             <Plus className="h-5 w-5" />
             Adicionar Instância
           </CardTitle>
-          <CardDescription>
-            Insira os dados da sua Evolution API
-          </CardDescription>
+          <CardDescription>Insira os dados da sua Evolution API</CardDescription>
         </CardHeader>
         <CardContent>
           <form
@@ -139,24 +173,54 @@ export default function SettingsPage() {
             <p className="text-muted-foreground">Nenhuma instância configurada.</p>
           ) : (
             <div className="space-y-3">
-              {configs.map((config) => (
-                <div
-                  key={config.id}
-                  className="flex items-center justify-between rounded-lg border p-4"
-                >
-                  <div>
-                    <p className="font-medium">{config.instance_name}</p>
-                    <p className="text-sm text-muted-foreground">{config.api_url}</p>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => deleteConfig.mutate(config.id)}
+              {configs.map((config) => {
+                const state = getStateForConfig(config.id);
+                return (
+                  <div
+                    key={config.id}
+                    className="flex items-center justify-between rounded-lg border p-4 gap-3"
                   >
-                    <Trash2 className="h-4 w-4 text-destructive" />
-                  </Button>
-                </div>
-              ))}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="font-medium">{config.instance_name}</p>
+                        {state === "open" && (
+                          <Badge variant="default" className="bg-primary text-xs">
+                            <CheckCircle2 className="h-3 w-3 mr-1" /> Conectado
+                          </Badge>
+                        )}
+                        {state && state !== "open" && (
+                          <Badge variant="destructive" className="text-xs">
+                            <XCircle className="h-3 w-3 mr-1" /> {state}
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="text-sm text-muted-foreground truncate">{config.api_url}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => testConnection(config.id)}
+                        disabled={testingId === config.id}
+                      >
+                        {testingId === config.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Wifi className="h-4 w-4" />
+                        )}
+                        <span className="ml-1 hidden sm:inline">Testar</span>
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => deleteConfig.mutate(config.id)}
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </CardContent>
