@@ -22,6 +22,7 @@ export type Database = {
           id: string
           instance_name: string
           is_active: boolean | null
+          max_messages_per_hour: number
           updated_at: string
           user_id: string
         }
@@ -32,6 +33,7 @@ export type Database = {
           id?: string
           instance_name: string
           is_active?: boolean | null
+          max_messages_per_hour?: number
           updated_at?: string
           user_id: string
         }
@@ -42,6 +44,7 @@ export type Database = {
           id?: string
           instance_name?: string
           is_active?: boolean | null
+          max_messages_per_hour?: number
           updated_at?: string
           user_id?: string
         }

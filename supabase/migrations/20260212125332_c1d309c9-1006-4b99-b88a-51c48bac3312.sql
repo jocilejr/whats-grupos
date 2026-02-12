@@ -1,0 +1,1 @@
+ALTER TABLE public.api_configs ADD COLUMN max_messages_per_hour integer NOT NULL DEFAULT 100;
