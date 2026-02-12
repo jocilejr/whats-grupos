@@ -39,6 +39,19 @@ export FRONTEND_DOMAIN="${DOMAIN:-app.simplificandogrupos.com}"
 export CERT_RESOLVER="${CERT_RESOLVER:-letsencryptresolver}"
 export TRAEFIK_NETWORK="${TRAEFIK_NETWORK:-traefik-public}"
 
+# Atualizar config CORS do Traefik para a API
+TRAEFIK_CONTAINER=$(docker ps -q -f name=traefik 2>/dev/null | head -1 || true)
+if [ -n "$TRAEFIK_CONTAINER" ]; then
+  TEMP_API_YML=$(mktemp)
+  sed "s|{{API_DOMAIN}}|api.${FRONTEND_DOMAIN}|g; s|{{CERT_RESOLVER}}|${CERT_RESOLVER}|g; s|{{FRONTEND_DOMAIN}}|${FRONTEND_DOMAIN}|g" \
+    "${PROJECT_DIR}/traefik/supabase-api.yml" \
+    > "$TEMP_API_YML"
+  docker cp "$TEMP_API_YML" "${TRAEFIK_CONTAINER}:/etc/traefik/dynamic/supabase-api.yml" 2>/dev/null && \
+    echo "[INFO] Config CORS do Traefik atualizada." || \
+    echo "[AVISO] Falha ao copiar config para Traefik."
+  rm -f "$TEMP_API_YML"
+fi
+
 docker stack deploy -c docker-compose.frontend.yml whats-frontend 2>/dev/null || \
   echo "[AVISO] Falha ao redeployar stack. Verifique se o Docker Swarm esta ativo."
 
