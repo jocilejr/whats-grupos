@@ -145,14 +145,10 @@ else
   log_success "Nginx ja instalado."
 fi
 
-# Certbot
-if ! command -v certbot &>/dev/null; then
-  log_info "Instalando Certbot..."
-  apt-get install -y -qq certbot python3-certbot-nginx
-  log_success "Certbot instalado."
-else
-  log_success "Certbot ja instalado."
-fi
+# Certbot + plugin nginx (sempre instalar para garantir)
+log_info "Instalando/verificando Certbot..."
+apt-get install -y -qq certbot python3-certbot-nginx
+log_success "Certbot pronto."
 
 log_success "Todas as dependencias instaladas."
 
@@ -389,16 +385,73 @@ log_success "Nginx configurado."
 
 log_step "9/9 - Configurando SSL com Certbot"
 
-if [ "$HTTP_PORT" -eq 80 ]; then
-  certbot --nginx -d "$DOMAIN" -d "$API_DOMAIN" --non-interactive --agree-tos -m "$SSL_EMAIL"
-else
-  log_warn "Nginx em porta ${HTTP_PORT}. Certbot usara --http-01-port ${HTTP_PORT}."
-  certbot --nginx -d "$DOMAIN" -d "$API_DOMAIN" --non-interactive --agree-tos -m "$SSL_EMAIL" \
-    --http-01-port "$HTTP_PORT"
-fi
-check_error "Falha ao configurar SSL."
+# Tentar com plugin nginx (modo preferido - configura tudo)
+certbot --nginx -d "$DOMAIN" -d "$API_DOMAIN" \
+  --non-interactive --agree-tos -m "$SSL_EMAIL" 2>&1
 
-log_success "SSL configurado."
+if [ $? -ne 0 ]; then
+  log_warn "Certbot --nginx falhou. Tentando modo standalone..."
+  systemctl stop nginx 2>/dev/null || true
+
+  certbot certonly --standalone -d "$DOMAIN" -d "$API_DOMAIN" \
+    --non-interactive --agree-tos -m "$SSL_EMAIL"
+
+  if [ $? -eq 0 ]; then
+    # Adicionar SSL aos configs do Nginx
+    CERT_PATH="/etc/letsencrypt/live/${DOMAIN}"
+
+    # Adicionar bloco HTTPS ao frontend
+    cat >> /etc/nginx/sites-available/whats-grupos <<SSLEOF
+
+server {
+    listen 443 ssl;
+    server_name ${DOMAIN};
+    ssl_certificate ${CERT_PATH}/fullchain.pem;
+    ssl_certificate_key ${CERT_PATH}/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+    root ${PROJECT_DIR}/dist;
+    index index.html;
+    location / { try_files \$uri \$uri/ /index.html; }
+}
+SSLEOF
+
+    # Adicionar bloco HTTPS a API
+    cat >> /etc/nginx/sites-available/whats-grupos-api <<SSLEOF
+
+server {
+    listen 443 ssl;
+    server_name ${API_DOMAIN};
+    ssl_certificate ${CERT_PATH}/fullchain.pem;
+    ssl_certificate_key ${CERT_PATH}/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+    client_max_body_size 50M;
+    location / {
+        proxy_pass http://localhost:8000;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+}
+SSLEOF
+
+    systemctl start nginx
+    log_success "SSL configurado (modo standalone + config manual)."
+  else
+    systemctl start nginx
+    log_warn "SSL nao configurado automaticamente."
+    log_info "Configure manualmente: certbot --nginx -d ${DOMAIN} -d ${API_DOMAIN}"
+  fi
+else
+  log_success "SSL configurado."
+fi
 
 # ============================================================
 # Finalizado!
