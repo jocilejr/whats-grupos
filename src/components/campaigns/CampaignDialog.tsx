@@ -196,11 +196,18 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
                     <SelectValue placeholder="Selecione a instância" />
                   </SelectTrigger>
                   <SelectContent>
-                    {Array.isArray(evolutionInstances) && evolutionInstances.map((inst: any) => (
-                      <SelectItem key={inst.instance?.instanceName || inst.instanceName} value={inst.instance?.instanceName || inst.instanceName}>
-                        {inst.instance?.instanceName || inst.instanceName}
-                      </SelectItem>
-                    ))}
+                    {Array.isArray(evolutionInstances) && evolutionInstances.map((inst: any) => {
+                      const instName = inst.instance?.instanceName || inst.name || inst.instanceName;
+                      const status = inst.connectionStatus;
+                      return (
+                        <SelectItem key={instName} value={instName}>
+                          <span className="flex items-center gap-2">
+                            <span className={`h-2 w-2 rounded-full ${status === "open" ? "bg-green-500" : "bg-red-500"}`} />
+                            {instName}
+                          </span>
+                        </SelectItem>
+                      );
+                    })}
                   </SelectContent>
                 </Select>
               )}
