@@ -6,6 +6,12 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
+// Process max 5 groups per invocation (~50s with 10s delay, well within timeout)
+const BATCH_SIZE = 5;
+const DELAY_BETWEEN_MESSAGES_MS = 10_000;
+
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -16,10 +22,7 @@ Deno.serve(async (req) => {
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    const DELAY_BETWEEN_MESSAGES_MS = 10_000;
-    const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-    // ATOMIC claim: prevents race condition from concurrent pg_cron invocations
+    // ATOMIC claim: prevents race condition
     const { data: messages, error: fetchError } = await supabase.rpc("claim_due_messages");
 
     if (fetchError) {
@@ -42,163 +45,16 @@ Deno.serve(async (req) => {
 
     for (const msg of messages) {
       try {
-        // Fetch campaign data separately since claim_due_messages doesn't join
-        let campaign: any = null;
-        if (msg.campaign_id) {
-          const { data: c } = await supabase
-            .from("campaigns")
-            .select("*")
-            .eq("id", msg.campaign_id)
-            .maybeSingle();
-          campaign = c;
-          if (campaign && !campaign.is_active) {
-            await releaseLock(supabase, msg);
-            continue;
-          }
-        }
-
-        const groupIds: string[] = campaign?.group_ids?.length ? campaign.group_ids : msg.group_ids;
-        if (!groupIds?.length) {
-          await releaseLock(supabase, msg);
-          continue;
-        }
-
-        // Calculate and update next_run_at BEFORE sending
-        const now = new Date();
-        if (msg.schedule_type === "once") {
-          await supabase.from("scheduled_messages").update({
-            is_active: false,
-            last_run_at: now.toISOString(),
-            next_run_at: null,
-            processing_started_at: null,
-          }).eq("id", msg.id);
-        } else {
-          const content_ = msg.content as any;
-          const [h_, m_] = (content_.runTime || "08:00").split(":").map(Number);
-          let nextRunAt_: string | null = null;
-
-          if (msg.schedule_type === "daily") {
-            const next = new Date(now);
-            next.setDate(next.getDate() + 1);
-            next.setHours(h_, m_, 0, 0);
-            nextRunAt_ = next.toISOString();
-          } else if (msg.schedule_type === "weekly") {
-            const weekDays: number[] = content_.weekDays || [1];
-            for (let i = 1; i <= 7; i++) {
-              const candidate = new Date(now);
-              candidate.setDate(candidate.getDate() + i);
-              candidate.setHours(h_, m_, 0, 0);
-              if (weekDays.includes(candidate.getDay())) {
-                nextRunAt_ = candidate.toISOString();
-                break;
-              }
-            }
-          } else if (msg.schedule_type === "monthly") {
-            const monthDay = content_.monthDay || 1;
-            const next = new Date(now.getFullYear(), now.getMonth() + 1, monthDay, h_, m_, 0);
-            nextRunAt_ = next.toISOString();
-          }
-
-          await supabase.from("scheduled_messages").update({
-            last_run_at: now.toISOString(),
-            next_run_at: nextRunAt_,
-            processing_started_at: null, // Release lock
-          }).eq("id", msg.id);
-        }
-
-        // Get API config
-        const { data: config } = await supabase
-          .from("api_configs")
-          .select("*")
-          .eq("id", msg.api_config_id)
-          .maybeSingle();
-
-        if (!config) {
-          console.error(`No API config for message ${msg.id}`);
-          continue;
-        }
-
-        // Rate limit check
-        const maxPerHour = config.max_messages_per_hour || 100;
-        const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-        const { count: sentLastHour } = await supabase
-          .from("message_logs")
-          .select("*", { count: "exact", head: true })
-          .eq("api_config_id", msg.api_config_id)
-          .eq("status", "sent")
-          .gte("created_at", oneHourAgo);
-
-        if ((sentLastHour || 0) >= maxPerHour) {
-          console.log(`Rate limit reached for ${config.instance_name}: ${sentLastHour}/${maxPerHour}/h. Skipping.`);
-          continue;
-        }
-
-        const remainingQuota = maxPerHour - (sentLastHour || 0);
-        const apiUrl = config.api_url.replace(/\/$/, "");
-        const apiKey = config.api_key;
-        const instanceName = msg.instance_name || campaign?.instance_name || config.instance_name;
-        const content = msg.content as any;
-
-        let sentInThisRun = 0;
-        for (const groupId of groupIds) {
-          if (sentInThisRun >= remainingQuota) {
-            console.log(`Rate limit reached mid-batch for ${config.instance_name}. Stopping.`);
-            break;
-          }
-          try {
-            if (!isFirstSend) {
-              console.log(`Waiting ${DELAY_BETWEEN_MESSAGES_MS / 1000}s before next send...`);
-              await delay(DELAY_BETWEEN_MESSAGES_MS);
-            }
-            isFirstSend = false;
-
-            const { endpoint, body } = buildMessagePayload(msg.message_type, apiUrl, instanceName, groupId, content);
-
-            if (content.mentionsEveryOne) body.mentionsEveryOne = true;
-
-            const resp = await fetch(endpoint, {
-              method: "POST",
-              headers: { apikey: apiKey, "Content-Type": "application/json" },
-              body: JSON.stringify(body),
-            });
-
-            const result = await resp.json();
-            const success = resp.ok;
-
-            await supabase.from("message_logs").insert({
-              user_id: msg.user_id,
-              api_config_id: msg.api_config_id,
-              scheduled_message_id: msg.id,
-              group_id: groupId,
-              message_type: msg.message_type,
-              content: content,
-              status: success ? "sent" : "error",
-              error_message: success ? null : JSON.stringify(result),
-              instance_name: instanceName,
-            });
-
-            if (success) { processed++; sentInThisRun++; }
-            else errors++;
-          } catch (e) {
-            console.error(`Send error for group ${groupId}:`, e);
-            errors++;
-            await supabase.from("message_logs").insert({
-              user_id: msg.user_id,
-              api_config_id: msg.api_config_id,
-              scheduled_message_id: msg.id,
-              group_id: groupId,
-              message_type: msg.message_type,
-              content: content,
-              status: "error",
-              error_message: e.message,
-              instance_name: instanceName,
-            });
-          }
-        }
+        await processMessage(supabase, msg, isFirstSend, (p, e, first) => {
+          processed += p;
+          errors += e;
+          isFirstSend = first;
+        });
+        // After first message's first group, isFirstSend is false
+        isFirstSend = false;
       } catch (msgError) {
         console.error(`Error processing message ${msg.id}:`, msgError);
-        // Release lock on error so it can be retried
-        await releaseLock(supabase, msg);
+        await releaseLock(supabase, msg.id);
         errors++;
       }
     }
@@ -215,10 +71,200 @@ Deno.serve(async (req) => {
   }
 });
 
-async function releaseLock(supabase: any, msg: any) {
+async function processMessage(
+  supabase: any,
+  msg: any,
+  isFirstSend: boolean,
+  onProgress: (processed: number, errors: number, isFirstSend: boolean) => void
+) {
+  // Fetch campaign
+  let campaign: any = null;
+  if (msg.campaign_id) {
+    const { data: c } = await supabase
+      .from("campaigns")
+      .select("*")
+      .eq("id", msg.campaign_id)
+      .maybeSingle();
+    campaign = c;
+    if (campaign && !campaign.is_active) {
+      await releaseLock(supabase, msg.id);
+      return;
+    }
+  }
+
+  const allGroupIds: string[] = campaign?.group_ids?.length ? campaign.group_ids : msg.group_ids;
+  if (!allGroupIds?.length) {
+    await releaseLock(supabase, msg.id);
+    return;
+  }
+
+  // Get API config
+  const { data: config } = await supabase
+    .from("api_configs")
+    .select("*")
+    .eq("id", msg.api_config_id)
+    .maybeSingle();
+
+  if (!config) {
+    console.error(`No API config for message ${msg.id}`);
+    await releaseLock(supabase, msg.id);
+    return;
+  }
+
+  // Rate limit check
+  const maxPerHour = config.max_messages_per_hour || 100;
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  const { count: sentLastHour } = await supabase
+    .from("message_logs")
+    .select("*", { count: "exact", head: true })
+    .eq("api_config_id", msg.api_config_id)
+    .eq("status", "sent")
+    .gte("created_at", oneHourAgo);
+
+  if ((sentLastHour || 0) >= maxPerHour) {
+    console.log(`Rate limit reached for ${config.instance_name}: ${sentLastHour}/${maxPerHour}/h. Skipping.`);
+    await releaseLock(supabase, msg.id);
+    return;
+  }
+
+  const remainingQuota = maxPerHour - (sentLastHour || 0);
+
+  // Determine the batch of groups to process
+  const startIndex = msg.sent_group_index || 0;
+  const batchGroups = allGroupIds.slice(startIndex, startIndex + BATCH_SIZE);
+  const nextIndex = startIndex + batchGroups.length;
+  const isLastBatch = nextIndex >= allGroupIds.length;
+
+  console.log(`Message ${msg.id}: processing groups ${startIndex}-${nextIndex - 1} of ${allGroupIds.length} (batch ${Math.floor(startIndex / BATCH_SIZE) + 1})`);
+
+  const apiUrl = config.api_url.replace(/\/$/, "");
+  const apiKey = config.api_key;
+  const instanceName = msg.instance_name || campaign?.instance_name || config.instance_name;
+  const content = msg.content as any;
+
+  let batchProcessed = 0;
+  let batchErrors = 0;
+  let sentInThisRun = 0;
+
+  for (const groupId of batchGroups) {
+    if (sentInThisRun >= remainingQuota) {
+      console.log(`Rate limit reached mid-batch for ${config.instance_name}. Stopping.`);
+      break;
+    }
+    try {
+      if (!isFirstSend) {
+        await delay(DELAY_BETWEEN_MESSAGES_MS);
+      }
+      isFirstSend = false;
+
+      const { endpoint, body } = buildMessagePayload(msg.message_type, apiUrl, instanceName, groupId, content);
+      if (content.mentionsEveryOne) body.mentionsEveryOne = true;
+
+      const resp = await fetch(endpoint, {
+        method: "POST",
+        headers: { apikey: apiKey, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      const result = await resp.json();
+      const success = resp.ok;
+
+      await supabase.from("message_logs").insert({
+        user_id: msg.user_id,
+        api_config_id: msg.api_config_id,
+        scheduled_message_id: msg.id,
+        group_id: groupId,
+        message_type: msg.message_type,
+        content: content,
+        status: success ? "sent" : "error",
+        error_message: success ? null : JSON.stringify(result),
+        instance_name: instanceName,
+      });
+
+      if (success) { batchProcessed++; sentInThisRun++; }
+      else batchErrors++;
+    } catch (e) {
+      console.error(`Send error for group ${groupId}:`, e);
+      batchErrors++;
+      await supabase.from("message_logs").insert({
+        user_id: msg.user_id,
+        api_config_id: msg.api_config_id,
+        scheduled_message_id: msg.id,
+        group_id: groupId,
+        message_type: msg.message_type,
+        content: content,
+        status: "error",
+        error_message: e.message,
+        instance_name: instanceName,
+      });
+    }
+  }
+
+  onProgress(batchProcessed, batchErrors, isFirstSend);
+
+  if (isLastBatch) {
+    // All groups processed — update next_run_at and reset index
+    const now = new Date();
+    if (msg.schedule_type === "once") {
+      await supabase.from("scheduled_messages").update({
+        is_active: false,
+        last_run_at: now.toISOString(),
+        next_run_at: null,
+        sent_group_index: 0,
+        processing_started_at: null,
+      }).eq("id", msg.id);
+    } else {
+      const nextRunAt = calculateNextRunAt(msg, now);
+      await supabase.from("scheduled_messages").update({
+        last_run_at: now.toISOString(),
+        next_run_at: nextRunAt,
+        sent_group_index: 0,
+        processing_started_at: null,
+      }).eq("id", msg.id);
+    }
+    console.log(`Message ${msg.id}: ALL ${allGroupIds.length} groups completed.`);
+  } else {
+    // More groups remain — save progress and release lock for next invocation
+    await supabase.from("scheduled_messages").update({
+      sent_group_index: nextIndex,
+      processing_started_at: null, // Release lock so next cron picks it up
+    }).eq("id", msg.id);
+    console.log(`Message ${msg.id}: batch done. ${allGroupIds.length - nextIndex} groups remaining (resuming at index ${nextIndex}).`);
+  }
+}
+
+function calculateNextRunAt(msg: any, now: Date): string | null {
+  const content_ = msg.content as any;
+  const [h_, m_] = (content_.runTime || "08:00").split(":").map(Number);
+
+  if (msg.schedule_type === "daily") {
+    const next = new Date(now);
+    next.setDate(next.getDate() + 1);
+    next.setHours(h_, m_, 0, 0);
+    return next.toISOString();
+  } else if (msg.schedule_type === "weekly") {
+    const weekDays: number[] = content_.weekDays || [1];
+    for (let i = 1; i <= 7; i++) {
+      const candidate = new Date(now);
+      candidate.setDate(candidate.getDate() + i);
+      candidate.setHours(h_, m_, 0, 0);
+      if (weekDays.includes(candidate.getDay())) {
+        return candidate.toISOString();
+      }
+    }
+  } else if (msg.schedule_type === "monthly") {
+    const monthDay = content_.monthDay || 1;
+    const next = new Date(now.getFullYear(), now.getMonth() + 1, monthDay, h_, m_, 0);
+    return next.toISOString();
+  }
+
+  return null;
+}
+
+async function releaseLock(supabase: any, msgId: string) {
   await supabase.from("scheduled_messages").update({
     processing_started_at: null,
-  }).eq("id", msg.id);
+  }).eq("id", msgId);
 }
 
 function buildMessagePayload(messageType: string, apiUrl: string, instanceName: string, groupId: string, content: any) {
