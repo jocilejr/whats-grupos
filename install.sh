@@ -438,7 +438,7 @@ if [ "$USE_TRAEFIK" = true ]; then
   # ---- Configurar rota da API (Supabase Kong) via Traefik ----
   # Gerar arquivo com placeholders substituidos
   TEMP_API_YML=$(mktemp)
-  sed "s|{{API_DOMAIN}}|${API_DOMAIN}|g; s|{{CERT_RESOLVER}}|${CERT_RESOLVER}|g" \
+  sed "s|{{API_DOMAIN}}|${API_DOMAIN}|g; s|{{CERT_RESOLVER}}|${CERT_RESOLVER}|g; s|{{FRONTEND_DOMAIN}}|${DOMAIN}|g" \
     "${PROJECT_DIR}/traefik/supabase-api.yml" \
     > "$TEMP_API_YML"
 

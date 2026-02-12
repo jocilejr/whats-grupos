@@ -1,10 +1,36 @@
 http:
+  middlewares:
+    cors-supabase:
+      headers:
+        accessControlAllowOriginList:
+          - "https://{{FRONTEND_DOMAIN}}"
+        accessControlAllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - PATCH
+          - OPTIONS
+        accessControlAllowHeaders:
+          - Authorization
+          - Content-Type
+          - apikey
+          - x-client-info
+          - x-supabase-client-platform
+          - x-supabase-client-platform-version
+          - x-supabase-client-runtime
+          - x-supabase-client-runtime-version
+        accessControlAllowCredentials: true
+        accessControlMaxAge: 3600
+
   routers:
     supabase-api:
       rule: "Host(`{{API_DOMAIN}}`)"
       entryPoints:
         - websecure
       service: supabase-kong
+      middlewares:
+        - cors-supabase
       tls:
         certResolver: "{{CERT_RESOLVER}}"
 
