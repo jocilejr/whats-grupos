@@ -52,6 +52,47 @@ Deno.serve(async (req) => {
       const groupIds: string[] = campaign?.group_ids?.length ? campaign.group_ids : msg.group_ids;
       if (!groupIds?.length) continue;
 
+      // Update next_run_at BEFORE sending to prevent re-processing on timeout
+      const now = new Date();
+      if (msg.schedule_type === "once") {
+        await supabase.from("scheduled_messages").update({
+          is_active: false,
+          last_run_at: now.toISOString(),
+          next_run_at: null,
+        }).eq("id", msg.id);
+      } else {
+        const content_ = msg.content as any;
+        const [h_, m_] = (content_.runTime || "08:00").split(":").map(Number);
+        let nextRunAt_: string | null = null;
+
+        if (msg.schedule_type === "daily") {
+          const next = new Date(now);
+          next.setDate(next.getDate() + 1);
+          next.setHours(h_, m_, 0, 0);
+          nextRunAt_ = next.toISOString();
+        } else if (msg.schedule_type === "weekly") {
+          const weekDays: number[] = content_.weekDays || [1];
+          for (let i = 1; i <= 7; i++) {
+            const candidate = new Date(now);
+            candidate.setDate(candidate.getDate() + i);
+            candidate.setHours(h_, m_, 0, 0);
+            if (weekDays.includes(candidate.getDay())) {
+              nextRunAt_ = candidate.toISOString();
+              break;
+            }
+          }
+        } else if (msg.schedule_type === "monthly") {
+          const monthDay = content_.monthDay || 1;
+          const next = new Date(now.getFullYear(), now.getMonth() + 1, monthDay, h_, m_, 0);
+          nextRunAt_ = next.toISOString();
+        }
+
+        await supabase.from("scheduled_messages").update({
+          last_run_at: now.toISOString(),
+          next_run_at: nextRunAt_,
+        }).eq("id", msg.id);
+      }
+
       // Get API config
       const { data: config } = await supabase
         .from("api_configs")
@@ -154,49 +195,7 @@ Deno.serve(async (req) => {
         }
       }
 
-      // Update next_run_at
-      const now = new Date();
-      let nextRunAt: string | null = null;
-
-      if (msg.schedule_type === "once") {
-        // Disable after single run
-        await supabase.from("scheduled_messages").update({
-          is_active: false,
-          last_run_at: now.toISOString(),
-          next_run_at: null,
-        }).eq("id", msg.id);
-      } else {
-        const [h, m] = (content.runTime || "08:00").split(":").map(Number);
-
-        if (msg.schedule_type === "daily") {
-          const next = new Date(now);
-          next.setDate(next.getDate() + 1);
-          next.setHours(h, m, 0, 0);
-          nextRunAt = next.toISOString();
-        } else if (msg.schedule_type === "weekly") {
-          const weekDays: number[] = content.weekDays || [1];
-          const next = new Date(now);
-          for (let i = 1; i <= 7; i++) {
-            const candidate = new Date(now);
-            candidate.setDate(candidate.getDate() + i);
-            candidate.setHours(h, m, 0, 0);
-            if (weekDays.includes(candidate.getDay())) {
-              next.setTime(candidate.getTime());
-              break;
-            }
-          }
-          nextRunAt = next.toISOString();
-        } else if (msg.schedule_type === "monthly") {
-          const monthDay = content.monthDay || 1;
-          const next = new Date(now.getFullYear(), now.getMonth() + 1, monthDay, h, m, 0);
-          nextRunAt = next.toISOString();
-        }
-
-        await supabase.from("scheduled_messages").update({
-          last_run_at: now.toISOString(),
-          next_run_at: nextRunAt,
-        }).eq("id", msg.id);
-      }
+      // next_run_at already updated before sending
     }
 
     return new Response(JSON.stringify({ processed, errors }), {
