@@ -77,12 +77,14 @@ export default function SettingsPage() {
   const [editName, setEditName] = useState("");
   const [editUrl, setEditUrl] = useState("");
   const [editKey, setEditKey] = useState("");
+  const [editMaxPerHour, setEditMaxPerHour] = useState(100);
 
   const openEdit = (config: any) => {
     setEditConfig(config);
     setEditName(config.instance_name);
     setEditUrl(config.api_url);
     setEditKey(config.api_key);
+    setEditMaxPerHour(config.max_messages_per_hour ?? 100);
   };
 
   const updateConfig = useMutation({
@@ -91,6 +93,7 @@ export default function SettingsPage() {
         instance_name: editName,
         api_url: editUrl.replace(/\/$/, ""),
         api_key: editKey,
+        max_messages_per_hour: editMaxPerHour,
       }).eq("id", editConfig.id);
       if (error) throw error;
     },
@@ -230,6 +233,7 @@ export default function SettingsPage() {
                         )}
                       </div>
                       <p className="text-sm text-muted-foreground truncate">{config.api_url}</p>
+                      <p className="text-xs text-muted-foreground">Limite: {(config as any).max_messages_per_hour ?? 100} msgs/hora</p>
                     </div>
                     <div className="flex items-center gap-2">
                       <Button
@@ -285,6 +289,11 @@ export default function SettingsPage() {
             <div className="space-y-2">
               <Label>API Key</Label>
               <Input type="password" value={editKey} onChange={(e) => setEditKey(e.target.value)} required />
+            </div>
+            <div className="space-y-2">
+              <Label>Limite de mensagens por hora</Label>
+              <Input type="number" min={1} max={1000} value={editMaxPerHour} onChange={(e) => setEditMaxPerHour(Number(e.target.value))} required />
+              <p className="text-xs text-muted-foreground">Máximo de mensagens enviadas por hora nesta instância</p>
             </div>
             <DialogFooter>
               <Button variant="outline" type="button" onClick={() => setEditConfig(null)}>Cancelar</Button>

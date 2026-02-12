@@ -105,12 +105,35 @@ Deno.serve(async (req) => {
         continue;
       }
 
+      // Rate limit check: count messages sent in the last hour for this instance
+      const maxPerHour = config.max_messages_per_hour || 100;
+      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+      const { count: sentLastHour } = await supabase
+        .from("message_logs")
+        .select("*", { count: "exact", head: true })
+        .eq("api_config_id", msg.api_config_id)
+        .eq("status", "sent")
+        .gte("created_at", oneHourAgo);
+
+      if ((sentLastHour || 0) >= maxPerHour) {
+        console.log(`Rate limit reached for config ${config.instance_name}: ${sentLastHour}/${maxPerHour} per hour. Skipping.`);
+        continue;
+      }
+
+      const remainingQuota = maxPerHour - (sentLastHour || 0);
+
       const apiUrl = config.api_url.replace(/\/$/, "");
       const apiKey = config.api_key;
       const instanceName = msg.instance_name || campaign?.instance_name || config.instance_name;
       const content = msg.content as any;
 
+      let sentInThisRun = 0;
       for (const groupId of groupIds) {
+        // Check remaining quota before each send
+        if (sentInThisRun >= remainingQuota) {
+          console.log(`Rate limit reached mid-batch for ${config.instance_name}. Stopping.`);
+          break;
+        }
         try {
           // Wait before sending (skip delay for the very first message)
           if (!isFirstSend) {
@@ -176,7 +199,7 @@ Deno.serve(async (req) => {
             instance_name: instanceName,
           });
 
-          if (success) processed++;
+          if (success) { processed++; sentInThisRun++; }
           else errors++;
         } catch (e) {
           console.error(`Send error for group ${groupId}:`, e);
