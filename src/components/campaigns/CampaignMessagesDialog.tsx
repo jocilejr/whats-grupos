@@ -34,53 +34,53 @@ export function CampaignMessagesDialog({ open, onOpenChange, campaign }: Campaig
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-4xl w-[95vw] h-[90vh] flex flex-col sm:rounded-2xl border-border/50 bg-card p-0 gap-0">
+        <DialogContent className="max-w-4xl w-[95vw] h-[90vh] flex flex-col sm:rounded-2xl border-border/50 bg-card p-0 gap-0 overflow-hidden">
           {/* Header */}
-          <DialogHeader className="px-6 pt-6 pb-4 border-b border-border/30">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10">
-                  <CalendarClock className="h-5 w-5 text-primary" />
-                </div>
-                <div>
-                  <DialogTitle className="text-xl">{campaign.name}</DialogTitle>
-                  <DialogDescription className="text-sm">Gerencie as mensagens agendadas desta campanha</DialogDescription>
-                </div>
+          <div className="px-6 pt-5 pb-4 border-b border-border/30 shrink-0">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 shrink-0">
+                <CalendarClock className="h-5 w-5 text-primary" />
+              </div>
+              <div className="min-w-0">
+                <DialogTitle className="text-lg font-semibold">{campaign.name}</DialogTitle>
+                <DialogDescription className="text-xs text-muted-foreground">
+                  Gerencie as mensagens agendadas desta campanha
+                </DialogDescription>
               </div>
             </div>
-          </DialogHeader>
+          </div>
 
-          {/* Tabs */}
+          {/* Tabs filling remaining space */}
           <Tabs defaultValue="once" className="flex-1 flex flex-col min-h-0">
-            <div className="px-6 pt-4 pb-2">
-              <TabsList className="w-full bg-secondary/50 h-11">
-                <TabsTrigger value="once" className="flex-1 gap-2 data-[state=active]:bg-background">
-                  <Clock className="h-4 w-4" />Único
+            <div className="px-6 pt-3 pb-0 shrink-0">
+              <TabsList className="w-full bg-secondary/40 h-10 p-1 rounded-lg">
+                <TabsTrigger value="once" className="flex-1 gap-1.5 text-xs data-[state=active]:bg-card data-[state=active]:shadow-sm rounded-md">
+                  <Clock className="h-3.5 w-3.5" />Único
                 </TabsTrigger>
-                <TabsTrigger value="daily" className="flex-1 gap-2 data-[state=active]:bg-background">
-                  <CalendarClock className="h-4 w-4" />Diário
+                <TabsTrigger value="daily" className="flex-1 gap-1.5 text-xs data-[state=active]:bg-card data-[state=active]:shadow-sm rounded-md">
+                  <CalendarClock className="h-3.5 w-3.5" />Diário
                 </TabsTrigger>
-                <TabsTrigger value="weekly" className="flex-1 gap-2 data-[state=active]:bg-background">
-                  <CalendarDays className="h-4 w-4" />Semanal
+                <TabsTrigger value="weekly" className="flex-1 gap-1.5 text-xs data-[state=active]:bg-card data-[state=active]:shadow-sm rounded-md">
+                  <CalendarDays className="h-3.5 w-3.5" />Semanal
                 </TabsTrigger>
-                <TabsTrigger value="monthly" className="flex-1 gap-2 data-[state=active]:bg-background">
-                  <Calendar className="h-4 w-4" />Mensal
+                <TabsTrigger value="monthly" className="flex-1 gap-1.5 text-xs data-[state=active]:bg-card data-[state=active]:shadow-sm rounded-md">
+                  <Calendar className="h-3.5 w-3.5" />Mensal
                 </TabsTrigger>
               </TabsList>
             </div>
 
             {["once", "daily", "weekly", "monthly"].map((type) => (
-              <TabsContent key={type} value={type} className="flex-1 flex flex-col min-h-0 px-6 pb-6 mt-0">
-                {/* Add button */}
-                <div className="flex items-center justify-between py-3 border-b border-border/20 mb-4">
+              <TabsContent key={type} value={type} className="flex-1 flex flex-col min-h-0 mt-0 data-[state=inactive]:hidden">
+                {/* Subheader with add button */}
+                <div className="flex items-center justify-between px-6 py-3 shrink-0">
                   <div>
-                    <h3 className="text-sm font-semibold text-foreground">
+                    <h3 className="text-sm font-semibold text-foreground leading-tight">
                       {type === "once" && "Mensagens de envio único"}
                       {type === "daily" && "Mensagens diárias"}
                       {type === "weekly" && "Mensagens semanais"}
                       {type === "monthly" && "Mensagens mensais"}
                     </h3>
-                    <p className="text-xs text-muted-foreground mt-0.5">
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
                       {type === "once" && "Enviadas uma única vez na data e hora programadas"}
                       {type === "daily" && "Enviadas todos os dias no horário configurado"}
                       {type === "weekly" && "Enviadas nos dias da semana selecionados"}
@@ -88,16 +88,17 @@ export function CampaignMessagesDialog({ open, onOpenChange, campaign }: Campaig
                     </p>
                   </div>
                   <Button
+                    size="sm"
                     onClick={() => handleAdd(type)}
-                    className="gap-2 bg-[hsl(var(--success))] hover:bg-[hsl(var(--success))]/90 text-white shadow-[0_0_12px_hsl(var(--success)/0.3)]"
+                    className="gap-1.5 bg-[hsl(var(--success))] hover:bg-[hsl(var(--success))]/90 text-white shadow-[0_0_10px_hsl(var(--success)/0.25)] shrink-0"
                     disabled={!campaign.api_config_id}
                   >
-                    <Plus className="h-4 w-4" />Adicionar Mensagem
+                    <Plus className="h-3.5 w-3.5" />Adicionar Mensagem
                   </Button>
                 </div>
 
-                {/* Message list */}
-                <div className="flex-1 overflow-y-auto min-h-0">
+                {/* Scrollable message list */}
+                <div className="flex-1 overflow-y-auto min-h-0 px-6 pb-6">
                   <CampaignMessageList
                     campaignId={campaign.id}
                     apiConfigId={campaign.api_config_id}
