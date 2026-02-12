@@ -34,23 +34,18 @@ export default function Groups() {
     queryKey: ["groups", activeConfigId],
     queryFn: async () => {
       const { data: { session } } = await supabase.auth.getSession();
-      const resp = await supabase.functions.invoke("evolution-api", {
-        body: null,
-        headers: { Authorization: `Bearer ${session?.access_token}` },
-      });
-      // Use fetch directly for query params support
       const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/evolution-api?action=fetchGroups&configId=${activeConfigId}`;
-      const fetchResp = await fetch(url, {
+      const resp = await fetch(url, {
         headers: {
           Authorization: `Bearer ${session?.access_token}`,
           apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
         },
       });
-      if (!fetchResp.ok) {
-        const err = await fetchResp.json();
+      if (!resp.ok) {
+        const err = await resp.json();
         throw new Error(err.error || "Failed to fetch groups");
       }
-      return await fetchResp.json();
+      return await resp.json();
     },
     enabled: !!activeConfigId,
   });
