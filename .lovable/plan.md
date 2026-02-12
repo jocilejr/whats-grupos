@@ -1,60 +1,87 @@
 
 
-# Corrigir configuracao do Traefik com valores reais do servidor
+# Corrigir erro de CORS no Supabase Self-Hosted via Traefik
 
 ## Problema
 
-Os arquivos criados anteriormente usam valores padrao que nao correspondem a configuracao real do Traefik no servidor:
+O frontend em `https://app.simplificandogrupos.com` faz requisicoes para `https://api.app.simplificandogrupos.com` (Supabase self-hosted). O navegador bloqueia essas requisicoes porque o servidor nao retorna os headers CORS necessarios (`Access-Control-Allow-Origin`).
 
-- Rede: `traefik_public` deveria ser `traefik-public`
-- Cert resolver: `letsencrypt` deveria ser `letsencryptresolver`
-- O file provider do Traefik esta em `/etc/traefik/dynamic` (dentro do container, mapeado via volume)
+## Causa
+
+O Traefik repassa as requisicoes para o Kong (porta 8000), mas nao adiciona headers CORS. O Kong do Supabase self-hosted pode nao estar configurado para aceitar requisicoes da origem do frontend.
+
+## Solucao
+
+Adicionar um middleware CORS na configuracao dinamica do Traefik (`traefik/supabase-api.yml`), que e o ponto mais simples e confiavel para resolver.
 
 ## Alteracoes
 
-### 1. `docker-compose.frontend.yml`
+### 1. `traefik/supabase-api.yml`
 
-Corrigir:
-- Nome da rede de `traefik_public` para `traefik-public`
-- Cert resolver de `letsencrypt` para `letsencryptresolver`
-- Usar variaveis de ambiente com defaults corretos
+Adicionar middleware de CORS que permite requisicoes do frontend:
 
-### 2. `traefik/supabase-api.yml`
+```yaml
+http:
+  middlewares:
+    cors-supabase:
+      headers:
+        accessControlAllowOriginList:
+          - "https://{{FRONTEND_DOMAIN}}"
+        accessControlAllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - PATCH
+          - OPTIONS
+        accessControlAllowHeaders:
+          - Authorization
+          - Content-Type
+          - apikey
+          - x-client-info
+          - x-supabase-client-platform
+          - x-supabase-client-platform-version
+          - x-supabase-client-runtime
+          - x-supabase-client-runtime-version
+        accessControlAllowCredentials: true
+        accessControlMaxAge: 3600
 
-Corrigir o placeholder do cert resolver para usar `letsencryptresolver` como default.
+  routers:
+    supabase-api:
+      rule: "Host(`{{API_DOMAIN}}`)"
+      entryPoints:
+        - websecure
+      service: supabase-kong
+      middlewares:
+        - cors-supabase
+      tls:
+        certResolver: "{{CERT_RESOLVER}}"
 
-### 3. `install.sh`
+  services:
+    supabase-kong:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:8000"
+```
 
-Corrigir:
-- Default do `CERT_RESOLVER` para `letsencryptresolver`
-- Default do `TRAEFIK_NETWORK` para `traefik-public`
-- Caminho do file provider: o script precisa copiar o arquivo de rota da API para dentro do volume do Traefik (nao para um diretorio do host). Identificar o volume correto e copiar via `docker cp`.
+### 2. `install.sh`
 
-### 4. `scripts/deploy.sh`
+Atualizar o bloco de `sed` que substitui placeholders no `supabase-api.yml` para tambem substituir `{{FRONTEND_DOMAIN}}` pelo dominio correto (ex: `app.simplificandogrupos.com`).
 
-Corrigir os defaults das variaveis:
-- `TRAEFIK_NETWORK` para `traefik-public`
-- `CERT_RESOLVER` para `letsencryptresolver`
+### 3. `scripts/deploy.sh`
 
-## Detalhe tecnico sobre o File Provider
+Adicionar a mesma substituicao de `{{FRONTEND_DOMAIN}}` e re-copiar o arquivo para o Traefik durante redeploys.
 
-O Traefik usa `--providers.file.directory=/etc/traefik/dynamic` que e um caminho **dentro do container**. Para injetar a configuracao da API, o `install.sh` precisa:
+## Apos implementar
 
-1. Encontrar o container do Traefik
-2. Usar `docker cp` para copiar o arquivo `supabase-api.yml` para `/etc/traefik/dynamic/` dentro do container
-
-Alternativamente, se o diretorio `/etc/traefik/dynamic` estiver mapeado como volume no host, copiar diretamente para o diretorio do host. O script verificara ambos os cenarios.
-
-## Comandos pos-deploy
-
-Apos as correcoes, o usuario precisara executar no servidor:
+Voce precisara executar no servidor:
 
 ```bash
-cd /caminho/do/projeto
-# Redeployar frontend
-docker stack deploy -c docker-compose.frontend.yml whats-frontend
-
-# Copiar rota da API para o Traefik
+cd /root/whats-grupos
+git pull
+# Recopiar a config atualizada para o Traefik
 docker cp traefik/supabase-api.yml $(docker ps -q -f name=traefik):/etc/traefik/dynamic/supabase-api.yml
 ```
+
+O Traefik detecta mudancas automaticamente (file watch esta ativo), entao nao precisa reiniciar.
 
