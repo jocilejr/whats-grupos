@@ -36,8 +36,8 @@ fi
 
 # Defaults caso nao estejam definidos
 export FRONTEND_DOMAIN="${DOMAIN:-app.simplificandogrupos.com}"
-export CERT_RESOLVER="${CERT_RESOLVER:-letsencrypt}"
-export TRAEFIK_NETWORK="${TRAEFIK_NETWORK:-traefik_public}"
+export CERT_RESOLVER="${CERT_RESOLVER:-letsencryptresolver}"
+export TRAEFIK_NETWORK="${TRAEFIK_NETWORK:-traefik-public}"
 
 docker stack deploy -c docker-compose.frontend.yml whats-frontend 2>/dev/null || \
   echo "[AVISO] Falha ao redeployar stack. Verifique se o Docker Swarm esta ativo."
