@@ -8,7 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   FileText, Image, Video, File, Pencil, Trash2, Loader2,
   Clock, Repeat, AlertCircle, Mic, Sticker, MapPin,
-  Contact, BarChart3, List, MousePointerClick,
+  Contact, BarChart3, List, AtSign, Link2,
 } from "lucide-react";
 
 interface CampaignMessageListProps {
@@ -23,13 +23,13 @@ interface CampaignMessageListProps {
 const typeIcons: Record<string, any> = {
   text: FileText, image: Image, video: Video, document: File,
   audio: Mic, sticker: Sticker, location: MapPin, contact: Contact,
-  poll: BarChart3, list: List, buttons: MousePointerClick,
+  poll: BarChart3, list: List,
 };
 
 const typeLabels: Record<string, string> = {
   text: "Texto", image: "Imagem", video: "Vídeo", document: "Documento",
   audio: "Áudio", sticker: "Figurinha", location: "Localização", contact: "Contato",
-  poll: "Enquete", list: "Lista", buttons: "Botões",
+  poll: "Enquete", list: "Lista",
 };
 
 export function CampaignMessageList({ campaignId, apiConfigId, instanceName, groupIds, scheduleType, onEdit }: CampaignMessageListProps) {
@@ -137,29 +137,66 @@ export function CampaignMessageList({ campaignId, apiConfigId, instanceName, gro
         const Icon = typeIcons[msg.message_type] || FileText;
         const active = msg.is_active;
         const nextRun = getNextRun(msg);
+        const c = msg.content as any || {};
+        const hasImage = msg.message_type === "image" && c.mediaUrl;
+        const hasVideo = msg.message_type === "video" && c.mediaUrl;
+        const hasMention = c.mentionsEveryOne;
 
         return (
           <div
             key={msg.id}
-            className={`rounded-xl border p-4 transition-all ${
+            className={`rounded-xl border overflow-hidden transition-all ${
               active
                 ? "border-border/50 bg-background/40 hover:bg-background/60"
                 : "border-border/30 bg-muted/20 opacity-60"
             }`}
           >
-            <div className="flex items-start gap-4">
-              {/* Type icon */}
-              <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${active ? "bg-primary/10" : "bg-muted"}`}>
-                <Icon className={`h-5 w-5 ${active ? "text-primary" : "text-muted-foreground"}`} />
+            {/* Image/Video preview banner */}
+            {hasImage && (
+              <div className="relative h-36 w-full bg-muted/30">
+                <img src={c.mediaUrl} alt="Preview" className="h-full w-full object-cover" />
+                <div className="absolute inset-0 bg-gradient-to-t from-background/80 to-transparent" />
+                {c.caption && (
+                  <p className="absolute bottom-2 left-3 right-3 text-xs text-foreground font-medium line-clamp-2 drop-shadow-sm">
+                    {c.caption}
+                  </p>
+                )}
               </div>
+            )}
+            {hasVideo && (
+              <div className="relative h-36 w-full bg-muted/30 flex items-center justify-center">
+                <video src={c.mediaUrl} className="h-full w-full object-cover" muted />
+                <div className="absolute inset-0 bg-gradient-to-t from-background/80 to-transparent" />
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="h-10 w-10 rounded-full bg-background/80 flex items-center justify-center">
+                    <Video className="h-5 w-5 text-primary" />
+                  </div>
+                </div>
+                {c.caption && (
+                  <p className="absolute bottom-2 left-3 right-3 text-xs text-foreground font-medium line-clamp-2 drop-shadow-sm">
+                    {c.caption}
+                  </p>
+                )}
+              </div>
+            )}
+
+            <div className="flex items-start gap-4 p-4">
+              {/* Type icon */}
+              {!hasImage && !hasVideo && (
+                <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${active ? "bg-primary/10" : "bg-muted"}`}>
+                  <Icon className={`h-5 w-5 ${active ? "text-primary" : "text-muted-foreground"}`} />
+                </div>
+              )}
 
               {/* Content */}
               <div className="flex-1 min-w-0 space-y-2">
-                {/* Preview text */}
-                <p className="text-sm font-medium line-clamp-2">{getPreview(msg)}</p>
+                {/* Preview text (hide for image/video since caption is shown in banner) */}
+                {!hasImage && !hasVideo && (
+                  <p className="text-sm font-medium line-clamp-2">{getPreview(msg)}</p>
+                )}
 
                 {/* Meta badges */}
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-wrap items-center gap-1.5">
                   <Badge variant="secondary" className="text-[11px] gap-1 font-normal">
                     <Icon className="h-3 w-3" />{typeLabels[msg.message_type] || msg.message_type}
                   </Badge>
@@ -167,6 +204,20 @@ export function CampaignMessageList({ campaignId, apiConfigId, instanceName, gro
                     {msg.schedule_type === "once" ? <Clock className="h-3 w-3" /> : <Repeat className="h-3 w-3" />}
                     {getScheduleInfo(msg)}
                   </Badge>
+                  {hasMention && (
+                    <Badge variant="outline" className="text-[11px] gap-1 font-normal border-primary/30 text-primary">
+                      <AtSign className="h-3 w-3" />Menção
+                    </Badge>
+                  )}
+                  {msg.message_type === "text" && c.linkPreview === false && (
+                    <Badge variant="outline" className="text-[11px] gap-1 font-normal border-border/50 text-muted-foreground">
+                      <Link2 className="h-3 w-3" />Sem preview
+                    </Badge>
+                  )}
+                </div>
+
+                {/* Timing info */}
+                <div className="flex flex-wrap items-center gap-3">
                   {nextRun && (
                     <span className="text-[11px] text-muted-foreground">
                       Próximo: {nextRun}
@@ -181,7 +232,7 @@ export function CampaignMessageList({ campaignId, apiConfigId, instanceName, gro
               </div>
 
               {/* Actions */}
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="flex items-center gap-1.5 shrink-0">
                 <Switch
                   checked={!!active}
                   onCheckedChange={(checked) => toggleMutation.mutate({ id: msg.id, is_active: checked })}
