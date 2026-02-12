@@ -231,6 +231,7 @@ export type Database = {
           id: string
           instance_name: string | null
           is_active: boolean | null
+          last_completed_at: string | null
           last_run_at: string | null
           message_type: string
           next_run_at: string | null
@@ -251,6 +252,7 @@ export type Database = {
           id?: string
           instance_name?: string | null
           is_active?: boolean | null
+          last_completed_at?: string | null
           last_run_at?: string | null
           message_type?: string
           next_run_at?: string | null
@@ -271,6 +273,7 @@ export type Database = {
           id?: string
           instance_name?: string | null
           is_active?: boolean | null
+          last_completed_at?: string | null
           last_run_at?: string | null
           message_type?: string
           next_run_at?: string | null
@@ -315,6 +318,7 @@ export type Database = {
           id: string
           instance_name: string | null
           is_active: boolean | null
+          last_completed_at: string | null
           last_run_at: string | null
           message_type: string
           next_run_at: string | null
