@@ -1,40 +1,46 @@
 
 
-# Correcao do Instalador - Tratamento de Dominio
+# Correcao do Instalador - Porta Alternativa para PostgreSQL
 
-## Problema Identificado
+## Problema
 
-O script `install.sh` nao trata o caso em que o usuario digita o dominio com protocolo (`http://` ou `https://`). Isso resulta em URLs quebradas como:
+O Supabase Docker tenta usar a porta 5432, mas a VPS ja tem um PostgreSQL rodando nessa porta. O instalador nao deve parar nenhum servico existente.
 
-```text
-Dominio frontend: http://app.simplificandogrupos.com/
-Dominio API:      api.http://app.simplificandogrupos.com/
-```
+## Solucao
 
-O correto seria:
+Se a porta 5432 estiver ocupada, o instalador automaticamente usa a porta **5433** (ou a proxima disponivel) para o container PostgreSQL do Supabase. Os demais containers do Supabase se comunicam internamente via rede Docker, entao apenas a porta exposta no host precisa mudar.
 
-```text
-Dominio frontend: app.simplificandogrupos.com
-Dominio API:      api.app.simplificandogrupos.com
-```
+## Detalhe tecnico
 
-## Correcao
+No `install.sh`, antes de subir os containers:
 
-Adicionar uma limpeza automatica do input do dominio logo apos a leitura, removendo:
-- Prefixo `http://` ou `https://`
-- Barra final `/`
-- Espacos extras
+1. Verificar se a porta 5432 esta em uso com `ss -tlnp`
+2. Se estiver, encontrar uma porta alternativa (5433, 5434, etc.)
+3. Alterar o mapeamento de porta no `docker-compose.yml` do Supabase, trocando `5432:5432` por `5433:5432` (porta do host : porta interna do container)
+4. Informar o usuario qual porta foi escolhida
+5. Salvar a porta usada no arquivo `.credentials` para referencia futura
 
-### Detalhe tecnico
-
-No `install.sh`, logo apos o `read -p` do dominio (linha 58-62), adicionar:
+O trecho adicionado no `install.sh` sera algo como:
 
 ```text
-# Limpar protocolo e barra do dominio
-DOMAIN=$(echo "$DOMAIN" | sed -e 's|^https\?://||' -e 's|/$||' -e 's|^www\.||' | xargs)
+DB_PORT=5432
+if ss -tlnp | grep -q ":${DB_PORT} "; then
+  log_warn "Porta ${DB_PORT} em uso. Procurando porta alternativa..."
+  for PORT in 5433 5434 5435 5436 5437; do
+    if ! ss -tlnp | grep -q ":${PORT} "; then
+      DB_PORT=$PORT
+      break
+    fi
+  done
+  if [ "$DB_PORT" -eq 5432 ]; then
+    log_error "Nenhuma porta alternativa disponivel (5432-5437)."
+    exit 1
+  fi
+  log_info "Usando porta alternativa: ${DB_PORT}"
+  # Alterar mapeamento no docker-compose.yml
+  sed -i "s|5432:5432|${DB_PORT}:5432|" docker-compose.yml
+fi
 ```
 
-Isso garante que mesmo se o usuario digitar `http://app.simplificandogrupos.com/`, o valor sera corrigido para `app.simplificandogrupos.com`.
-
-Tambem sera adicionada uma validacao basica para garantir que o dominio tem formato valido (contem pelo menos um ponto).
+A conexao interna entre os containers do Supabase (PostgREST, GoTrue, etc.) continua usando a porta 5432 dentro da rede Docker - apenas a porta exposta para o host muda. O script `run-migrations.sh` tambem sera atualizado para receber a porta como parametro.
 
