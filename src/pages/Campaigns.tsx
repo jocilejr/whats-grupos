@@ -8,10 +8,11 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import {
   Megaphone, Plus, Users, CalendarClock, Loader2, Pencil, Trash2,
-  Zap, ZapOff, Sparkles,
+  Zap, ZapOff, Sparkles, MessageSquare,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { CampaignDialog } from "@/components/campaigns/CampaignDialog";
+import { CampaignMessagesDialog } from "@/components/campaigns/CampaignMessagesDialog";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -24,6 +25,7 @@ export default function Campaigns() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingCampaign, setEditingCampaign] = useState<any>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [messagesCampaign, setMessagesCampaign] = useState<any>(null);
 
   const { data: campaigns, isLoading } = useQuery({
     queryKey: ["campaigns", user?.id],
@@ -183,6 +185,14 @@ export default function Campaigns() {
                     <Button
                       size="sm"
                       variant="outline"
+                      className="flex-1 gap-1.5 text-xs border-border/50 hover:bg-primary/10 hover:text-primary hover:border-primary/30"
+                      onClick={() => setMessagesCampaign(c)}
+                    >
+                      <MessageSquare className="h-3 w-3" />Mensagens
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
                       className="gap-1.5 text-xs border-border/50 text-destructive hover:bg-destructive/10 hover:text-destructive hover:border-destructive/30"
                       onClick={() => setDeletingId(c.id)}
                     >
@@ -197,6 +207,7 @@ export default function Campaigns() {
       )}
 
       <CampaignDialog open={dialogOpen} onOpenChange={setDialogOpen} campaign={editingCampaign} />
+      <CampaignMessagesDialog open={!!messagesCampaign} onOpenChange={(o) => !o && setMessagesCampaign(null)} campaign={messagesCampaign} />
 
       <AlertDialog open={!!deletingId} onOpenChange={() => setDeletingId(null)}>
         <AlertDialogContent>
