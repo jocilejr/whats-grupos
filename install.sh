@@ -230,8 +230,12 @@ log_success "Arquivo .env do Supabase configurado."
 
 # Alterar porta do PostgreSQL no docker-compose se necessario
 if [ "$DB_PORT" -ne 5432 ]; then
-  log_info "Alterando mapeamento de porta no docker-compose.yml para ${DB_PORT}:5432..."
+  log_info "Alterando mapeamentos da porta 5432 no docker-compose.yml para ${DB_PORT}..."
+  # Trocar TODAS as referencias de porta 5432 no host (db e pooler)
   sed -i "s|5432:5432|${DB_PORT}:5432|g" docker-compose.yml
+  sed -i 's|"5432:|"'"${DB_PORT}"':|g' docker-compose.yml
+  # Pooler pode ter porta interna diferente (ex: 5432:4000)
+  sed -i 's|- 5432:|- '"${DB_PORT}"':|g' docker-compose.yml
 fi
 
 # Subir containers
