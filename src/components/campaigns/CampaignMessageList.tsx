@@ -239,40 +239,45 @@ export function CampaignMessageList({ campaignId, apiConfigId, instanceName, gro
             {/* Expanded details */}
             {expanded && (
               <div className="border-t border-border/30">
-                <div className="flex">
-                  {/* Left: Full content */}
-                  <div className="flex-1 min-w-0 p-4 space-y-3">
-                    <h4 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Conteúdo</h4>
-
-                    {/* Media preview */}
-                    {hasImage && (
-                      <div className="rounded-lg overflow-hidden border border-border/30 max-w-xs">
-                        <img src={c.mediaUrl} alt="Preview" className="w-full h-40 object-cover" />
-                        {c.caption && <p className="text-xs text-foreground p-2 border-t border-border/20">{c.caption}</p>}
-                      </div>
-                    )}
-                    {hasVideo && (
-                      <div className="rounded-lg overflow-hidden border border-border/30 max-w-xs">
-                        <div className="relative h-40 bg-muted/30">
-                          <video src={c.mediaUrl} className="w-full h-full object-cover" muted />
-                          <div className="absolute inset-0 flex items-center justify-center">
+                <div className="flex min-h-[200px]">
+                  {/* LEFT: Full media preview */}
+                  {(hasImage || hasVideo) && (
+                    <div className="w-52 shrink-0 bg-black/5 relative overflow-hidden">
+                      {hasImage && (
+                        <img src={c.mediaUrl} alt="Preview" className="w-full h-full object-cover absolute inset-0" />
+                      )}
+                      {hasVideo && (
+                        <>
+                          <video src={c.mediaUrl} className="w-full h-full object-cover absolute inset-0" muted />
+                          <div className="absolute inset-0 flex items-center justify-center bg-black/20">
                             <div className="h-10 w-10 rounded-full bg-background/80 flex items-center justify-center">
                               <Video className="h-5 w-5 text-primary" />
                             </div>
                           </div>
-                        </div>
-                        {c.caption && <p className="text-xs text-foreground p-2 border-t border-border/20">{c.caption}</p>}
+                        </>
+                      )}
+                    </div>
+                  )}
+
+                  {/* CENTER: Content / Caption */}
+                  <div className="flex-1 min-w-0 p-4 space-y-3 border-r border-border/30">
+                    <h4 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Conteúdo</h4>
+
+                    {(hasImage || hasVideo) && c.caption && (
+                      <div className="rounded-lg bg-muted/30 border border-border/20 p-3">
+                        <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">{c.caption}</p>
                       </div>
                     )}
+                    {(hasImage || hasVideo) && !c.caption && (
+                      <p className="text-xs text-muted-foreground italic">Sem legenda</p>
+                    )}
 
-                    {/* Text content */}
                     {msg.message_type === "text" && (
                       <div className="rounded-lg bg-muted/30 border border-border/20 p-3">
                         <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">{c.text}</p>
                       </div>
                     )}
 
-                    {/* Location */}
                     {msg.message_type === "location" && (
                       <div className="rounded-lg bg-muted/30 border border-border/20 p-3 space-y-1">
                         <p className="text-sm font-medium">{c.name || "Localização"}</p>
@@ -281,7 +286,6 @@ export function CampaignMessageList({ campaignId, apiConfigId, instanceName, gro
                       </div>
                     )}
 
-                    {/* Contact */}
                     {msg.message_type === "contact" && (
                       <div className="rounded-lg bg-muted/30 border border-border/20 p-3 space-y-1">
                         <p className="text-sm font-medium">{c.contactName}</p>
@@ -289,7 +293,6 @@ export function CampaignMessageList({ campaignId, apiConfigId, instanceName, gro
                       </div>
                     )}
 
-                    {/* Poll */}
                     {msg.message_type === "poll" && (
                       <div className="rounded-lg bg-muted/30 border border-border/20 p-3 space-y-2">
                         <p className="text-sm font-medium">{c.pollName}</p>
@@ -305,7 +308,6 @@ export function CampaignMessageList({ campaignId, apiConfigId, instanceName, gro
                       </div>
                     )}
 
-                    {/* List */}
                     {msg.message_type === "list" && (
                       <div className="rounded-lg bg-muted/30 border border-border/20 p-3 space-y-2">
                         <p className="text-sm font-medium">{c.listTitle}</p>
@@ -325,14 +327,12 @@ export function CampaignMessageList({ campaignId, apiConfigId, instanceName, gro
                       </div>
                     )}
 
-                    {/* Audio / Sticker / Document fallback */}
                     {(msg.message_type === "audio" || msg.message_type === "sticker" || msg.message_type === "document") && (
                       <div className="rounded-lg bg-muted/30 border border-border/20 p-3">
                         <p className="text-xs text-muted-foreground truncate">{c.mediaUrl || c.audio || c.sticker || "Arquivo"}</p>
                       </div>
                     )}
 
-                    {/* Flags */}
                     <div className="flex flex-wrap gap-1.5">
                       {hasMention && (
                         <Badge variant="outline" className="text-[10px] gap-1 font-normal border-primary/30 text-primary">
@@ -352,8 +352,8 @@ export function CampaignMessageList({ campaignId, apiConfigId, instanceName, gro
                     </div>
                   </div>
 
-                  {/* Right: Schedule details */}
-                  <div className="w-48 shrink-0 border-l border-border/30 bg-muted/5 p-4 space-y-4">
+                  {/* RIGHT: Schedule + Actions */}
+                  <div className="w-52 shrink-0 bg-muted/5 p-4 space-y-4">
                     <div>
                       <h4 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Programação</h4>
                       <div className="flex items-center gap-2 mb-2">
@@ -368,7 +368,6 @@ export function CampaignMessageList({ campaignId, apiConfigId, instanceName, gro
                       <div className="text-2xl font-mono font-bold text-foreground tabular-nums">{time}</div>
                     </div>
 
-                    {/* Weekly days */}
                     {msg.schedule_type === "weekly" && c.weekDays && (
                       <div>
                         <p className="text-[10px] text-muted-foreground mb-1.5">Dias da semana</p>
@@ -424,33 +423,31 @@ export function CampaignMessageList({ campaignId, apiConfigId, instanceName, gro
                       <p className="text-[10px] text-muted-foreground mb-0.5">Grupos</p>
                       <p className="text-xs font-medium">{msg.group_ids?.length || 0} grupo(s)</p>
                     </div>
-                  </div>
-                </div>
 
-                {/* Actions bar */}
-                <div className="flex items-center justify-between border-t border-border/30 px-4 py-2 bg-muted/5">
-                  <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-2">
-                      <Switch
-                        checked={!!active}
-                        onCheckedChange={(checked) => toggleMutation.mutate({ id: msg.id, is_active: checked })}
-                        className="scale-75 origin-left"
-                      />
-                      <span className="text-[11px] text-muted-foreground">{active ? "Ativo" : "Inativo"}</span>
+                    {/* Actions */}
+                    <div className="border-t border-border/20 pt-3 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          checked={!!active}
+                          onCheckedChange={(checked) => toggleMutation.mutate({ id: msg.id, is_active: checked })}
+                          className="scale-75 origin-left"
+                        />
+                        <span className="text-[11px] text-muted-foreground">{active ? "Ativo" : "Inativo"}</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Button variant="outline" size="sm" className="h-7 text-xs gap-1 flex-1" onClick={() => onEdit(msg)}>
+                          <Pencil className="h-3 w-3" />Editar
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-xs gap-1 text-destructive hover:text-destructive"
+                          onClick={() => deleteMutation.mutate(msg.id)}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={() => onEdit(msg)}>
-                      <Pencil className="h-3 w-3" />Editar
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 text-xs gap-1 text-destructive hover:text-destructive"
-                      onClick={() => deleteMutation.mutate(msg.id)}
-                    >
-                      <Trash2 className="h-3 w-3" />Excluir
-                    </Button>
                   </div>
                 </div>
               </div>
