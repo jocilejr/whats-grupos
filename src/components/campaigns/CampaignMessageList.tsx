@@ -18,6 +18,7 @@ interface CampaignMessageListProps {
   groupIds: string[];
   scheduleType: string;
   onEdit: (msg: any) => void;
+  weekdayFilter?: number | null;
 }
 
 const typeIcons: Record<string, any> = {
@@ -32,7 +33,7 @@ const typeLabels: Record<string, string> = {
   poll: "Enquete", list: "Lista",
 };
 
-export function CampaignMessageList({ campaignId, apiConfigId, instanceName, groupIds, scheduleType, onEdit }: CampaignMessageListProps) {
+export function CampaignMessageList({ campaignId, apiConfigId, instanceName, groupIds, scheduleType, onEdit, weekdayFilter }: CampaignMessageListProps) {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -119,13 +120,22 @@ export function CampaignMessageList({ campaignId, apiConfigId, instanceName, gro
     );
   }
 
-  if (!messages?.length) {
+  const filteredMessages = weekdayFilter != null
+    ? (messages || []).filter((msg) => {
+        const wd = (msg.content as any)?.weekDays as number[] | undefined;
+        return wd?.includes(weekdayFilter);
+      })
+    : messages || [];
+
+  if (!filteredMessages.length) {
     return (
       <div className="py-12 text-center">
         <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted mx-auto mb-3">
           <AlertCircle className="h-7 w-7 text-muted-foreground" />
         </div>
-        <p className="text-sm font-medium text-foreground">Nenhuma mensagem agendada</p>
+        <p className="text-sm font-medium text-foreground">
+          {weekdayFilter != null ? "Nenhuma mensagem neste dia" : "Nenhuma mensagem agendada"}
+        </p>
         <p className="text-xs text-muted-foreground mt-1">Clique em "Adicionar Mensagem" para criar uma.</p>
       </div>
     );
@@ -133,7 +143,7 @@ export function CampaignMessageList({ campaignId, apiConfigId, instanceName, gro
 
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-      {messages.map((msg) => {
+      {filteredMessages.map((msg) => {
         const Icon = typeIcons[msg.message_type] || FileText;
         const active = msg.is_active;
         const nextRun = getNextRun(msg);

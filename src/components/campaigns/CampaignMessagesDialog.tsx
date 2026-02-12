@@ -5,6 +5,12 @@ import { CampaignMessageList } from "./CampaignMessageList";
 import { ScheduledMessageForm } from "./ScheduledMessageForm";
 import { CalendarClock, Clock, CalendarDays, Calendar, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+
+const WEEKDAYS = [
+  { value: 0, label: "Dom" }, { value: 1, label: "Seg" }, { value: 2, label: "Ter" },
+  { value: 3, label: "Qua" }, { value: 4, label: "Qui" }, { value: 5, label: "Sex" }, { value: 6, label: "Sáb" },
+];
 
 interface CampaignMessagesDialogProps {
   open: boolean;
@@ -16,6 +22,7 @@ export function CampaignMessagesDialog({ open, onOpenChange, campaign }: Campaig
   const [formOpen, setFormOpen] = useState(false);
   const [formScheduleType, setFormScheduleType] = useState("once");
   const [editingMsg, setEditingMsg] = useState<any>(null);
+  const [weekdayFilter, setWeekdayFilter] = useState<number | null>(null);
 
   if (!campaign) return null;
 
@@ -97,6 +104,33 @@ export function CampaignMessagesDialog({ open, onOpenChange, campaign }: Campaig
                   </Button>
                 </div>
 
+                {/* Weekday filter for weekly tab */}
+                {type === "weekly" && (
+                  <div className="flex items-center gap-1.5 px-6 pb-3 shrink-0">
+                    <button
+                      onClick={() => setWeekdayFilter(null)}
+                      className={cn(
+                        "px-2.5 py-1 rounded-md text-[11px] font-medium border transition-all",
+                        weekdayFilter === null
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border/40 text-muted-foreground hover:bg-secondary/50"
+                      )}
+                    >Todos</button>
+                    {WEEKDAYS.map((d) => (
+                      <button
+                        key={d.value}
+                        onClick={() => setWeekdayFilter(weekdayFilter === d.value ? null : d.value)}
+                        className={cn(
+                          "px-2.5 py-1 rounded-md text-[11px] font-medium border transition-all",
+                          weekdayFilter === d.value
+                            ? "border-primary bg-primary/10 text-primary"
+                            : "border-border/40 text-muted-foreground hover:bg-secondary/50"
+                        )}
+                      >{d.label}</button>
+                    ))}
+                  </div>
+                )}
+
                 {/* Scrollable message list */}
                 <div className="flex-1 overflow-y-auto min-h-0 px-6 pb-6">
                   <CampaignMessageList
@@ -106,6 +140,7 @@ export function CampaignMessagesDialog({ open, onOpenChange, campaign }: Campaig
                     groupIds={campaign.group_ids || []}
                     scheduleType={type}
                     onEdit={handleEdit}
+                    weekdayFilter={type === "weekly" ? weekdayFilter : undefined}
                   />
                 </div>
               </TabsContent>
