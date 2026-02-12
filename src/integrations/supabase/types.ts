@@ -234,6 +234,7 @@ export type Database = {
           last_run_at: string | null
           message_type: string
           next_run_at: string | null
+          processing_started_at: string | null
           schedule_type: string
           scheduled_at: string | null
           updated_at: string
@@ -252,6 +253,7 @@ export type Database = {
           last_run_at?: string | null
           message_type?: string
           next_run_at?: string | null
+          processing_started_at?: string | null
           schedule_type?: string
           scheduled_at?: string | null
           updated_at?: string
@@ -270,6 +272,7 @@ export type Database = {
           last_run_at?: string | null
           message_type?: string
           next_run_at?: string | null
+          processing_started_at?: string | null
           schedule_type?: string
           scheduled_at?: string | null
           updated_at?: string
@@ -297,7 +300,34 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      claim_due_messages: {
+        Args: never
+        Returns: {
+          api_config_id: string
+          campaign_id: string | null
+          content: Json
+          created_at: string
+          cron_expression: string | null
+          group_ids: string[]
+          id: string
+          instance_name: string | null
+          is_active: boolean | null
+          last_run_at: string | null
+          message_type: string
+          next_run_at: string | null
+          processing_started_at: string | null
+          schedule_type: string
+          scheduled_at: string | null
+          updated_at: string
+          user_id: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "scheduled_messages"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
     }
     Enums: {
       [_ in never]: never
