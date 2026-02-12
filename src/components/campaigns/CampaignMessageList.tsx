@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/contexts/AuthContext";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -236,35 +237,44 @@ export function CampaignMessageList({ campaignId, apiConfigId, instanceName, gro
               )} />
             </button>
 
-            {/* Expanded details */}
+            {/* Expanded details with tabs */}
             {expanded && (
-              <div className="border-t border-border/30">
-                <div className="flex min-h-[200px]">
-                  {/* LEFT: Full media preview */}
-                  {(hasImage || hasVideo) && (
-                    <div className="shrink-0 bg-black/5 flex items-start justify-center p-2">
-                      {hasImage && (
-                        <img src={c.mediaUrl} alt="Preview" className="max-w-[220px] max-h-[400px] rounded-lg object-contain" />
-                      )}
-                      {hasVideo && (
-                        <div className="relative">
-                          <video src={c.mediaUrl} className="max-w-[220px] max-h-[400px] rounded-lg object-contain" muted />
-                          <div className="absolute inset-0 flex items-center justify-center bg-black/20 rounded-lg">
-                            <div className="h-10 w-10 rounded-full bg-background/80 flex items-center justify-center">
-                              <Video className="h-5 w-5 text-primary" />
+              <div className="border-t border-border/30 p-4">
+                <Tabs defaultValue="content" className="w-full">
+                  <TabsList className="w-full grid grid-cols-2 mb-4">
+                    <TabsTrigger value="content" className="text-xs gap-1.5">
+                      <FileText className="h-3.5 w-3.5" />Conteúdo
+                    </TabsTrigger>
+                    <TabsTrigger value="schedule" className="text-xs gap-1.5">
+                      <Clock className="h-3.5 w-3.5" />Programação
+                    </TabsTrigger>
+                  </TabsList>
+
+                  {/* ---- CONTENT TAB ---- */}
+                  <TabsContent value="content" className="space-y-4 mt-0">
+                    {/* Media */}
+                    {(hasImage || hasVideo) && (
+                      <div className="flex justify-center bg-black/5 rounded-lg p-3">
+                        {hasImage && (
+                          <img src={c.mediaUrl} alt="Preview" className="max-w-full max-h-[400px] rounded-lg object-contain" />
+                        )}
+                        {hasVideo && (
+                          <div className="relative">
+                            <video src={c.mediaUrl} className="max-w-full max-h-[400px] rounded-lg object-contain" muted />
+                            <div className="absolute inset-0 flex items-center justify-center bg-black/20 rounded-lg">
+                              <div className="h-10 w-10 rounded-full bg-background/80 flex items-center justify-center">
+                                <Video className="h-5 w-5 text-primary" />
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
+                        )}
+                      </div>
+                    )}
 
-                  {/* CENTER: Content / Caption */}
-                  <div className="flex-1 min-w-0 p-4 space-y-3 border-r border-border/30">
-                    <h4 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Conteúdo</h4>
-
+                    {/* Caption */}
                     {(hasImage || hasVideo) && c.caption && (
                       <div className="rounded-lg bg-muted/30 border border-border/20 p-3">
+                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Legenda</p>
                         <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">{c.caption}</p>
                       </div>
                     )}
@@ -272,12 +282,14 @@ export function CampaignMessageList({ campaignId, apiConfigId, instanceName, gro
                       <p className="text-xs text-muted-foreground italic">Sem legenda</p>
                     )}
 
+                    {/* Text */}
                     {msg.message_type === "text" && (
                       <div className="rounded-lg bg-muted/30 border border-border/20 p-3">
                         <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">{c.text}</p>
                       </div>
                     )}
 
+                    {/* Location */}
                     {msg.message_type === "location" && (
                       <div className="rounded-lg bg-muted/30 border border-border/20 p-3 space-y-1">
                         <p className="text-sm font-medium">{c.name || "Localização"}</p>
@@ -286,6 +298,7 @@ export function CampaignMessageList({ campaignId, apiConfigId, instanceName, gro
                       </div>
                     )}
 
+                    {/* Contact */}
                     {msg.message_type === "contact" && (
                       <div className="rounded-lg bg-muted/30 border border-border/20 p-3 space-y-1">
                         <p className="text-sm font-medium">{c.contactName}</p>
@@ -293,6 +306,7 @@ export function CampaignMessageList({ campaignId, apiConfigId, instanceName, gro
                       </div>
                     )}
 
+                    {/* Poll */}
                     {msg.message_type === "poll" && (
                       <div className="rounded-lg bg-muted/30 border border-border/20 p-3 space-y-2">
                         <p className="text-sm font-medium">{c.pollName}</p>
@@ -308,6 +322,7 @@ export function CampaignMessageList({ campaignId, apiConfigId, instanceName, gro
                       </div>
                     )}
 
+                    {/* List */}
                     {msg.message_type === "list" && (
                       <div className="rounded-lg bg-muted/30 border border-border/20 p-3 space-y-2">
                         <p className="text-sm font-medium">{c.listTitle}</p>
@@ -327,12 +342,14 @@ export function CampaignMessageList({ campaignId, apiConfigId, instanceName, gro
                       </div>
                     )}
 
+                    {/* Audio / Sticker / Document */}
                     {(msg.message_type === "audio" || msg.message_type === "sticker" || msg.message_type === "document") && (
                       <div className="rounded-lg bg-muted/30 border border-border/20 p-3">
                         <p className="text-xs text-muted-foreground truncate">{c.mediaUrl || c.audio || c.sticker || "Arquivo"}</p>
                       </div>
                     )}
 
+                    {/* Flags */}
                     <div className="flex flex-wrap gap-1.5">
                       {hasMention && (
                         <Badge variant="outline" className="text-[10px] gap-1 font-normal border-primary/30 text-primary">
@@ -350,38 +367,36 @@ export function CampaignMessageList({ campaignId, apiConfigId, instanceName, gro
                         </Badge>
                       )}
                     </div>
-                  </div>
+                  </TabsContent>
 
-                  {/* RIGHT: Schedule + Actions */}
-                  <div className="w-52 shrink-0 bg-muted/5 p-4 space-y-4">
-                    <div>
-                      <h4 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Programação</h4>
-                      <div className="flex items-center gap-2 mb-2">
-                        {msg.schedule_type === "once" && <Clock className="h-4 w-4 text-primary" />}
-                        {msg.schedule_type === "daily" && <CalendarClock className="h-4 w-4 text-primary" />}
-                        {msg.schedule_type === "weekly" && <CalendarDays className="h-4 w-4 text-primary" />}
-                        {msg.schedule_type === "monthly" && <Calendar className="h-4 w-4 text-primary" />}
-                        <span className="text-xs font-semibold text-foreground">
-                          {msg.schedule_type === "once" ? "Envio único" : msg.schedule_type === "daily" ? "Diário" : msg.schedule_type === "weekly" ? "Semanal" : "Mensal"}
-                        </span>
-                      </div>
-                      <div className="text-2xl font-mono font-bold text-foreground tabular-nums">{time}</div>
+                  {/* ---- SCHEDULE TAB ---- */}
+                  <TabsContent value="schedule" className="space-y-4 mt-0">
+                    <div className="flex items-center gap-2">
+                      {msg.schedule_type === "once" && <Clock className="h-5 w-5 text-primary" />}
+                      {msg.schedule_type === "daily" && <CalendarClock className="h-5 w-5 text-primary" />}
+                      {msg.schedule_type === "weekly" && <CalendarDays className="h-5 w-5 text-primary" />}
+                      {msg.schedule_type === "monthly" && <Calendar className="h-5 w-5 text-primary" />}
+                      <span className="text-sm font-semibold text-foreground">
+                        {msg.schedule_type === "once" ? "Envio único" : msg.schedule_type === "daily" ? "Diário" : msg.schedule_type === "weekly" ? "Semanal" : "Mensal"}
+                      </span>
                     </div>
+
+                    <div className="text-3xl font-mono font-bold text-foreground tabular-nums">{time}</div>
 
                     {msg.schedule_type === "weekly" && c.weekDays && (
                       <div>
                         <p className="text-[10px] text-muted-foreground mb-1.5">Dias da semana</p>
-                        <div className="grid grid-cols-7 gap-0.5">
+                        <div className="flex gap-1">
                           {DAYS.map((d, i) => (
                             <div
                               key={i}
                               className={cn(
-                                "text-center text-[10px] font-bold py-1 rounded",
+                                "text-center text-xs font-bold w-8 h-8 rounded-lg flex items-center justify-center",
                                 (c.weekDays as number[]).includes(i)
                                   ? "bg-primary/15 text-primary"
                                   : "bg-muted/30 text-muted-foreground/30"
                               )}
-                            >{d[0]}</div>
+                            >{d}</div>
                           ))}
                         </div>
                       </div>
@@ -403,51 +418,51 @@ export function CampaignMessageList({ campaignId, apiConfigId, instanceName, gro
                       </div>
                     )}
 
-                    {nextRun && (
-                      <div className="border-t border-border/20 pt-3">
-                        <p className="text-[10px] text-muted-foreground mb-0.5">Próximo envio</p>
-                        <p className="text-xs font-medium text-foreground">{nextRun}</p>
-                      </div>
-                    )}
-
-                    {msg.last_run_at && (
-                      <div>
-                        <p className="text-[10px] text-muted-foreground mb-0.5">Último envio</p>
-                        <p className="text-xs text-foreground">
-                          {new Date(msg.last_run_at).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}
-                        </p>
-                      </div>
-                    )}
-
-                    <div>
-                      <p className="text-[10px] text-muted-foreground mb-0.5">Grupos</p>
-                      <p className="text-xs font-medium">{msg.group_ids?.length || 0} grupo(s)</p>
-                    </div>
-
-                    {/* Actions */}
-                    <div className="border-t border-border/20 pt-3 space-y-2">
-                      <div className="flex items-center gap-2">
-                        <Switch
-                          checked={!!active}
-                          onCheckedChange={(checked) => toggleMutation.mutate({ id: msg.id, is_active: checked })}
-                          className="scale-75 origin-left"
-                        />
-                        <span className="text-[11px] text-muted-foreground">{active ? "Ativo" : "Inativo"}</span>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <Button variant="outline" size="sm" className="h-7 text-xs gap-1 flex-1" onClick={() => onEdit(msg)}>
-                          <Pencil className="h-3 w-3" />Editar
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 text-xs gap-1 text-destructive hover:text-destructive"
-                          onClick={() => deleteMutation.mutate(msg.id)}
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
+                    <div className="grid grid-cols-2 gap-3">
+                      {nextRun && (
+                        <div className="rounded-lg bg-muted/30 border border-border/20 p-3">
+                          <p className="text-[10px] text-muted-foreground mb-0.5">Próximo envio</p>
+                          <p className="text-xs font-medium text-foreground">{nextRun}</p>
+                        </div>
+                      )}
+                      {msg.last_run_at && (
+                        <div className="rounded-lg bg-muted/30 border border-border/20 p-3">
+                          <p className="text-[10px] text-muted-foreground mb-0.5">Último envio</p>
+                          <p className="text-xs text-foreground">
+                            {new Date(msg.last_run_at).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}
+                          </p>
+                        </div>
+                      )}
+                      <div className="rounded-lg bg-muted/30 border border-border/20 p-3">
+                        <p className="text-[10px] text-muted-foreground mb-0.5">Grupos</p>
+                        <p className="text-xs font-medium">{msg.group_ids?.length || 0} grupo(s)</p>
                       </div>
                     </div>
+                  </TabsContent>
+                </Tabs>
+
+                {/* Actions bar */}
+                <div className="flex items-center justify-between border-t border-border/30 pt-3 mt-4">
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      checked={!!active}
+                      onCheckedChange={(checked) => toggleMutation.mutate({ id: msg.id, is_active: checked })}
+                      className="scale-75 origin-left"
+                    />
+                    <span className="text-[11px] text-muted-foreground">{active ? "Ativo" : "Inativo"}</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={() => onEdit(msg)}>
+                      <Pencil className="h-3 w-3" />Editar
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs gap-1 text-destructive hover:text-destructive"
+                      onClick={() => deleteMutation.mutate(msg.id)}
+                    >
+                      <Trash2 className="h-3 w-3" />Excluir
+                    </Button>
                   </div>
                 </div>
               </div>
