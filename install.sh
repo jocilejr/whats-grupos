@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 # ============================================================
 # Instalador Automatico - WhatsApp Grupos
@@ -21,11 +21,9 @@ log_warn()    { echo -e "${YELLOW}[AVISO]${NC} $1"; }
 log_error()   { echo -e "${RED}[ERRO]${NC} $1"; }
 log_step()    { echo -e "\n${CYAN}========================================${NC}"; echo -e "${CYAN}  $1${NC}"; echo -e "${CYAN}========================================${NC}\n"; }
 
-check_error() {
-  if [ $? -ne 0 ]; then
-    log_error "$1"
-    exit 1
-  fi
+die() {
+  log_error "$1"
+  exit 1
 }
 
 # ============================================================
@@ -33,13 +31,11 @@ check_error() {
 # ============================================================
 
 if [ "$EUID" -ne 0 ]; then
-  log_error "Execute como root: sudo ./install.sh"
-  exit 1
+  die "Execute como root: sudo ./install.sh"
 fi
 
 if ! grep -qi "ubuntu" /etc/os-release 2>/dev/null; then
-  log_error "Este instalador requer Ubuntu 22.04 ou superior."
-  exit 1
+  die "Este instalador requer Ubuntu 22.04 ou superior."
 fi
 
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -50,48 +46,67 @@ PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 USE_TRAEFIK=false
 TRAEFIK_NETWORK=""
+TRAEFIK_DYNAMIC_DIR=""
 CERT_RESOLVER="letsencryptresolver"
 
 if command -v docker &>/dev/null; then
   SWARM_STATE=$(docker info --format '{{.Swarm.LocalNodeState}}' 2>/dev/null || echo "inactive")
   if [ "$SWARM_STATE" = "active" ]; then
     # Procurar servico Traefik
-    TRAEFIK_SERVICE=$(docker service ls --format '{{.Name}}' 2>/dev/null | grep -i traefik | head -1)
+    TRAEFIK_SERVICE=$(docker service ls --format '{{.Name}}' 2>/dev/null | grep -i traefik | head -1 || true)
     if [ -n "$TRAEFIK_SERVICE" ]; then
       USE_TRAEFIK=true
       log_info "Traefik detectado no Docker Swarm (servico: ${TRAEFIK_SERVICE})"
 
-      # Detectar rede do Traefik
-      TRAEFIK_NETWORK=$(docker service inspect "$TRAEFIK_SERVICE" --format '{{range .Spec.TaskTemplate.Networks}}{{.Target}} {{end}}' 2>/dev/null | xargs)
+      # ---- Detectar rede do Traefik ----
+      TRAEFIK_NETWORK=$(docker service inspect "$TRAEFIK_SERVICE" --format '{{range .Spec.TaskTemplate.Networks}}{{.Target}} {{end}}' 2>/dev/null | xargs || true)
       if [ -n "$TRAEFIK_NETWORK" ]; then
-        # Resolver ID para nome
         TRAEFIK_NETWORK=$(docker network inspect "$TRAEFIK_NETWORK" --format '{{.Name}}' 2>/dev/null || echo "$TRAEFIK_NETWORK")
       fi
-      # Fallback para nome padrao
       if [ -z "$TRAEFIK_NETWORK" ]; then
-        TRAEFIK_NETWORK=$(docker network ls --format '{{.Name}}' | grep -i traefik | head -1)
+        TRAEFIK_NETWORK=$(docker network ls --format '{{.Name}}' | grep -iE 'traefik.*(public|net)' | head -1 || true)
       fi
       if [ -z "$TRAEFIK_NETWORK" ]; then
         TRAEFIK_NETWORK="traefik-public"
       fi
       log_info "Rede do Traefik: ${TRAEFIK_NETWORK}"
 
-      # Detectar certresolver
-      TRAEFIK_CONTAINER=$(docker ps -q -f name=traefik | head -1)
+      # ---- Detectar certresolver e file provider ----
+      # Tentar via YAML config dentro do container
+      TRAEFIK_CONTAINER=$(docker ps -q -f name=traefik | head -1 || true)
+      TRAEFIK_CONFIG=""
       if [ -n "$TRAEFIK_CONTAINER" ]; then
         TRAEFIK_CONFIG=$(docker exec "$TRAEFIK_CONTAINER" cat /etc/traefik/traefik.yml 2>/dev/null || \
                          docker exec "$TRAEFIK_CONTAINER" cat /traefik.yml 2>/dev/null || echo "")
-        if [ -n "$TRAEFIK_CONFIG" ]; then
-          DETECTED_RESOLVER=$(echo "$TRAEFIK_CONFIG" | grep -A1 "certificatesResolvers" | grep -oP '^\s+\K\w+' | head -1)
+      fi
+
+      if [ -n "$TRAEFIK_CONFIG" ]; then
+        # Config via YAML
+        DETECTED_RESOLVER=$(echo "$TRAEFIK_CONFIG" | grep -A1 "certificatesResolvers" | grep -oP '^\s+\K\w+' | head -1 || true)
+        if [ -n "$DETECTED_RESOLVER" ]; then
+          CERT_RESOLVER="$DETECTED_RESOLVER"
+        fi
+        TRAEFIK_DYNAMIC_DIR=$(echo "$TRAEFIK_CONFIG" | grep -A5 "file:" | grep "directory:" | sed 's/.*directory:\s*//' | tr -d '"' | tr -d "'" | xargs || true)
+      else
+        # Config via CLI args (docker service inspect)
+        SERVICE_ARGS=$(docker service inspect "$TRAEFIK_SERVICE" --format '{{range .Spec.TaskTemplate.ContainerSpec.Args}}{{.}} {{end}}' 2>/dev/null || true)
+        if [ -n "$SERVICE_ARGS" ]; then
+          # Detectar certresolver: --certificatesresolvers.<name>.acme...
+          DETECTED_RESOLVER=$(echo "$SERVICE_ARGS" | grep -oP 'certificatesresolvers\.\K[^.]+' | head -1 || true)
           if [ -n "$DETECTED_RESOLVER" ]; then
             CERT_RESOLVER="$DETECTED_RESOLVER"
           fi
+          # Detectar file provider directory: --providers.file.directory=<path>
+          DETECTED_DIR=$(echo "$SERVICE_ARGS" | grep -oP 'providers\.file\.directory=\K[^\s]+' || true)
+          if [ -n "$DETECTED_DIR" ]; then
+            TRAEFIK_DYNAMIC_DIR="$DETECTED_DIR"
+          fi
         fi
-
-        # Detectar caminho do file provider
-        TRAEFIK_DYNAMIC_DIR=$(echo "$TRAEFIK_CONFIG" | grep -A5 "file:" | grep "directory:" | sed 's/.*directory:\s*//' | tr -d '"' | tr -d "'" | xargs)
       fi
       log_info "Cert resolver: ${CERT_RESOLVER}"
+      if [ -n "$TRAEFIK_DYNAMIC_DIR" ]; then
+        log_info "File provider dir: ${TRAEFIK_DYNAMIC_DIR}"
+      fi
     fi
   fi
 fi
@@ -114,24 +129,21 @@ echo ""
 
 read -p "Digite seu dominio (ex: meusistema.com): " DOMAIN
 if [ -z "$DOMAIN" ]; then
-  log_error "Dominio e obrigatorio."
-  exit 1
+  die "Dominio e obrigatorio."
 fi
 
 # Limpar protocolo, www e barra final do dominio
 DOMAIN=$(echo "$DOMAIN" | sed -e 's|^https\?://||' -e 's|/$||' -e 's|^www\.||' | xargs)
 
-# Validar formato basico do dominio
 if [[ ! "$DOMAIN" =~ \. ]]; then
-  log_error "Dominio invalido: '${DOMAIN}'. Use o formato: meusistema.com"
-  exit 1
+  die "Dominio invalido: '${DOMAIN}'. Use o formato: meusistema.com"
 fi
 
+SSL_EMAIL=""
 if [ "$USE_TRAEFIK" = false ]; then
   read -p "Digite seu email (para certificado SSL): " SSL_EMAIL
   if [ -z "$SSL_EMAIL" ]; then
-    log_error "Email e obrigatorio para o SSL."
-    exit 1
+    die "Email e obrigatorio para o SSL."
   fi
 fi
 
@@ -210,7 +222,6 @@ if [ "$USE_TRAEFIK" = false ]; then
     log_success "Nginx ja instalado."
   fi
 
-  # Certbot
   log_info "Instalando/verificando Certbot..."
   apt-get install -y -qq certbot python3-certbot-nginx
   log_success "Certbot pronto."
@@ -235,18 +246,19 @@ ANON_KEY=$(echo "$KEYS_OUTPUT" | grep "ANON_KEY=" | cut -d'=' -f2-)
 SERVICE_ROLE_KEY=$(echo "$KEYS_OUTPUT" | grep "SERVICE_ROLE_KEY=" | cut -d'=' -f2-)
 
 if [ -z "$ANON_KEY" ] || [ -z "$SERVICE_ROLE_KEY" ]; then
-  log_error "Falha ao gerar chaves JWT."
-  exit 1
+  die "Falha ao gerar chaves JWT. Verifique se Node.js esta instalado."
 fi
 
 log_success "Chaves JWT geradas."
 
 # Clonar Supabase Docker
-if [ ! -d "$SUPABASE_DIR" ]; then
+if [ -d "$SUPABASE_DIR" ]; then
+  log_warn "Diretorio Supabase ja existe. Parando containers existentes..."
+  cd "${SUPABASE_DIR}/docker" 2>/dev/null && docker compose down 2>/dev/null || true
+  cd "$PROJECT_DIR"
+else
   log_info "Clonando Supabase Docker..."
   git clone --depth 1 https://github.com/supabase/supabase "$SUPABASE_DIR"
-else
-  log_warn "Diretorio Supabase ja existe. Usando existente."
 fi
 
 cd "${SUPABASE_DIR}/docker"
@@ -255,15 +267,15 @@ cd "${SUPABASE_DIR}/docker"
 DB_PORT=5432
 if ss -tlnp | grep -q ":${DB_PORT} "; then
   log_warn "Porta ${DB_PORT} em uso. Procurando porta alternativa..."
+  DB_PORT=0
   for PORT in 5433 5434 5435 5436 5437; do
     if ! ss -tlnp | grep -q ":${PORT} "; then
       DB_PORT=$PORT
       break
     fi
   done
-  if [ "$DB_PORT" -eq 5432 ]; then
-    log_error "Nenhuma porta alternativa disponivel (5432-5437)."
-    exit 1
+  if [ "$DB_PORT" -eq 0 ]; then
+    die "Nenhuma porta alternativa disponivel (5432-5437)."
   fi
   log_info "Usando porta alternativa: ${DB_PORT}"
 fi
@@ -271,9 +283,8 @@ fi
 # Copiar e configurar .env
 cp -n .env.example .env 2>/dev/null || true
 
-# Gerar DASHBOARD_PASSWORD e outros secrets
+# Gerar secrets
 DASHBOARD_PASSWORD=$(openssl rand -base64 16 | tr -d '/+=')
-POOLER_TENANT_ID=$(openssl rand -hex 8)
 LOGFLARE_API_KEY=$(openssl rand -base64 24 | tr -d '/+=')
 
 # Configurar .env do Supabase
@@ -290,36 +301,42 @@ sed -i "s|LOGFLARE_API_KEY=.*|LOGFLARE_API_KEY=${LOGFLARE_API_KEY}|" .env
 
 log_success "Arquivo .env do Supabase configurado."
 
-# Alterar porta do PostgreSQL no docker-compose se necessario
+# Alterar porta do PostgreSQL se necessario
 if [ "$DB_PORT" -ne 5432 ]; then
   log_info "Alterando POSTGRES_PORT no .env para ${DB_PORT}..."
-  sed -i "s|POSTGRES_PORT=.*|POSTGRES_PORT=${DB_PORT}|" .env
+  if grep -q "POSTGRES_PORT=" .env; then
+    sed -i "s|POSTGRES_PORT=.*|POSTGRES_PORT=${DB_PORT}|" .env
+  else
+    echo "POSTGRES_PORT=${DB_PORT}" >> .env
+  fi
 fi
+
+# Comentar porta externa do Kong (sera acessado apenas internamente)
+log_info "Configurando Kong para acesso apenas interno..."
+sed -i -E 's/^(\s*-\s*"?\$\{KONG_HTTP_PORT\}:8000"?)$/# \1/' docker-compose.yml 2>/dev/null || true
+sed -i -E 's/^(\s*-\s*"8000:8000")$/# \1/' docker-compose.yml 2>/dev/null || true
 
 # Subir containers
 log_info "Subindo containers do Supabase (pode demorar alguns minutos)..."
-docker compose pull -q
-docker compose up -d
-check_error "Falha ao subir containers do Supabase."
+docker compose pull -q 2>/dev/null || log_warn "Falha ao baixar imagens (usando cache)."
+docker compose up -d || die "Falha ao subir containers do Supabase."
 
 # Aguardar o banco ficar pronto
 log_info "Aguardando banco de dados ficar pronto..."
+READY=false
 for i in $(seq 1 30); do
   if docker compose exec -T db pg_isready -U postgres &>/dev/null; then
+    READY=true
     break
   fi
   sleep 2
 done
-log_success "Supabase rodando."
 
-# Se usando Traefik, remover porta 80 do Kong (Traefik sera o gateway)
-# Se usando Nginx, tambem remover (Nginx sera o gateway)
-log_info "Configurando Kong para acesso apenas interno..."
-cd "${SUPABASE_DIR}/docker"
-sed -i 's/- "${KONG_HTTP_PORT}:8000"/# - "${KONG_HTTP_PORT}:8000"/' docker-compose.yml
-sed -i 's/- "8000:8000"/# - "8000:8000"/' docker-compose.yml
-docker compose up -d kong --force-recreate
-log_success "Kong configurado para acesso apenas interno."
+if [ "$READY" = false ]; then
+  die "Banco de dados nao ficou pronto em 60 segundos. Verifique os logs: docker compose logs db"
+fi
+
+log_success "Supabase rodando."
 
 # ============================================================
 # 3. Executar migracoes do banco
@@ -328,8 +345,7 @@ log_success "Kong configurado para acesso apenas interno."
 log_step "3/8 - Executando migracoes do banco"
 
 chmod +x "${PROJECT_DIR}/scripts/run-migrations.sh"
-bash "${PROJECT_DIR}/scripts/run-migrations.sh" "${PROJECT_DIR}/supabase/migrations" "${DB_PASSWORD}" "${DB_PORT}"
-check_error "Falha ao executar migracoes."
+bash "${PROJECT_DIR}/scripts/run-migrations.sh" "${PROJECT_DIR}/supabase/migrations" "${DB_PASSWORD}" "${DB_PORT}" || die "Falha ao executar migracoes."
 
 log_success "Migracoes executadas."
 
@@ -341,10 +357,10 @@ log_step "4/8 - Habilitando extensoes do banco"
 
 cd "${SUPABASE_DIR}/docker"
 
-docker compose exec -T db psql -U postgres -d postgres -c "CREATE EXTENSION IF NOT EXISTS pg_cron CASCADE;" 2>/dev/null || true
-docker compose exec -T db psql -U postgres -d postgres -c "CREATE EXTENSION IF NOT EXISTS pg_net CASCADE;" 2>/dev/null || true
+docker compose exec -T db psql -U postgres -d postgres -c "CREATE EXTENSION IF NOT EXISTS pg_cron CASCADE;" 2>/dev/null || log_warn "pg_cron pode nao estar disponivel."
+docker compose exec -T db psql -U postgres -d postgres -c "CREATE EXTENSION IF NOT EXISTS pg_net CASCADE;" 2>/dev/null || log_warn "pg_net pode nao estar disponivel."
 
-log_success "Extensoes pg_cron e pg_net habilitadas."
+log_success "Extensoes do banco configuradas."
 
 # ============================================================
 # 5. Configurar cron job
@@ -353,8 +369,7 @@ log_success "Extensoes pg_cron e pg_net habilitadas."
 log_step "5/8 - Configurando cron job para mensagens agendadas"
 
 chmod +x "${PROJECT_DIR}/scripts/setup-cron.sh"
-bash "${PROJECT_DIR}/scripts/setup-cron.sh" "${SUPABASE_DIR}" "${API_DOMAIN}" "${ANON_KEY}" "${DB_PASSWORD}"
-check_error "Falha ao configurar cron job."
+bash "${PROJECT_DIR}/scripts/setup-cron.sh" "${SUPABASE_DIR}" "${API_DOMAIN}" "${ANON_KEY}" "${DB_PASSWORD}" || die "Falha ao configurar cron job."
 
 log_success "Cron job configurado."
 
@@ -397,12 +412,10 @@ VITE_SUPABASE_PROJECT_ID=self-hosted
 EOF
 
 log_info "Instalando dependencias do frontend..."
-npm install --production=false
-check_error "Falha ao instalar dependencias."
+npm install --production=false || die "Falha ao instalar dependencias."
 
 log_info "Buildando aplicacao..."
-npm run build
-check_error "Falha ao buildar o frontend."
+npm run build || die "Falha ao buildar o frontend."
 
 log_success "Frontend buildado em dist/."
 
@@ -422,42 +435,64 @@ if [ "$USE_TRAEFIK" = true ]; then
     log_success "Nginx do host desabilitado."
   fi
 
-  # Configurar rota dinamica do Traefik para a API (Supabase Kong)
+  # ---- Configurar rota da API (Supabase Kong) via Traefik ----
+  # Gerar arquivo com placeholders substituidos
+  TEMP_API_YML=$(mktemp)
+  sed "s|{{API_DOMAIN}}|${API_DOMAIN}|g; s|{{CERT_RESOLVER}}|${CERT_RESOLVER}|g" \
+    "${PROJECT_DIR}/traefik/supabase-api.yml" \
+    > "$TEMP_API_YML"
+
+  API_ROUTE_OK=false
+
+  # Metodo 1: Se detectamos o diretorio no host, copiar direto
   if [ -n "$TRAEFIK_DYNAMIC_DIR" ]; then
-    log_info "Criando rota Traefik para API em ${TRAEFIK_DYNAMIC_DIR}..."
-    mkdir -p "$TRAEFIK_DYNAMIC_DIR"
-      sed "s|{{API_DOMAIN}}|${API_DOMAIN}|g; s|{{CERT_RESOLVER}}|${CERT_RESOLVER}|g" \
-        "${PROJECT_DIR}/traefik/supabase-api.yml" \
-        > "${TRAEFIK_DYNAMIC_DIR}/supabase-api.yml"
-      log_success "Rota da API configurada no Traefik."
-    else
-      # Copiar via docker cp para dentro do container do Traefik
-      log_info "Copiando rota da API via docker cp para o container do Traefik..."
-      TRAEFIK_CONTAINER=$(docker ps -q -f name=traefik | head -1)
-      if [ -n "$TRAEFIK_CONTAINER" ]; then
-        # Gerar arquivo temporario com placeholders substituidos
-        TEMP_API_YML=$(mktemp)
-        sed "s|{{API_DOMAIN}}|${API_DOMAIN}|g; s|{{CERT_RESOLVER}}|${CERT_RESOLVER}|g" \
-          "${PROJECT_DIR}/traefik/supabase-api.yml" \
-          > "$TEMP_API_YML"
-        docker cp "$TEMP_API_YML" "${TRAEFIK_CONTAINER}:/etc/traefik/dynamic/supabase-api.yml"
-        rm -f "$TEMP_API_YML"
-        log_success "Rota da API copiada para o container do Traefik."
-      else
-        log_warn "Container do Traefik nao encontrado. Copie manualmente:"
-        log_warn "  docker cp traefik/supabase-api.yml <traefik_container>:/etc/traefik/dynamic/"
+    # Verificar se existe como diretorio no host (mapeado via bind mount)
+    # Encontrar o mount point no host
+    TRAEFIK_CONTAINER=$(docker ps -q -f name=traefik | head -1 || true)
+    if [ -n "$TRAEFIK_CONTAINER" ]; then
+      HOST_DYNAMIC_DIR=$(docker inspect "$TRAEFIK_CONTAINER" --format '{{range .Mounts}}{{if eq .Destination "'"$TRAEFIK_DYNAMIC_DIR"'"}}{{.Source}}{{end}}{{end}}' 2>/dev/null || true)
+      if [ -n "$HOST_DYNAMIC_DIR" ] && [ -d "$HOST_DYNAMIC_DIR" ]; then
+        cp "$TEMP_API_YML" "${HOST_DYNAMIC_DIR}/supabase-api.yml"
+        API_ROUTE_OK=true
+        log_success "Rota da API copiada para ${HOST_DYNAMIC_DIR}/supabase-api.yml"
       fi
     fi
+  fi
 
-  # Deploy do frontend como stack no Swarm
+  # Metodo 2: Copiar via docker cp para dentro do container
+  if [ "$API_ROUTE_OK" = false ]; then
+    TRAEFIK_CONTAINER=$(docker ps -q -f name=traefik | head -1 || true)
+    if [ -n "$TRAEFIK_CONTAINER" ]; then
+      TARGET_DIR="${TRAEFIK_DYNAMIC_DIR:-/etc/traefik/dynamic}"
+      docker exec "$TRAEFIK_CONTAINER" mkdir -p "$TARGET_DIR" 2>/dev/null || true
+      docker cp "$TEMP_API_YML" "${TRAEFIK_CONTAINER}:${TARGET_DIR}/supabase-api.yml"
+      if [ $? -eq 0 ]; then
+        API_ROUTE_OK=true
+        log_success "Rota da API copiada via docker cp para ${TARGET_DIR}/supabase-api.yml"
+      fi
+    fi
+  fi
+
+  rm -f "$TEMP_API_YML"
+
+  if [ "$API_ROUTE_OK" = false ]; then
+    log_warn "Nao foi possivel configurar a rota da API automaticamente."
+    log_warn "Copie manualmente: docker cp traefik/supabase-api.yml <container>:/etc/traefik/dynamic/"
+  fi
+
+  # ---- Deploy do frontend como stack no Swarm ----
   log_info "Deployando frontend no Docker Swarm..."
   export FRONTEND_DOMAIN="$DOMAIN"
   export CERT_RESOLVER="$CERT_RESOLVER"
   export TRAEFIK_NETWORK="$TRAEFIK_NETWORK"
 
   cd "$PROJECT_DIR"
-  docker stack deploy -c docker-compose.frontend.yml whats-frontend
-  check_error "Falha ao deployar frontend no Swarm."
+
+  # Remover stack anterior se existir
+  docker stack rm whats-frontend 2>/dev/null || true
+  sleep 3
+
+  docker stack deploy -c docker-compose.frontend.yml whats-frontend || die "Falha ao deployar frontend no Swarm."
 
   log_success "Frontend deployado via Traefik."
 
@@ -483,8 +518,7 @@ else
   ln -sf /etc/nginx/sites-available/whats-grupos /etc/nginx/sites-enabled/
   ln -sf /etc/nginx/sites-available/whats-grupos-api /etc/nginx/sites-enabled/
 
-  nginx -t
-  check_error "Configuracao do Nginx invalida."
+  nginx -t || die "Configuracao do Nginx invalida."
 
   systemctl restart nginx
   log_success "Nginx configurado."
@@ -540,14 +574,16 @@ echo -e "    Senha:   ${YELLOW}${DASHBOARD_PASSWORD}${NC}"
 echo ""
 echo -e "  Banco de Dados:"
 echo -e "    Senha:   ${YELLOW}${DB_PASSWORD}${NC}"
+echo -e "    Porta:   ${YELLOW}${DB_PORT}${NC}"
 echo ""
-echo -e "  JWT Secret:      ${YELLOW}${JWT_SECRET}${NC}"
-echo -e "  Anon Key:        ${YELLOW}${ANON_KEY}${NC}"
-echo -e "  Service Role Key:${YELLOW}${SERVICE_ROLE_KEY}${NC}"
+echo -e "  JWT Secret:       ${YELLOW}${JWT_SECRET}${NC}"
+echo -e "  Anon Key:         ${YELLOW}${ANON_KEY}${NC}"
+echo -e "  Service Role Key: ${YELLOW}${SERVICE_ROLE_KEY}${NC}"
 echo ""
 if [ "$USE_TRAEFIK" = true ]; then
   echo -e "  Proxy:           ${CYAN}Traefik (Docker Swarm)${NC}"
   echo -e "  Rede Traefik:    ${CYAN}${TRAEFIK_NETWORK}${NC}"
+  echo -e "  Cert Resolver:   ${CYAN}${CERT_RESOLVER}${NC}"
 fi
 echo ""
 echo -e "${RED}  IMPORTANTE: Salve essas credenciais em local seguro!${NC}"
