@@ -29,6 +29,7 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [configId, setConfigId] = useState("");
+  const [evolutionInstance, setEvolutionInstance] = useState("");
   const [groupIds, setGroupIds] = useState<string[]>([]);
   const [isActive, setIsActive] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -47,6 +48,23 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
     enabled: !!user,
   });
 
+  const { data: evolutionInstances, isLoading: loadingInstances } = useQuery({
+    queryKey: ["evolution-instances", configId],
+    queryFn: async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/evolution-api?action=fetchInstances&configId=${configId}`;
+      const resp = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${session?.access_token}`,
+          apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+        },
+      });
+      if (!resp.ok) throw new Error("Erro ao buscar instâncias");
+      return await resp.json();
+    },
+    enabled: !!configId,
+  });
+
   useEffect(() => {
     if (open) {
       if (campaign) {
@@ -59,6 +77,7 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
         setName("");
         setDescription("");
         setConfigId("");
+        setEvolutionInstance("");
         setGroupIds([]);
         setIsActive(true);
       }
@@ -143,14 +162,14 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
             />
           </div>
 
-          {/* Instância */}
+          {/* Conexão da aplicação */}
           <div className="space-y-2">
             <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-              <Server className="h-3 w-3" />Instância
+              <Server className="h-3 w-3" />Conexão
             </Label>
-            <Select value={configId} onValueChange={setConfigId}>
+            <Select value={configId} onValueChange={(v) => { setConfigId(v); setEvolutionInstance(""); setGroupIds([]); }}>
               <SelectTrigger className="bg-background/50 border-border/50">
-                <SelectValue placeholder="Selecione a instância" />
+                <SelectValue placeholder="Selecione a conexão" />
               </SelectTrigger>
               <SelectContent>
                 {configs?.map((c) => (
@@ -160,12 +179,40 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
             </Select>
           </div>
 
+          {/* Instância do Evolution */}
+          {configId && (
+            <div className="space-y-2">
+              <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                <Zap className="h-3 w-3" />Instância WhatsApp
+              </Label>
+              {loadingInstances ? (
+                <div className="rounded-xl border border-border/50 p-4 text-center">
+                  <Loader2 className="h-4 w-4 animate-spin text-primary mx-auto mb-1" />
+                  <p className="text-xs text-muted-foreground">Buscando instâncias...</p>
+                </div>
+              ) : (
+                <Select value={evolutionInstance} onValueChange={(v) => { setEvolutionInstance(v); setGroupIds([]); }}>
+                  <SelectTrigger className="bg-background/50 border-border/50">
+                    <SelectValue placeholder="Selecione a instância" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Array.isArray(evolutionInstances) && evolutionInstances.map((inst: any) => (
+                      <SelectItem key={inst.instance?.instanceName || inst.instanceName} value={inst.instance?.instanceName || inst.instanceName}>
+                        {inst.instance?.instanceName || inst.instanceName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+          )}
+
           {/* Grupos */}
           <div className="space-y-2">
             <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
               <Users className="h-3 w-3" />Grupos
             </Label>
-            <GroupSelector configId={configId} selectedIds={groupIds} onSelectionChange={setGroupIds} />
+            <GroupSelector configId={configId} instanceName={evolutionInstance} selectedIds={groupIds} onSelectionChange={setGroupIds} />
           </div>
 
           {/* Switch ativa */}
