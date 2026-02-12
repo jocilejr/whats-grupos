@@ -2,10 +2,10 @@ import { useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Activity, RefreshCw, Loader2, WifiOff, Wifi, Plug } from "lucide-react";
+import { Activity, RefreshCw, Loader2, WifiOff, Wifi, Plug, Server } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 type InstanceStatus = {
@@ -74,7 +74,7 @@ export default function StatusPage() {
         },
       });
       const result = await resp.json();
-      toast({ title: "Reconexão solicitada", description: result?.qrcode ? "QR Code gerado. Escaneie no WhatsApp." : "Tentativa de reconexão enviada." });
+      toast({ title: "Reconexão solicitada", description: result?.qrcode ? "QR Code gerado." : "Tentativa enviada." });
       await checkStatus(configId, statuses[configId]?.instanceName || "");
     } catch {
       toast({ title: "Erro", description: "Falha ao reconectar.", variant: "destructive" });
@@ -91,60 +91,127 @@ export default function StatusPage() {
   const getStateBadge = (state?: string) => {
     switch (state) {
       case "open":
-        return <Badge className="bg-primary/20 text-primary border-primary/30"><Wifi className="h-3 w-3 mr-1" />Conectado</Badge>;
+        return (
+          <Badge className="gap-1.5 bg-primary/15 text-primary border-primary/25 shadow-[0_0_8px_hsl(var(--primary)/0.15)]">
+            <Wifi className="h-3 w-3" />Conectado
+          </Badge>
+        );
       case "loading":
-        return <Badge variant="secondary"><Loader2 className="h-3 w-3 mr-1 animate-spin" />Verificando...</Badge>;
+        return (
+          <Badge variant="secondary" className="gap-1.5">
+            <Loader2 className="h-3 w-3 animate-spin" />Verificando...
+          </Badge>
+        );
       case "connecting":
-        return <Badge className="bg-accent-foreground/20 text-accent-foreground border-accent-foreground/30"><Loader2 className="h-3 w-3 mr-1 animate-spin" />Conectando...</Badge>;
+        return (
+          <Badge className="gap-1.5 bg-accent-foreground/15 text-accent-foreground border-accent-foreground/25">
+            <Loader2 className="h-3 w-3 animate-spin" />Conectando...
+          </Badge>
+        );
       default:
-        return <Badge className="bg-destructive/20 text-destructive border-destructive/30"><WifiOff className="h-3 w-3 mr-1" />Desconectado</Badge>;
+        return (
+          <Badge className="gap-1.5 bg-destructive/15 text-destructive border-destructive/25 shadow-[0_0_8px_hsl(var(--destructive)/0.15)]">
+            <WifiOff className="h-3 w-3" />Desconectado
+          </Badge>
+        );
     }
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
+      {/* Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Status</h1>
-          <p className="text-muted-foreground">Monitore suas instâncias conectadas</p>
+        <div className="flex items-center gap-3">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 shadow-[0_0_20px_hsl(var(--primary)/0.15)]">
+            <Activity className="h-6 w-6 text-primary" />
+          </div>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Status</h1>
+            <p className="text-muted-foreground text-sm">Monitore suas instâncias conectadas</p>
+          </div>
         </div>
-        <Button onClick={checkAll} disabled={loadingAll || !configs?.length}>
-          <RefreshCw className={`h-4 w-4 mr-2 ${loadingAll ? "animate-spin" : ""}`} />
+        <Button
+          onClick={checkAll}
+          disabled={loadingAll || !configs?.length}
+          variant="outline"
+          className="gap-2 border-border/50"
+        >
+          <RefreshCw className={`h-4 w-4 ${loadingAll ? "animate-spin" : ""}`} />
           Atualizar Tudo
         </Button>
       </div>
 
+      {/* Content */}
       {configsLoading ? (
-        <Card><CardContent className="py-10 text-center"><Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" /></CardContent></Card>
+        <Card className="border-border/50">
+          <CardContent className="py-16 text-center">
+            <Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" />
+          </CardContent>
+        </Card>
       ) : !configs?.length ? (
-        <Card><CardContent className="py-10 text-center">
-          <WifiOff className="mx-auto h-10 w-10 text-muted-foreground mb-3" />
-          <p className="text-muted-foreground">Nenhuma instância configurada. Vá até <strong>Configurações</strong> para adicionar.</p>
-        </CardContent></Card>
+        <Card className="border-dashed border-border/50">
+          <CardContent className="py-16 text-center">
+            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-muted mx-auto mb-4">
+              <Server className="h-8 w-8 text-muted-foreground" />
+            </div>
+            <p className="text-foreground font-medium mb-1">Nenhuma instância configurada</p>
+            <p className="text-muted-foreground text-sm">Vá até <strong>Configurações</strong> para adicionar uma instância.</p>
+          </CardContent>
+        </Card>
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
           {configs.map((config) => {
             const status = statuses[config.id];
+            const isConnected = status?.state === "open";
+
             return (
-              <Card key={config.id}>
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <Activity className="h-4 w-4 text-primary" />
-                    {config.instance_name}
-                  </CardTitle>
-                  {getStateBadge(status?.state)}
-                </CardHeader>
-                <CardContent>
-                  <p className="text-xs text-muted-foreground mb-3 truncate">{config.api_url}</p>
+              <Card
+                key={config.id}
+                className={`relative overflow-hidden transition-all ${
+                  isConnected
+                    ? "border-primary/20 shadow-[0_0_15px_hsl(var(--primary)/0.06)]"
+                    : "border-border/40"
+                }`}
+              >
+                <div className={`absolute top-0 left-0 right-0 h-0.5 ${isConnected ? "bg-primary" : "bg-muted"}`} />
+                <CardContent className="p-5">
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-center gap-3">
+                      <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${
+                        isConnected ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"
+                      }`}>
+                        <Server className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <h3 className="font-semibold text-foreground">{config.instance_name}</h3>
+                        <p className="text-xs text-muted-foreground truncate max-w-[200px]">{config.api_url}</p>
+                      </div>
+                    </div>
+                    {getStateBadge(status?.state)}
+                  </div>
                   <div className="flex gap-2">
-                    <Button size="sm" variant="outline" onClick={() => checkStatus(config.id, config.instance_name)} disabled={status?.state === "loading"}>
-                      <RefreshCw className="h-3 w-3 mr-1" />Verificar
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5 text-xs border-border/50"
+                      onClick={() => checkStatus(config.id, config.instance_name)}
+                      disabled={status?.state === "loading"}
+                    >
+                      <RefreshCw className="h-3 w-3" />Verificar
                     </Button>
-                    <Button size="sm" variant="outline" onClick={() => reconnect(config.id)} disabled={status?.state === "loading"}>
-                      <Plug className="h-3 w-3 mr-1" />Reconectar
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5 text-xs border-border/50"
+                      onClick={() => reconnect(config.id)}
+                      disabled={status?.state === "loading"}
+                    >
+                      <Plug className="h-3 w-3" />Reconectar
                     </Button>
                   </div>
-                  {status?.error && <p className="text-xs text-destructive mt-2">{status.error}</p>}
+                  {status?.error && (
+                    <p className="text-xs text-destructive mt-2 bg-destructive/5 rounded-lg p-2">{status.error}</p>
+                  )}
                 </CardContent>
               </Card>
             );

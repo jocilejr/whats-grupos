@@ -3,7 +3,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { GroupSelector } from "./GroupSelector";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2 } from "lucide-react";
+import { Loader2, Megaphone, Server, Users, Zap } from "lucide-react";
 
 interface CampaignDialogProps {
   open: boolean;
@@ -104,26 +104,52 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto sm:rounded-2xl border-border/50 bg-card">
         <DialogHeader>
-          <DialogTitle>{campaign ? "Editar Campanha" : "Nova Campanha"}</DialogTitle>
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
+              <Megaphone className="h-5 w-5 text-primary" />
+            </div>
+            <div>
+              <DialogTitle className="text-lg">{campaign ? "Editar Campanha" : "Nova Campanha"}</DialogTitle>
+              <DialogDescription className="text-xs">
+                {campaign ? "Atualize os dados da campanha" : "Configure sua nova campanha de mensagens"}
+              </DialogDescription>
+            </div>
+          </div>
         </DialogHeader>
 
-        <div className="space-y-4">
+        <div className="space-y-5 py-2">
+          {/* Nome */}
           <div className="space-y-2">
-            <Label>Nome</Label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex: Promoção Black Friday" />
+            <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Nome</Label>
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Ex: Promoção Black Friday"
+              className="bg-background/50 border-border/50 focus:border-primary/50"
+            />
           </div>
 
+          {/* Descrição */}
           <div className="space-y-2">
-            <Label>Descrição (opcional)</Label>
-            <Textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Descreva o objetivo da campanha" rows={2} />
+            <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Descrição (opcional)</Label>
+            <Textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Descreva o objetivo da campanha"
+              rows={2}
+              className="bg-background/50 border-border/50 focus:border-primary/50 resize-none"
+            />
           </div>
 
+          {/* Instância */}
           <div className="space-y-2">
-            <Label>Instância</Label>
+            <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+              <Server className="h-3 w-3" />Instância
+            </Label>
             <Select value={configId} onValueChange={setConfigId}>
-              <SelectTrigger>
+              <SelectTrigger className="bg-background/50 border-border/50">
                 <SelectValue placeholder="Selecione a instância" />
               </SelectTrigger>
               <SelectContent>
@@ -134,22 +160,35 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
             </Select>
           </div>
 
+          {/* Grupos */}
           <div className="space-y-2">
-            <Label>Grupos</Label>
+            <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+              <Users className="h-3 w-3" />Grupos
+            </Label>
             <GroupSelector configId={configId} selectedIds={groupIds} onSelectionChange={setGroupIds} />
           </div>
 
-          <div className="flex items-center justify-between">
-            <Label>Campanha ativa</Label>
+          {/* Switch ativa */}
+          <div className="flex items-center justify-between rounded-xl bg-background/50 border border-border/50 p-4">
+            <div className="flex items-center gap-2">
+              <Zap className={`h-4 w-4 ${isActive ? "text-primary" : "text-muted-foreground"}`} />
+              <Label className="font-medium">Campanha ativa</Label>
+            </div>
             <Switch checked={isActive} onCheckedChange={setIsActive} />
           </div>
         </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
-          <Button onClick={handleSave} disabled={saving}>
-            {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-            {campaign ? "Salvar" : "Criar"}
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={() => onOpenChange(false)} className="border-border/50">
+            Cancelar
+          </Button>
+          <Button
+            onClick={handleSave}
+            disabled={saving}
+            className="gap-2 shadow-[0_0_10px_hsl(var(--primary)/0.2)]"
+          >
+            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+            {campaign ? "Salvar" : "Criar Campanha"}
           </Button>
         </DialogFooter>
       </DialogContent>
