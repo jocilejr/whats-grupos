@@ -72,8 +72,7 @@ Deno.serve(async (req) => {
 
           if (msg.message_type === "text") {
             endpoint = `${apiUrl}/message/sendText/${instanceName}`;
-            body = { number: groupId, text: content.text };
-            if (content.mentionsEveryOne) body.mentionsEveryOne = true;
+            body = { number: groupId, text: content.text, linkPreview: content.linkPreview !== false };
           } else if (msg.message_type === "image" || msg.message_type === "video" || msg.message_type === "document") {
             endpoint = `${apiUrl}/message/sendMedia/${instanceName}`;
             body = { number: groupId, mediatype: msg.message_type, media: content.mediaUrl, caption: content.caption || "", fileName: content.fileName || "" };
@@ -100,6 +99,9 @@ Deno.serve(async (req) => {
             endpoint = `${apiUrl}/message/sendText/${instanceName}`;
             body = { number: groupId, text: content.text || "" };
           }
+
+          // Apply mentionsEveryOne to all message types
+          if (content.mentionsEveryOne) body.mentionsEveryOne = true;
 
           const resp = await fetch(endpoint, {
             method: "POST",
