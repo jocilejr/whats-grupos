@@ -56,8 +56,8 @@ export function AppSidebar() {
             <MessageSquare className="h-5 w-5" />
           </div>
           <div>
-            <h2 className="text-sm font-semibold text-sidebar-foreground">WA Automator</h2>
-            <p className="text-xs text-sidebar-foreground/60">Grupos WhatsApp</p>
+            <h2 className="text-sm font-semibold text-sidebar-foreground">Whats Grupos</h2>
+            <p className="text-xs text-sidebar-foreground/60">Automação WhatsApp</p>
           </div>
         </div>
         <div className="flex items-center gap-2 mt-3 rounded-lg bg-sidebar-accent/50 px-3 py-2">
