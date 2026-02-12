@@ -189,6 +189,23 @@ fi
 
 cd "${SUPABASE_DIR}/docker"
 
+# Verificar se porta 5432 esta em uso e escolher alternativa
+DB_PORT=5432
+if ss -tlnp | grep -q ":${DB_PORT} "; then
+  log_warn "Porta ${DB_PORT} em uso. Procurando porta alternativa..."
+  for PORT in 5433 5434 5435 5436 5437; do
+    if ! ss -tlnp | grep -q ":${PORT} "; then
+      DB_PORT=$PORT
+      break
+    fi
+  done
+  if [ "$DB_PORT" -eq 5432 ]; then
+    log_error "Nenhuma porta alternativa disponivel (5432-5437)."
+    exit 1
+  fi
+  log_info "Usando porta alternativa: ${DB_PORT}"
+fi
+
 # Copiar e configurar .env
 cp -n .env.example .env 2>/dev/null || true
 
@@ -210,6 +227,12 @@ sed -i "s|SUPABASE_PUBLIC_URL=.*|SUPABASE_PUBLIC_URL=https://${API_DOMAIN}|" .en
 sed -i "s|LOGFLARE_API_KEY=.*|LOGFLARE_API_KEY=${LOGFLARE_API_KEY}|" .env
 
 log_success "Arquivo .env do Supabase configurado."
+
+# Alterar porta do PostgreSQL no docker-compose se necessario
+if [ "$DB_PORT" -ne 5432 ]; then
+  log_info "Alterando mapeamento de porta no docker-compose.yml para ${DB_PORT}:5432..."
+  sed -i "s|5432:5432|${DB_PORT}:5432|g" docker-compose.yml
+fi
 
 # Subir containers
 log_info "Subindo containers do Supabase (pode demorar alguns minutos)..."
@@ -234,7 +257,7 @@ log_success "Supabase rodando."
 log_step "3/9 - Executando migracoes do banco"
 
 chmod +x "${PROJECT_DIR}/scripts/run-migrations.sh"
-bash "${PROJECT_DIR}/scripts/run-migrations.sh" "${PROJECT_DIR}/supabase/migrations" "${DB_PASSWORD}"
+bash "${PROJECT_DIR}/scripts/run-migrations.sh" "${PROJECT_DIR}/supabase/migrations" "${DB_PASSWORD}" "${DB_PORT}"
 check_error "Falha ao executar migracoes."
 
 log_success "Migracoes executadas."
@@ -395,6 +418,7 @@ cat > "${PROJECT_DIR}/.credentials" <<EOF
 DOMAIN=${DOMAIN}
 API_DOMAIN=${API_DOMAIN}
 DB_PASSWORD=${DB_PASSWORD}
+DB_PORT=${DB_PORT}
 JWT_SECRET=${JWT_SECRET}
 ANON_KEY=${ANON_KEY}
 SERVICE_ROLE_KEY=${SERVICE_ROLE_KEY}

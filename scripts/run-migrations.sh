@@ -4,9 +4,10 @@
 
 MIGRATIONS_DIR="$1"
 DB_PASSWORD="$2"
+DB_PORT="${3:-5432}"
 
 if [ -z "$MIGRATIONS_DIR" ] || [ -z "$DB_PASSWORD" ]; then
-  echo "Uso: $0 <migrations_dir> <db_password>" >&2
+  echo "Uso: $0 <migrations_dir> <db_password> [db_port]" >&2
   exit 1
 fi
 
