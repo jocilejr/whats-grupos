@@ -33,6 +33,7 @@ export default function Groups() {
   const { data: groups, isLoading, error } = useQuery({
     queryKey: ["groups", activeConfigId],
     queryFn: async () => {
+      if (!activeConfigId) throw new Error("No config selected");
       const { data: { session } } = await supabase.auth.getSession();
       const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/evolution-api?action=fetchGroups&configId=${activeConfigId}`;
       const resp = await fetch(url, {
@@ -47,7 +48,7 @@ export default function Groups() {
       }
       return await resp.json();
     },
-    enabled: !!activeConfigId,
+    enabled: !!activeConfigId && activeConfigId.length > 0,
   });
 
   const filteredGroups = Array.isArray(groups)
