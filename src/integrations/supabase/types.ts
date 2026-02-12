@@ -54,6 +54,7 @@ export type Database = {
           description: string | null
           group_ids: string[]
           id: string
+          instance_name: string | null
           is_active: boolean
           name: string
           updated_at: string
@@ -65,6 +66,7 @@ export type Database = {
           description?: string | null
           group_ids?: string[]
           id?: string
+          instance_name?: string | null
           is_active?: boolean
           name: string
           updated_at?: string
@@ -76,6 +78,7 @@ export type Database = {
           description?: string | null
           group_ids?: string[]
           id?: string
+          instance_name?: string | null
           is_active?: boolean
           name?: string
           updated_at?: string
@@ -100,6 +103,7 @@ export type Database = {
           group_id: string
           group_name: string | null
           id: string
+          instance_name: string | null
           message_type: string
           scheduled_message_id: string | null
           sent_at: string | null
@@ -114,6 +118,7 @@ export type Database = {
           group_id: string
           group_name?: string | null
           id?: string
+          instance_name?: string | null
           message_type?: string
           scheduled_message_id?: string | null
           sent_at?: string | null
@@ -128,6 +133,7 @@ export type Database = {
           group_id?: string
           group_name?: string | null
           id?: string
+          instance_name?: string | null
           message_type?: string
           scheduled_message_id?: string | null
           sent_at?: string | null
@@ -220,6 +226,7 @@ export type Database = {
           cron_expression: string | null
           group_ids: string[]
           id: string
+          instance_name: string | null
           is_active: boolean | null
           last_run_at: string | null
           message_type: string
@@ -237,6 +244,7 @@ export type Database = {
           cron_expression?: string | null
           group_ids?: string[]
           id?: string
+          instance_name?: string | null
           is_active?: boolean | null
           last_run_at?: string | null
           message_type?: string
@@ -254,6 +262,7 @@ export type Database = {
           cron_expression?: string | null
           group_ids?: string[]
           id?: string
+          instance_name?: string | null
           is_active?: boolean | null
           last_run_at?: string | null
           message_type?: string
