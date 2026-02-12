@@ -1,46 +1,39 @@
 
 
-# Correcao do Instalador - Porta Alternativa para PostgreSQL
+# Correcao do Instalador - Porta do Supabase Pooler
 
 ## Problema
 
-O Supabase Docker tenta usar a porta 5432, mas a VPS ja tem um PostgreSQL rodando nessa porta. O instalador nao deve parar nenhum servico existente.
+O `docker-compose.yml` do Supabase tem **dois** servicos que mapeiam a porta 5432 no host:
+1. `supabase-db` (PostgreSQL)
+2. `supabase-pooler` (Supavisor/PgBouncer)
+
+O `sed` atual troca todas as ocorrencias de `5432:5432`, mas o pooler pode ter um mapeamento em formato diferente (ex: `"5432:5432"`, ou porta interna diferente como `5432:4000`). Por isso o pooler ainda tenta usar a porta 5432 e falha.
 
 ## Solucao
 
-Se a porta 5432 estiver ocupada, o instalador automaticamente usa a porta **5433** (ou a proxima disponivel) para o container PostgreSQL do Supabase. Os demais containers do Supabase se comunicam internamente via rede Docker, entao apenas a porta exposta no host precisa mudar.
+Atualizar o bloco de troca de porta no `install.sh` para cobrir **todos os formatos possiveis** de mapeamento da porta 5432 no `docker-compose.yml`:
 
-## Detalhe tecnico
+1. Trocar `5432:5432` (formato padrao do db)
+2. Trocar qualquer outro mapeamento que exponha 5432 no host, como `"5432:XXXX"` onde XXXX pode ser outra porta interna (o pooler pode mapear `5432:4000` por exemplo)
+3. Usar um sed mais abrangente que capture qualquer linha com `- "5432:` ou `- 5432:` e substitua a porta do host
 
-No `install.sh`, antes de subir os containers:
+### Detalhe tecnico
 
-1. Verificar se a porta 5432 esta em uso com `ss -tlnp`
-2. Se estiver, encontrar uma porta alternativa (5433, 5434, etc.)
-3. Alterar o mapeamento de porta no `docker-compose.yml` do Supabase, trocando `5432:5432` por `5433:5432` (porta do host : porta interna do container)
-4. Informar o usuario qual porta foi escolhida
-5. Salvar a porta usada no arquivo `.credentials` para referencia futura
-
-O trecho adicionado no `install.sh` sera algo como:
+Substituir o bloco de alteracao de porta no `install.sh` por:
 
 ```text
-DB_PORT=5432
-if ss -tlnp | grep -q ":${DB_PORT} "; then
-  log_warn "Porta ${DB_PORT} em uso. Procurando porta alternativa..."
-  for PORT in 5433 5434 5435 5436 5437; do
-    if ! ss -tlnp | grep -q ":${PORT} "; then
-      DB_PORT=$PORT
-      break
-    fi
-  done
-  if [ "$DB_PORT" -eq 5432 ]; then
-    log_error "Nenhuma porta alternativa disponivel (5432-5437)."
-    exit 1
-  fi
-  log_info "Usando porta alternativa: ${DB_PORT}"
-  # Alterar mapeamento no docker-compose.yml
-  sed -i "s|5432:5432|${DB_PORT}:5432|" docker-compose.yml
+if [ "$DB_PORT" -ne 5432 ]; then
+  log_info "Alterando mapeamentos da porta 5432 no docker-compose.yml para ${DB_PORT}..."
+  # Trocar TODAS as referencias de porta 5432 no host (db e pooler)
+  sed -i "s|5432:5432|${DB_PORT}:5432|g" docker-compose.yml
+  sed -i 's|"5432:|"'"${DB_PORT}"':|g' docker-compose.yml
+  # Pooler pode ter porta interna diferente (ex: 5432:4000)
+  sed -i 's|- 5432:|- '"${DB_PORT}"':|g' docker-compose.yml
 fi
 ```
 
-A conexao interna entre os containers do Supabase (PostgREST, GoTrue, etc.) continua usando a porta 5432 dentro da rede Docker - apenas a porta exposta para o host muda. O script `run-migrations.sh` tambem sera atualizado para receber a porta como parametro.
+Isso garante que nenhum container tente expor a porta 5432 no host, independente do formato usado no compose file.
+
+Tambem sera necessario atualizar o script `setup-cron.sh` para usar `DB_PORT` na conexao, ja que o cron pode conectar via host.
 
