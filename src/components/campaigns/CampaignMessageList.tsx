@@ -7,7 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import {
   FileText, Image, Video, File, Pencil, Trash2, Loader2,
-  Clock, Repeat, AlertCircle,
+  Clock, Repeat, AlertCircle, Mic, Sticker, MapPin,
+  Contact, BarChart3, List, MousePointerClick,
 } from "lucide-react";
 
 interface CampaignMessageListProps {
@@ -20,17 +21,15 @@ interface CampaignMessageListProps {
 }
 
 const typeIcons: Record<string, any> = {
-  text: FileText,
-  image: Image,
-  video: Video,
-  document: File,
+  text: FileText, image: Image, video: Video, document: File,
+  audio: Mic, sticker: Sticker, location: MapPin, contact: Contact,
+  poll: BarChart3, list: List, buttons: MousePointerClick,
 };
 
 const typeLabels: Record<string, string> = {
-  text: "Texto",
-  image: "Imagem",
-  video: "Vídeo",
-  document: "Documento",
+  text: "Texto", image: "Imagem", video: "Vídeo", document: "Documento",
+  audio: "Áudio", sticker: "Figurinha", location: "Localização", contact: "Contato",
+  poll: "Enquete", list: "Lista", buttons: "Botões",
 };
 
 export function CampaignMessageList({ campaignId, apiConfigId, instanceName, groupIds, scheduleType, onEdit }: CampaignMessageListProps) {
@@ -76,8 +75,18 @@ export function CampaignMessageList({ campaignId, apiConfigId, instanceName, gro
 
   const getPreview = (msg: any) => {
     const c = msg.content as any || {};
-    if (msg.message_type === "text") return c.text || "(vazio)";
-    return c.caption || c.fileName || "Mídia sem legenda";
+    switch (msg.message_type) {
+      case "text": return c.text || "(vazio)";
+      case "image": case "video": case "document": return c.caption || c.fileName || "Mídia";
+      case "audio": return "🎵 Áudio";
+      case "sticker": return "🖼️ Figurinha";
+      case "location": return `📍 ${c.name || "Localização"} ${c.address ? `- ${c.address}` : ""}`;
+      case "contact": return `👤 ${c.contactName || "Contato"}`;
+      case "poll": return `📊 ${c.pollName || "Enquete"}`;
+      case "list": return `📋 ${c.listTitle || "Lista"}`;
+      case "buttons": return `🔘 ${c.btnTitle || "Botões"}`;
+      default: return c.text || "(sem conteúdo)";
+    }
   };
 
   const getScheduleInfo = (msg: any) => {
