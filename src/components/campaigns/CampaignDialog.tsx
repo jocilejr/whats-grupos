@@ -12,7 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { GroupSelector } from "./GroupSelector";
-import { CampaignMessageList } from "./CampaignMessageList";
+
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Megaphone, Server, Users, Zap } from "lucide-react";
 
@@ -220,17 +220,7 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
             <Switch checked={isActive} onCheckedChange={setIsActive} />
           </div>
 
-          {/* Mensagens Agendadas - only show when editing existing campaign */}
-          {campaign?.id && (
-            <div className="border-t border-border/30 pt-4">
-              <CampaignMessageList
-                campaignId={campaign.id}
-                apiConfigId={configId}
-                instanceName={evolutionInstance}
-                groupIds={groupIds}
-              />
-            </div>
-          )}
+          {/* Mensagens agendadas foram movidas para dialog separado */}
         </div>
 
         <DialogFooter className="gap-2">
