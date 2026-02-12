@@ -4,6 +4,7 @@ set -e
 # ============================================================
 # Instalador Automatico - WhatsApp Grupos
 # Instala Frontend + Supabase Self-Hosted em VPS Ubuntu
+# Suporta Traefik (Docker Swarm) ou Nginx como reverse proxy
 # ============================================================
 
 # Cores para output
@@ -43,12 +44,68 @@ fi
 
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
+# ============================================================
+# Detectar Traefik no Docker Swarm
+# ============================================================
+
+USE_TRAEFIK=false
+TRAEFIK_NETWORK=""
+CERT_RESOLVER="letsencrypt"
+
+if command -v docker &>/dev/null; then
+  SWARM_STATE=$(docker info --format '{{.Swarm.LocalNodeState}}' 2>/dev/null || echo "inactive")
+  if [ "$SWARM_STATE" = "active" ]; then
+    # Procurar servico Traefik
+    TRAEFIK_SERVICE=$(docker service ls --format '{{.Name}}' 2>/dev/null | grep -i traefik | head -1)
+    if [ -n "$TRAEFIK_SERVICE" ]; then
+      USE_TRAEFIK=true
+      log_info "Traefik detectado no Docker Swarm (servico: ${TRAEFIK_SERVICE})"
+
+      # Detectar rede do Traefik
+      TRAEFIK_NETWORK=$(docker service inspect "$TRAEFIK_SERVICE" --format '{{range .Spec.TaskTemplate.Networks}}{{.Target}} {{end}}' 2>/dev/null | xargs)
+      if [ -n "$TRAEFIK_NETWORK" ]; then
+        # Resolver ID para nome
+        TRAEFIK_NETWORK=$(docker network inspect "$TRAEFIK_NETWORK" --format '{{.Name}}' 2>/dev/null || echo "$TRAEFIK_NETWORK")
+      fi
+      # Fallback para nome padrao
+      if [ -z "$TRAEFIK_NETWORK" ]; then
+        TRAEFIK_NETWORK=$(docker network ls --format '{{.Name}}' | grep -i traefik | head -1)
+      fi
+      if [ -z "$TRAEFIK_NETWORK" ]; then
+        TRAEFIK_NETWORK="traefik_public"
+      fi
+      log_info "Rede do Traefik: ${TRAEFIK_NETWORK}"
+
+      # Detectar certresolver
+      TRAEFIK_CONTAINER=$(docker ps -q -f name=traefik | head -1)
+      if [ -n "$TRAEFIK_CONTAINER" ]; then
+        TRAEFIK_CONFIG=$(docker exec "$TRAEFIK_CONTAINER" cat /etc/traefik/traefik.yml 2>/dev/null || \
+                         docker exec "$TRAEFIK_CONTAINER" cat /traefik.yml 2>/dev/null || echo "")
+        if [ -n "$TRAEFIK_CONFIG" ]; then
+          DETECTED_RESOLVER=$(echo "$TRAEFIK_CONFIG" | grep -A1 "certificatesResolvers" | grep -oP '^\s+\K\w+' | head -1)
+          if [ -n "$DETECTED_RESOLVER" ]; then
+            CERT_RESOLVER="$DETECTED_RESOLVER"
+          fi
+        fi
+
+        # Detectar caminho do file provider
+        TRAEFIK_DYNAMIC_DIR=$(echo "$TRAEFIK_CONFIG" | grep -A5 "file:" | grep "directory:" | sed 's/.*directory:\s*//' | tr -d '"' | tr -d "'" | xargs)
+      fi
+      log_info "Cert resolver: ${CERT_RESOLVER}"
+    fi
+  fi
+fi
+
 log_step "Instalador Automatico - WhatsApp Grupos"
 echo "Este script vai instalar:"
 echo "  - Docker e Docker Compose"
 echo "  - Supabase Self-Hosted (banco, auth, storage, edge functions)"
 echo "  - Node.js 20 e build do frontend"
-echo "  - Nginx com SSL (Certbot)"
+if [ "$USE_TRAEFIK" = true ]; then
+  echo "  - Roteamento via Traefik (detectado no Swarm)"
+else
+  echo "  - Nginx com SSL (Certbot)"
+fi
 echo ""
 
 # ============================================================
@@ -70,10 +127,12 @@ if [[ ! "$DOMAIN" =~ \. ]]; then
   exit 1
 fi
 
-read -p "Digite seu email (para certificado SSL): " SSL_EMAIL
-if [ -z "$SSL_EMAIL" ]; then
-  log_error "Email e obrigatorio para o SSL."
-  exit 1
+if [ "$USE_TRAEFIK" = false ]; then
+  read -p "Digite seu email (para certificado SSL): " SSL_EMAIL
+  if [ -z "$SSL_EMAIL" ]; then
+    log_error "Email e obrigatorio para o SSL."
+    exit 1
+  fi
 fi
 
 read -sp "Senha do banco de dados (Enter para gerar automaticamente): " DB_PASSWORD
@@ -89,6 +148,11 @@ SUPABASE_DIR="/opt/supabase-docker"
 echo ""
 log_info "Dominio frontend: ${DOMAIN}"
 log_info "Dominio API:      ${API_DOMAIN}"
+if [ "$USE_TRAEFIK" = true ]; then
+  log_info "Proxy reverso:    Traefik (Docker Swarm)"
+else
+  log_info "Proxy reverso:    Nginx + Certbot"
+fi
 echo ""
 read -p "Confirma a instalacao? (s/N): " CONFIRM
 if [[ ! "$CONFIRM" =~ ^[sS]$ ]]; then
@@ -100,7 +164,7 @@ fi
 # 1. Instalar dependencias do sistema
 # ============================================================
 
-log_step "1/9 - Instalando dependencias do sistema"
+log_step "1/8 - Instalando dependencias do sistema"
 
 apt-get update -qq
 apt-get install -y -qq curl git apt-transport-https ca-certificates gnupg lsb-release jq
@@ -135,20 +199,22 @@ else
   log_success "Node.js $(node -v) ja instalado."
 fi
 
-# Nginx
-if ! command -v nginx &>/dev/null; then
-  log_info "Instalando Nginx..."
-  apt-get install -y -qq nginx
-  systemctl enable nginx
-  log_success "Nginx instalado."
-else
-  log_success "Nginx ja instalado."
-fi
+# Nginx (apenas se nao usar Traefik)
+if [ "$USE_TRAEFIK" = false ]; then
+  if ! command -v nginx &>/dev/null; then
+    log_info "Instalando Nginx..."
+    apt-get install -y -qq nginx
+    systemctl enable nginx
+    log_success "Nginx instalado."
+  else
+    log_success "Nginx ja instalado."
+  fi
 
-# Certbot + plugin nginx (sempre instalar para garantir)
-log_info "Instalando/verificando Certbot..."
-apt-get install -y -qq certbot python3-certbot-nginx
-log_success "Certbot pronto."
+  # Certbot
+  log_info "Instalando/verificando Certbot..."
+  apt-get install -y -qq certbot python3-certbot-nginx
+  log_success "Certbot pronto."
+fi
 
 log_success "Todas as dependencias instaladas."
 
@@ -156,7 +222,7 @@ log_success "Todas as dependencias instaladas."
 # 2. Configurar Supabase Self-Hosted
 # ============================================================
 
-log_step "2/9 - Configurando Supabase Self-Hosted"
+log_step "2/8 - Configurando Supabase Self-Hosted"
 
 # Gerar chaves JWT
 log_info "Gerando chaves JWT..."
@@ -246,19 +312,20 @@ for i in $(seq 1 30); do
 done
 log_success "Supabase rodando."
 
-# Remover porta 80 do Kong (Nginx sera o unico gateway externo)
+# Se usando Traefik, remover porta 80 do Kong (Traefik sera o gateway)
+# Se usando Nginx, tambem remover (Nginx sera o gateway)
 log_info "Configurando Kong para acesso apenas interno..."
 cd "${SUPABASE_DIR}/docker"
 sed -i 's/- "${KONG_HTTP_PORT}:8000"/# - "${KONG_HTTP_PORT}:8000"/' docker-compose.yml
 sed -i 's/- "8000:8000"/# - "8000:8000"/' docker-compose.yml
 docker compose up -d kong --force-recreate
-log_success "Kong configurado para acesso apenas interno (porta 80 livre para Nginx)."
+log_success "Kong configurado para acesso apenas interno."
 
 # ============================================================
 # 3. Executar migracoes do banco
 # ============================================================
 
-log_step "3/9 - Executando migracoes do banco"
+log_step "3/8 - Executando migracoes do banco"
 
 chmod +x "${PROJECT_DIR}/scripts/run-migrations.sh"
 bash "${PROJECT_DIR}/scripts/run-migrations.sh" "${PROJECT_DIR}/supabase/migrations" "${DB_PASSWORD}" "${DB_PORT}"
@@ -270,7 +337,7 @@ log_success "Migracoes executadas."
 # 4. Habilitar extensoes pg_cron e pg_net
 # ============================================================
 
-log_step "4/9 - Habilitando extensoes do banco"
+log_step "4/8 - Habilitando extensoes do banco"
 
 cd "${SUPABASE_DIR}/docker"
 
@@ -283,7 +350,7 @@ log_success "Extensoes pg_cron e pg_net habilitadas."
 # 5. Configurar cron job
 # ============================================================
 
-log_step "5/9 - Configurando cron job para mensagens agendadas"
+log_step "5/8 - Configurando cron job para mensagens agendadas"
 
 chmod +x "${PROJECT_DIR}/scripts/setup-cron.sh"
 bash "${PROJECT_DIR}/scripts/setup-cron.sh" "${SUPABASE_DIR}" "${API_DOMAIN}" "${ANON_KEY}" "${DB_PASSWORD}"
@@ -295,9 +362,8 @@ log_success "Cron job configurado."
 # 6. Deploy das Edge Functions
 # ============================================================
 
-log_step "6/9 - Fazendo deploy das Edge Functions"
+log_step "6/8 - Fazendo deploy das Edge Functions"
 
-# Copiar funcoes para o diretorio do Supabase Docker
 FUNCTIONS_DIR="${SUPABASE_DIR}/docker/volumes/functions"
 mkdir -p "$FUNCTIONS_DIR"
 
@@ -311,9 +377,8 @@ if [ -d "${PROJECT_DIR}/supabase/functions/send-scheduled-messages" ]; then
   log_success "Edge function 'send-scheduled-messages' copiada."
 fi
 
-# Restart edge functions container para carregar as funcoes
 cd "${SUPABASE_DIR}/docker"
-docker compose restart functions 2>/dev/null || log_warn "Container 'functions' nao encontrado. Edge functions podem precisar de configuracao manual."
+docker compose restart functions 2>/dev/null || log_warn "Container 'functions' nao encontrado."
 
 log_success "Edge Functions deployadas."
 
@@ -321,11 +386,10 @@ log_success "Edge Functions deployadas."
 # 7. Buildar o frontend
 # ============================================================
 
-log_step "7/9 - Buildando o frontend"
+log_step "7/8 - Buildando o frontend"
 
 cd "$PROJECT_DIR"
 
-# Criar .env para o frontend
 cat > .env.production <<EOF
 VITE_SUPABASE_URL=https://${API_DOMAIN}
 VITE_SUPABASE_PUBLISHABLE_KEY=${ANON_KEY}
@@ -343,70 +407,121 @@ check_error "Falha ao buildar o frontend."
 log_success "Frontend buildado em dist/."
 
 # ============================================================
-# 8. Configurar Nginx
+# 8. Configurar proxy reverso (Traefik ou Nginx)
 # ============================================================
 
-log_step "8/9 - Configurando Nginx"
+if [ "$USE_TRAEFIK" = true ]; then
 
-HTTP_PORT=80
+  log_step "8/8 - Configurando roteamento via Traefik"
 
-# Remover config default
-rm -f /etc/nginx/sites-enabled/default
+  # Desabilitar Nginx do host se estiver rodando
+  if systemctl is-active nginx &>/dev/null; then
+    log_info "Desabilitando Nginx do host (Traefik assume o roteamento)..."
+    systemctl stop nginx 2>/dev/null || true
+    systemctl disable nginx 2>/dev/null || true
+    log_success "Nginx do host desabilitado."
+  fi
 
-# Frontend
-sed "s|{{DOMAIN}}|${DOMAIN}|g; s|{{PROJECT_DIR}}|${PROJECT_DIR}|g; s|{{HTTP_PORT}}|${HTTP_PORT}|g" \
-  "${PROJECT_DIR}/nginx/frontend.conf.template" \
-  > /etc/nginx/sites-available/whats-grupos
+  # Configurar rota dinamica do Traefik para a API (Supabase Kong)
+  if [ -n "$TRAEFIK_DYNAMIC_DIR" ]; then
+    log_info "Criando rota Traefik para API em ${TRAEFIK_DYNAMIC_DIR}..."
+    mkdir -p "$TRAEFIK_DYNAMIC_DIR"
+    sed "s|{{API_DOMAIN}}|${API_DOMAIN}|g; s|{{CERT_RESOLVER}}|${CERT_RESOLVER}|g" \
+      "${PROJECT_DIR}/traefik/supabase-api.yml" \
+      > "${TRAEFIK_DYNAMIC_DIR}/supabase-api.yml"
+    log_success "Rota da API configurada no Traefik."
+  else
+    # Tentar caminhos comuns do file provider
+    for DIR in /opt/traefik/dynamic /etc/traefik/dynamic /opt/traefik/conf.d; do
+      if [ -d "$DIR" ]; then
+        TRAEFIK_DYNAMIC_DIR="$DIR"
+        break
+      fi
+    done
 
-# API proxy
-sed "s|{{API_DOMAIN}}|${API_DOMAIN}|g; s|{{HTTP_PORT}}|${HTTP_PORT}|g" \
-  "${PROJECT_DIR}/nginx/api.conf.template" \
-  > /etc/nginx/sites-available/whats-grupos-api
+    if [ -n "$TRAEFIK_DYNAMIC_DIR" ]; then
+      log_info "Usando diretorio dinamico detectado: ${TRAEFIK_DYNAMIC_DIR}"
+      sed "s|{{API_DOMAIN}}|${API_DOMAIN}|g; s|{{CERT_RESOLVER}}|${CERT_RESOLVER}|g" \
+        "${PROJECT_DIR}/traefik/supabase-api.yml" \
+        > "${TRAEFIK_DYNAMIC_DIR}/supabase-api.yml"
+      log_success "Rota da API configurada no Traefik."
+    else
+      log_warn "Diretorio dinamico do Traefik nao encontrado automaticamente."
+      log_warn "Copie manualmente o arquivo traefik/supabase-api.yml para o diretorio"
+      log_warn "de configuracao dinamica do Traefik e substitua os placeholders."
+    fi
+  fi
 
-ln -sf /etc/nginx/sites-available/whats-grupos /etc/nginx/sites-enabled/
-ln -sf /etc/nginx/sites-available/whats-grupos-api /etc/nginx/sites-enabled/
+  # Deploy do frontend como stack no Swarm
+  log_info "Deployando frontend no Docker Swarm..."
+  export FRONTEND_DOMAIN="$DOMAIN"
+  export CERT_RESOLVER="$CERT_RESOLVER"
+  export TRAEFIK_NETWORK="$TRAEFIK_NETWORK"
 
-nginx -t
-check_error "Configuracao do Nginx invalida."
+  cd "$PROJECT_DIR"
+  docker stack deploy -c docker-compose.frontend.yml whats-frontend
+  check_error "Falha ao deployar frontend no Swarm."
 
-systemctl restart nginx
-log_success "Nginx configurado."
+  log_success "Frontend deployado via Traefik."
 
-# ============================================================
-# 9. Configurar SSL
-# ============================================================
+else
 
-log_step "9/9 - Configurando SSL com Certbot"
+  log_step "8/8 - Configurando Nginx + SSL"
 
-# Criar arquivos SSL auxiliares se nao existirem (necessarios para config do Nginx)
-if [ ! -f /etc/letsencrypt/options-ssl-nginx.conf ]; then
-  mkdir -p /etc/letsencrypt
-  cat > /etc/letsencrypt/options-ssl-nginx.conf <<'SSLCONF'
+  HTTP_PORT=80
+
+  # Remover config default
+  rm -f /etc/nginx/sites-enabled/default
+
+  # Frontend
+  sed "s|{{DOMAIN}}|${DOMAIN}|g; s|{{PROJECT_DIR}}|${PROJECT_DIR}|g; s|{{HTTP_PORT}}|${HTTP_PORT}|g" \
+    "${PROJECT_DIR}/nginx/frontend.conf.template" \
+    > /etc/nginx/sites-available/whats-grupos
+
+  # API proxy
+  sed "s|{{API_DOMAIN}}|${API_DOMAIN}|g; s|{{HTTP_PORT}}|${HTTP_PORT}|g" \
+    "${PROJECT_DIR}/nginx/api.conf.template" \
+    > /etc/nginx/sites-available/whats-grupos-api
+
+  ln -sf /etc/nginx/sites-available/whats-grupos /etc/nginx/sites-enabled/
+  ln -sf /etc/nginx/sites-available/whats-grupos-api /etc/nginx/sites-enabled/
+
+  nginx -t
+  check_error "Configuracao do Nginx invalida."
+
+  systemctl restart nginx
+  log_success "Nginx configurado."
+
+  # SSL
+  if [ ! -f /etc/letsencrypt/options-ssl-nginx.conf ]; then
+    mkdir -p /etc/letsencrypt
+    cat > /etc/letsencrypt/options-ssl-nginx.conf <<'SSLCONF'
 ssl_session_cache shared:le_nginx_SSL:10m;
 ssl_session_timeout 1440m;
 ssl_protocols TLSv1.2 TLSv1.3;
 ssl_prefer_server_ciphers off;
 ssl_ciphers "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384";
 SSLCONF
-  log_success "Arquivo options-ssl-nginx.conf criado."
-fi
+    log_success "Arquivo options-ssl-nginx.conf criado."
+  fi
 
-if [ ! -f /etc/letsencrypt/ssl-dhparams.pem ]; then
-  curl -sS https://raw.githubusercontent.com/certbot/certbot/main/certbot/certbot/ssl-dhparams.pem \
-    -o /etc/letsencrypt/ssl-dhparams.pem
-  log_success "Arquivo ssl-dhparams.pem baixado."
-fi
+  if [ ! -f /etc/letsencrypt/ssl-dhparams.pem ]; then
+    curl -sS https://raw.githubusercontent.com/certbot/certbot/main/certbot/certbot/ssl-dhparams.pem \
+      -o /etc/letsencrypt/ssl-dhparams.pem
+    log_success "Arquivo ssl-dhparams.pem baixado."
+  fi
 
-# Emitir certificado SSL via plugin Nginx (sem parar nenhum servico)
-certbot --nginx -d "$DOMAIN" -d "$API_DOMAIN" \
-  --non-interactive --agree-tos -m "$SSL_EMAIL" 2>&1
-CERT_RESULT=$?
+  certbot --nginx -d "$DOMAIN" -d "$API_DOMAIN" \
+    --non-interactive --agree-tos -m "$SSL_EMAIL" 2>&1
+  CERT_RESULT=$?
 
-if [ $CERT_RESULT -eq 0 ]; then
-  log_success "SSL configurado automaticamente."
-else
-  log_warn "SSL automatico falhou. Configure manualmente:"
-  log_info "  certbot --nginx -d ${DOMAIN} -d ${API_DOMAIN} --agree-tos -m ${SSL_EMAIL}"
+  if [ $CERT_RESULT -eq 0 ]; then
+    log_success "SSL configurado automaticamente."
+  else
+    log_warn "SSL automatico falhou. Configure manualmente:"
+    log_info "  certbot --nginx -d ${DOMAIN} -d ${API_DOMAIN} --agree-tos -m ${SSL_EMAIL}"
+  fi
+
 fi
 
 # ============================================================
@@ -433,6 +548,11 @@ echo -e "  JWT Secret:      ${YELLOW}${JWT_SECRET}${NC}"
 echo -e "  Anon Key:        ${YELLOW}${ANON_KEY}${NC}"
 echo -e "  Service Role Key:${YELLOW}${SERVICE_ROLE_KEY}${NC}"
 echo ""
+if [ "$USE_TRAEFIK" = true ]; then
+  echo -e "  Proxy:           ${CYAN}Traefik (Docker Swarm)${NC}"
+  echo -e "  Rede Traefik:    ${CYAN}${TRAEFIK_NETWORK}${NC}"
+fi
+echo ""
 echo -e "${RED}  IMPORTANTE: Salve essas credenciais em local seguro!${NC}"
 echo ""
 
@@ -450,6 +570,9 @@ ANON_KEY=${ANON_KEY}
 SERVICE_ROLE_KEY=${SERVICE_ROLE_KEY}
 DASHBOARD_USER=admin
 DASHBOARD_PASSWORD=${DASHBOARD_PASSWORD}
+USE_TRAEFIK=${USE_TRAEFIK}
+TRAEFIK_NETWORK=${TRAEFIK_NETWORK}
+CERT_RESOLVER=${CERT_RESOLVER}
 EOF
 
 chmod 600 "${PROJECT_DIR}/.credentials"

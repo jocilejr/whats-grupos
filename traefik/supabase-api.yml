@@ -1,0 +1,15 @@
+http:
+  routers:
+    supabase-api:
+      rule: "Host(`{{API_DOMAIN}}`)"
+      entryPoints:
+        - websecure
+      service: supabase-kong
+      tls:
+        certResolver: "{{CERT_RESOLVER}}"
+
+  services:
+    supabase-kong:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:8000"
