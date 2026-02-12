@@ -2,10 +2,10 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate, useLocation } from "react-router-dom";
 import {
   LayoutDashboard,
-  Users,
+  Activity,
   Send,
+  Megaphone,
   FileText,
-  CalendarClock,
   History,
   Settings,
   LogOut,
@@ -27,10 +27,10 @@ import { Button } from "@/components/ui/button";
 
 const menuItems = [
   { title: "Dashboard", icon: LayoutDashboard, path: "/" },
-  { title: "Grupos", icon: Users, path: "/groups" },
+  { title: "Status", icon: Activity, path: "/status" },
   { title: "Enviar Mensagem", icon: Send, path: "/messages" },
+  { title: "Campanhas", icon: Megaphone, path: "/campaigns" },
   { title: "Templates", icon: FileText, path: "/templates" },
-  { title: "Agendamentos", icon: CalendarClock, path: "/schedules" },
   { title: "Histórico", icon: History, path: "/history" },
   { title: "Configurações", icon: Settings, path: "/settings" },
 ];

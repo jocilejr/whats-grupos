@@ -47,6 +47,50 @@ export type Database = {
         }
         Relationships: []
       }
+      campaigns: {
+        Row: {
+          api_config_id: string
+          created_at: string
+          description: string | null
+          group_ids: string[]
+          id: string
+          is_active: boolean
+          name: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          api_config_id: string
+          created_at?: string
+          description?: string | null
+          group_ids?: string[]
+          id?: string
+          is_active?: boolean
+          name: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          api_config_id?: string
+          created_at?: string
+          description?: string | null
+          group_ids?: string[]
+          id?: string
+          is_active?: boolean
+          name?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaigns_api_config_id_fkey"
+            columns: ["api_config_id"]
+            isOneToOne: false
+            referencedRelation: "api_configs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       message_logs: {
         Row: {
           api_config_id: string
@@ -170,6 +214,7 @@ export type Database = {
       scheduled_messages: {
         Row: {
           api_config_id: string
+          campaign_id: string | null
           content: Json
           created_at: string
           cron_expression: string | null
@@ -186,6 +231,7 @@ export type Database = {
         }
         Insert: {
           api_config_id: string
+          campaign_id?: string | null
           content?: Json
           created_at?: string
           cron_expression?: string | null
@@ -202,6 +248,7 @@ export type Database = {
         }
         Update: {
           api_config_id?: string
+          campaign_id?: string | null
           content?: Json
           created_at?: string
           cron_expression?: string | null
@@ -222,6 +269,13 @@ export type Database = {
             columns: ["api_config_id"]
             isOneToOne: false
             referencedRelation: "api_configs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scheduled_messages_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "campaigns"
             referencedColumns: ["id"]
           },
         ]
