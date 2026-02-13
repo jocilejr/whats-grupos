@@ -98,7 +98,7 @@ export function CampaignMessagesDialog({ open, onOpenChange, campaign }: Campaig
                     size="sm"
                     onClick={() => handleAdd(type)}
                     className="gap-1.5 bg-[hsl(var(--success))] hover:bg-[hsl(var(--success))]/90 text-white shadow-[0_0_10px_hsl(var(--success)/0.25)] shrink-0"
-                    disabled={!campaign.api_config_id}
+                    
                   >
                     <Plus className="h-3.5 w-3.5" />Adicionar Mensagem
                   </Button>
