@@ -28,10 +28,11 @@ export default function AdminConfig() {
   const [apiUrl, setApiUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [testing, setTesting] = useState(false);
+  const [synced, setSynced] = useState(false);
 
-  // Sync form with loaded config
-  const isReady = config && apiUrl === "" && apiKey === "";
-  if (isReady) {
+  // Sync form with loaded config once
+  if (config && !synced) {
+    setSynced(true);
     setApiUrl(config.evolution_api_url || "");
     setApiKey(config.evolution_api_key || "");
   }
