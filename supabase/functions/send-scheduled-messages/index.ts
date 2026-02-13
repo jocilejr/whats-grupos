@@ -99,7 +99,7 @@ Deno.serve(async (req) => {
     // Filter out overdue messages (>10min past scheduled time)
     const now = Date.now();
     const validMessages: typeof messages = [];
-    for (const msg of validMessages) {
+    for (const msg of messages) {
       if (msg.next_run_at) {
         const scheduledTime = new Date(msg.next_run_at).getTime();
         if (now - scheduledTime > OVERDUE_TOLERANCE_MS) {
