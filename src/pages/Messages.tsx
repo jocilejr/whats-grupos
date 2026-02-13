@@ -457,6 +457,9 @@ export default function Messages() {
         </CardContent>
       </Card>
 
+      {/* Two-column layout: Content + Preview */}
+      <div className="flex gap-6 items-start">
+      <div className="flex-1 min-w-0 space-y-6">
       {/* Content form */}
       <Card>
         <CardHeader className="pb-3">
@@ -691,32 +694,6 @@ export default function Messages() {
             </div>
           )}
 
-          {/* WhatsApp Preview */}
-          <div className="space-y-2">
-            <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Preview</Label>
-            <WhatsAppPreview
-              messageType={messageType}
-              textContent={textContent}
-              mediaUrl={mediaUrl}
-              caption={caption}
-              locName={locName}
-              locAddress={locAddress}
-              locLat={locLat}
-              locLng={locLng}
-              contactName={contactName}
-              contactPhone={useInstancePhone && instanceNumber ? instanceNumber : contactPhone}
-              pollName={pollName}
-              pollOptions={pollOptions}
-              listTitle={listTitle}
-              listDescription={listDescription}
-              listButtonText={listButtonText}
-              listFooter={listFooter}
-              listSections={listSections}
-              mentionAll={mentionAll}
-              aiPrompt={aiPrompt}
-            />
-          </div>
-
           {/* Mention all */}
           <div className="border-t border-border/30 pt-4">
             <div className="flex items-center justify-between rounded-lg border border-border/40 bg-background/30 px-3 py-2.5">
@@ -785,6 +762,39 @@ export default function Messages() {
           )}
         </CardContent>
       </Card>
+      </div>
+
+      {/* Right side: WhatsApp Preview */}
+      <div className="hidden lg:block w-[340px] shrink-0 sticky top-6">
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Preview</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <WhatsAppPreview
+              messageType={messageType}
+              textContent={textContent}
+              mediaUrl={mediaUrl}
+              caption={caption}
+              locName={locName}
+              locAddress={locAddress}
+              locLat={locLat}
+              locLng={locLng}
+              contactName={contactName}
+              contactPhone={useInstancePhone && instanceNumber ? instanceNumber : contactPhone}
+              pollName={pollName}
+              pollOptions={pollOptions}
+              listTitle={listTitle}
+              listDescription={listDescription}
+              listButtonText={listButtonText}
+              listFooter={listFooter}
+              listSections={listSections}
+              aiPrompt={aiPrompt}
+            />
+          </CardContent>
+        </Card>
+      </div>
+      </div>
     </div>
   );
 }
