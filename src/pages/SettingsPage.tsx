@@ -103,6 +103,12 @@ export default function SettingsPage() {
 
   const deleteConfig = useMutation({
     mutationFn: async (id: string) => {
+      // Delete instance on Evolution API first
+      try {
+        await callEvolutionApi("deleteInstance", id);
+      } catch {
+        // Continue even if Evolution API fails (instance may not exist there)
+      }
       const { error } = await supabase.from("api_configs").delete().eq("id", id);
       if (error) throw error;
     },
