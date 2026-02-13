@@ -258,6 +258,17 @@ function calculateNextRunAt(msg: any, now: Date): string | null {
     const monthDay = content_.monthDay || 1;
     const next = new Date(now.getFullYear(), now.getMonth() + 1, monthDay, h_, m_, 0);
     return next.toISOString();
+  } else if (msg.schedule_type === "custom") {
+    const customDays: number[] = (content_.customDays || []).sort((a: number, b: number) => a - b);
+    if (!customDays.length) return null;
+    // Find next valid day in current or next month
+    for (const day of customDays) {
+      const candidate = new Date(now.getFullYear(), now.getMonth(), day, h_, m_, 0, 0);
+      if (candidate > now) return candidate.toISOString();
+    }
+    // No more days this month, go to first valid day next month
+    const next = new Date(now.getFullYear(), now.getMonth() + 1, customDays[0], h_, m_, 0, 0);
+    return next.toISOString();
   }
 
   return null;

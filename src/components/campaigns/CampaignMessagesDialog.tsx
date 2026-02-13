@@ -3,7 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CampaignMessageList } from "./CampaignMessageList";
 import { ScheduledMessageForm } from "./ScheduledMessageForm";
-import { CalendarClock, Clock, CalendarDays, Calendar, Plus } from "lucide-react";
+import { CalendarClock, Clock, CalendarDays, Calendar, Plus, Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -73,10 +73,13 @@ export function CampaignMessagesDialog({ open, onOpenChange, campaign }: Campaig
                 <TabsTrigger value="monthly" className="flex-1 gap-1.5 text-xs data-[state=active]:bg-card data-[state=active]:shadow-sm rounded-md">
                   <Calendar className="h-3.5 w-3.5" />Mensal
                 </TabsTrigger>
+                <TabsTrigger value="custom" className="flex-1 gap-1.5 text-xs data-[state=active]:bg-card data-[state=active]:shadow-sm rounded-md">
+                  <Settings2 className="h-3.5 w-3.5" />Avançado
+                </TabsTrigger>
               </TabsList>
             </div>
 
-            {["once", "daily", "weekly", "monthly"].map((type) => (
+            {["once", "daily", "weekly", "monthly", "custom"].map((type) => (
               <TabsContent key={type} value={type} className="flex-1 flex flex-col min-h-0 mt-0 data-[state=inactive]:hidden">
                 {/* Subheader with add button */}
                 <div className="flex items-center justify-between px-6 py-3 shrink-0">
@@ -86,12 +89,14 @@ export function CampaignMessagesDialog({ open, onOpenChange, campaign }: Campaig
                       {type === "daily" && "Mensagens diárias"}
                       {type === "weekly" && "Mensagens semanais"}
                       {type === "monthly" && "Mensagens mensais"}
+                      {type === "custom" && "Mensagens com dias personalizados"}
                     </h3>
                     <p className="text-[11px] text-muted-foreground mt-0.5">
                       {type === "once" && "Enviadas uma única vez na data e hora programadas"}
                       {type === "daily" && "Enviadas todos os dias no horário configurado"}
                       {type === "weekly" && "Enviadas nos dias da semana selecionados"}
                       {type === "monthly" && "Enviadas no dia do mês escolhido"}
+                      {type === "custom" && "Enviadas nos dias do mês selecionados (ex: dia 1 e 16)"}
                     </p>
                   </div>
                   <Button
