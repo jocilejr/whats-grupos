@@ -329,30 +329,12 @@ async function processMessage(
   const instanceName = msg.instance_name || campaign?.instance_name || config.instance_name;
   const content = msg.content as any;
 
-  // Use processing_started_at as reference: only check logs after this execution began
-  const sinceTime = msg.processing_started_at;
-
-  console.log(`Message ${msg.id}: processing ${allGroupIds.length} groups with per-group duplicate check`);
+  console.log(`Message ${msg.id}: processing ${allGroupIds.length} groups`);
 
   let totalProcessed = 0;
 
   for (let i = 0; i < allGroupIds.length; i++) {
     const groupId = allGroupIds[i];
-
-    // Per-group duplicate check: skip if already sent successfully in this execution
-    const { count: alreadySent } = await supabase
-      .from("message_logs")
-      .select("*", { count: "exact", head: true })
-      .eq("scheduled_message_id", msg.id)
-      .eq("group_id", groupId)
-      .eq("status", "sent")
-      .gte("created_at", sinceTime);
-
-    if ((alreadySent || 0) > 0) {
-      console.log(`Message ${msg.id}: group ${groupId} already sent, skipping`);
-      totalProcessed++;
-      continue;
-    }
 
     // Delay between sends (skip first)
     if (!isFirstSend || totalProcessed > 0) {
