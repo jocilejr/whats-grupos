@@ -1,84 +1,128 @@
 
-# Plano de Melhorias para Produção
 
-Auditoria completa da aplicacao "Simplificando Grupos" com recomendacoes organizadas por prioridade para tornar o produto robusto, seguro e profissional.
+# Plano de Melhorias de Design
 
----
-
-## 1. Seguranca (Critico)
-
-### ✅ 1.1 Credenciais expostas na tabela `message_queue`
-CONCLUÍDO - process-queue agora busca credenciais de api_configs/global_config. Messages.tsx e send-scheduled-messages inserem placeholders.
-
-### 1.2 Habilitar protecao contra senhas vazadas
-Requer ativação manual no dashboard do Supabase (Auth > Settings > Leaked Password Protection).
-
-### 1.3 CORS permissivo nas Edge Functions
-Pendente - restringir ao domínio de produção.
-
-### ✅ 1.4 Recuperacao de senha
-CONCLUÍDO - Botão "Esqueci minha senha" no login + página /reset-password.
+Redesign completo para uniformizar a experiencia visual e elevar o nivel de profissionalismo da aplicacao.
 
 ---
 
-## 2. Estabilidade e Resiliencia
+## Diagnostico: O que esta inconsistente hoje
 
-### ✅ 2.1 Tratamento global de erros (Error Boundary)
-CONCLUÍDO - ErrorBoundary.tsx criado e aplicado no App.tsx.
+Algumas paginas (Dashboard, Messages, Campaigns, Templates, Settings) ja possuem o padrao premium com header estilizado (icone com gradiente + glow + subtitulo). Porem as seguintes paginas estao com design "cru" e destoam do resto:
 
-### ✅ 2.2 Configuracao do React Query
-CONCLUÍDO - retry: 2, staleTime: 30s, refetchOnWindowFocus: false.
-
-### ✅ 2.3 Fila de mensagens - timeout de itens "sending"
-CONCLUÍDO - Cron job a cada 2 minutos reseta itens travados.
-
-### 2.4 Limite de 1000 registros no Dashboard
-Pendente - usar count para métricas.
-
----
-
-## 3. UX e Polimento Visual
-
-### 3.1 Loading states consistentes
-Pendente.
-
-### ✅ 3.2 Pagina 404 em portugues
-CONCLUÍDO.
-
-### ✅ 3.3 Confirmacao antes de excluir instancia
-CONCLUÍDO - AlertDialog adicionado.
-
-### 3.4 Responsividade
-Pendente.
-
-### 3.5 Feedback visual no envio de mensagens
-Pendente.
+- **QueuePage** - Header simples sem icone/gradiente, cards de metricas sem estilo premium, tabela sem responsividade
+- **AdminDashboard** - Header simples, cards basicos sem gradientes
+- **AdminUsers** - Header simples, tabela sem responsividade, sem empty state estilizado
+- **AdminConfig** - Header simples, sem gradientes nos cards
+- **BackupPage** - Header simples, cards basicos
+- **Auth (Login)** - Usa icone generico (MessageSquare) em vez do logo da marca, sem gradientes
+- **AppLayout** - Barra superior vazia (so tem o trigger da sidebar), sem breadcrumb ou titulo da pagina
+- **Sidebar Footer** - Mostra apenas o email cortado, sem avatar ou nome do usuario
 
 ---
 
-## 4. Performance
+## Melhorias Planejadas
 
-### ✅ 4.1 Lazy loading de rotas
-CONCLUÍDO - React.lazy + Suspense em todas as rotas.
+### 1. Padronizar Headers de Todas as Paginas
+Aplicar o mesmo padrao visual premium (icone com gradiente + blur + titulo + subtitulo) nas paginas que ainda nao tem:
+- QueuePage
+- AdminDashboard
+- AdminUsers
+- AdminConfig
+- BackupPage
 
-### 4.2 Otimizar subscription realtime
-Pendente.
+**Arquivos:** `QueuePage.tsx`, `AdminDashboard.tsx`, `AdminUsers.tsx`, `AdminConfig.tsx`, `BackupPage.tsx`
 
-### ✅ 4.3 Limpeza automatica de dados antigos
-CONCLUÍDO - Cron job diário às 3h limpa itens com mais de 7 dias.
+### 2. Cards de Metricas Premium
+Aplicar o mesmo estilo dos metric cards do Dashboard (borda colorida, gradiente sutil, hover com scale) nos summary cards de:
+- QueuePage (Pendentes, Enviando, Enviados, Erros)
+- AdminDashboard (Usuarios, Instancias, Mensagens, Campanhas)
+
+**Arquivos:** `QueuePage.tsx`, `AdminDashboard.tsx`
+
+### 3. Tela de Login com Identidade Visual
+- Substituir o icone generico `MessageSquare` pelo logo da marca (`logo.png`)
+- Adicionar gradiente sutil no fundo e glow no card
+- Melhorar espacamento e tipografia
+
+**Arquivo:** `Auth.tsx`
+
+### 4. Breadcrumb/Titulo no Layout Principal
+Adicionar o nome da pagina atual na barra superior do `AppLayout`, ao lado do `SidebarTrigger`, para dar contexto ao usuario sobre onde ele esta.
+
+**Arquivo:** `AppLayout.tsx`
+
+### 5. Sidebar Footer com Avatar
+Melhorar o footer da sidebar com:
+- Avatar com iniciais do usuario (usando componente Avatar do shadcn)
+- Nome de exibicao (se disponivel) alem do email
+- Melhor formatacao visual
+
+**Arquivo:** `AppSidebar.tsx`
+
+### 6. Responsividade nas Tabelas
+Envolver as tabelas em `overflow-x-auto` para scroll horizontal em mobile:
+- QueuePage
+- AdminUsers
+
+**Arquivos:** `QueuePage.tsx`, `AdminUsers.tsx`
+
+### 7. Loading States com Skeleton
+Substituir textos de "Carregando..." e spinners soltos por Skeleton loaders padronizados nas paginas:
+- AdminUsers
+- AdminConfig
+- QueuePage (ja tem spinner, padronizar com skeleton)
+
+**Arquivos:** `AdminUsers.tsx`, `AdminConfig.tsx`
+
+### 8. Meta Tags e OG Image
+- Atualizar a `og:image` no `index.html` para usar uma imagem propria da marca em vez da imagem padrao do Lovable
+- Corrigir `lang="en"` para `lang="pt-BR"`
+
+**Arquivo:** `index.html`
+
+### 9. Remover App.css Residual
+O arquivo `App.css` contem estilos do template Vite padrao que nao sao usados e podem causar conflitos (ex: `#root { max-width: 1280px }`).
+
+**Arquivo:** `App.css` (limpar conteudo)
+
+### 10. Micro-interacoes nos Cards Interativos
+Adicionar `hover:scale-[1.02] transition-all duration-300` nos cards clicaveis que ainda nao tem, como os cards de Backup.
+
+**Arquivo:** `BackupPage.tsx`
 
 ---
 
-## 5. Funcionalidades para Produto Comercial
+## Detalhes Tecnicos
 
-### 5.1 Pagina de perfil do usuario
-Pendente.
+### Padrao de Header Reutilizavel (referencia)
+Todas as paginas devem seguir este padrao visual:
+```text
++--------------------------------------------------+
+| [blur glow]                                      |
+|   [icone com gradiente]  Titulo da Pagina        |
+|                          Subtitulo descritivo     |
++--------------------------------------------------+
+```
 
-### 5.2 Logs de atividade para o admin
-Pendente.
+### Arquivos a Modificar (10 arquivos)
+1. `src/pages/QueuePage.tsx` - Header, cards, responsividade
+2. `src/pages/admin/AdminDashboard.tsx` - Header, cards premium
+3. `src/pages/admin/AdminUsers.tsx` - Header, responsividade, skeleton
+4. `src/pages/admin/AdminConfig.tsx` - Header, skeleton
+5. `src/pages/BackupPage.tsx` - Header, hover nos cards
+6. `src/pages/Auth.tsx` - Logo, gradientes
+7. `src/components/AppLayout.tsx` - Titulo da pagina no top bar
+8. `src/components/AppSidebar.tsx` - Footer com avatar
+9. `src/App.css` - Limpar estilos residuais
+10. `index.html` - lang pt-BR, remover og:image do Lovable
 
-### 5.3 Notificacoes de desconexao da instancia
-Pendente.
+### Ordem de Execucao
+1. Limpar App.css e index.html (rapido, sem risco)
+2. AppLayout com titulo da pagina
+3. AppSidebar footer com avatar
+4. Auth com logo da marca
+5. Paginas admin (Dashboard, Users, Config)
+6. QueuePage e BackupPage
+7. Micro-interacoes e skeleton loaders
 
-### 5.4 Termos de uso e politica de privacidade
-Pendente.
