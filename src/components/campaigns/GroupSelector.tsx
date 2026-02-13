@@ -5,6 +5,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Search, Loader2, Users, WifiOff, CheckCircle2 } from "lucide-react";
 
 interface GroupSelectorProps {
@@ -12,10 +13,14 @@ interface GroupSelectorProps {
   instanceName?: string;
   selectedIds: string[];
   onSelectionChange: (ids: string[]) => void;
+  lazy?: boolean;
 }
 
-export function GroupSelector({ configId, instanceName, selectedIds, onSelectionChange }: GroupSelectorProps) {
+export function GroupSelector({ configId, instanceName, selectedIds, onSelectionChange, lazy = false }: GroupSelectorProps) {
   const [search, setSearch] = useState("");
+  const [manualFetch, setManualFetch] = useState(false);
+
+  const shouldFetch = !!configId && !!instanceName && (!lazy || manualFetch);
 
   const { data: groups, isLoading, error } = useQuery({
     queryKey: ["groups", configId, instanceName],
@@ -32,8 +37,30 @@ export function GroupSelector({ configId, instanceName, selectedIds, onSelection
       if (!resp.ok) throw new Error("Erro ao buscar grupos");
       return await resp.json();
     },
-    enabled: !!configId && !!instanceName,
+    enabled: shouldFetch,
   });
+
+  if (!configId || !instanceName) {
+    return (
+      <div className="rounded-xl border border-dashed border-border/50 p-6 text-center">
+        <Users className="h-6 w-6 text-muted-foreground mx-auto mb-2" />
+        <p className="text-sm text-muted-foreground">Selecione a instância primeiro.</p>
+      </div>
+    );
+  }
+
+  if (lazy && !manualFetch) {
+    return (
+      <div className="rounded-xl border border-dashed border-border/50 p-6 text-center space-y-3">
+        <Users className="h-6 w-6 text-muted-foreground mx-auto" />
+        <p className="text-sm text-muted-foreground">Clique para carregar os grupos disponíveis</p>
+        <Button variant="outline" onClick={() => setManualFetch(true)} className="gap-2">
+          <Search className="h-4 w-4" />
+          Selecionar grupos
+        </Button>
+      </div>
+    );
+  }
 
   const filteredGroups = Array.isArray(groups)
     ? groups.filter((g: any) =>
@@ -51,15 +78,6 @@ export function GroupSelector({ configId, instanceName, selectedIds, onSelection
 
   const selectAll = () => onSelectionChange(filteredGroups.map((g: any) => g.id || g.jid));
   const deselectAll = () => onSelectionChange([]);
-
-  if (!configId || !instanceName) {
-    return (
-      <div className="rounded-xl border border-dashed border-border/50 p-6 text-center">
-        <Users className="h-6 w-6 text-muted-foreground mx-auto mb-2" />
-        <p className="text-sm text-muted-foreground">Selecione a conexão e a instância primeiro.</p>
-      </div>
-    );
-  }
 
   if (isLoading) {
     return (

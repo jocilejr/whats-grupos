@@ -404,6 +404,7 @@ export default function Messages() {
             instanceName={selectedInstanceName}
             selectedIds={selectedGroupIds}
             onSelectionChange={handleGroupSelection}
+            lazy
           />
         </CardContent>
       </Card>
