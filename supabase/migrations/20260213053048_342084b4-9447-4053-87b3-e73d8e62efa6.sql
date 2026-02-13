@@ -1,0 +1,1 @@
+ALTER TABLE public.global_config ADD COLUMN openai_api_key text NOT NULL DEFAULT '';
