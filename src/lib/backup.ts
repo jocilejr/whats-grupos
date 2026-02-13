@@ -71,13 +71,18 @@ export async function exportBackup(onProgress?: ProgressCallback): Promise<Backu
 
   let media: Record<string, string> = {};
   if (mediaPaths.length > 0) {
-    onProgress?.(`Baixando ${mediaPaths.length} arquivo(s) de mídia...`, 65);
-    const { data: { session } } = await supabase.auth.getSession();
-    const resp = await supabase.functions.invoke("backup-export", {
-      body: { media_paths: mediaPaths },
-    });
-    if (resp.data?.media) {
-      media = resp.data.media;
+    for (let i = 0; i < mediaPaths.length; i++) {
+      onProgress?.(`Baixando mídia ${i + 1}/${mediaPaths.length}...`, 65 + Math.round((i / mediaPaths.length) * 20));
+      try {
+        const resp = await supabase.functions.invoke("backup-export", {
+          body: { media_path: mediaPaths[i] },
+        });
+        if (resp.data?.data_url) {
+          media[mediaPaths[i]] = resp.data.data_url;
+        }
+      } catch {
+        // Skip failed downloads
+      }
     }
   }
 

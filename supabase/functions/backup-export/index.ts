@@ -24,7 +24,6 @@ Deno.serve(async (req) => {
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Verify user
     const anonClient = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!);
     const { data: { user }, error: authError } = await anonClient.auth.getUser(authHeader.replace("Bearer ", ""));
     if (authError || !user) {
@@ -34,40 +33,39 @@ Deno.serve(async (req) => {
       });
     }
 
-    const { media_paths } = await req.json();
+    const { media_path } = await req.json();
 
-    if (!Array.isArray(media_paths) || media_paths.length === 0) {
-      return new Response(JSON.stringify({ media: {} }), {
+    if (!media_path || typeof media_path !== "string") {
+      return new Response(JSON.stringify({ error: "media_path required" }), {
+        status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const media: Record<string, string> = {};
-
-    for (const path of media_paths) {
-      try {
-        const { data, error } = await supabase.storage
-          .from("media")
-          .download(path);
-        if (error || !data) continue;
-
-        const arrayBuffer = await data.arrayBuffer();
-        const uint8 = new Uint8Array(arrayBuffer);
-        let binary = "";
-        for (let i = 0; i < uint8.length; i++) {
-          binary += String.fromCharCode(uint8[i]);
-        }
-        const base64 = btoa(binary);
-        const mimeType = data.type || "application/octet-stream";
-        media[path] = `data:${mimeType};base64,${base64}`;
-      } catch {
-        // Skip files that can't be downloaded
-      }
+    const { data, error } = await supabase.storage.from("media").download(media_path);
+    if (error || !data) {
+      return new Response(JSON.stringify({ error: "File not found" }), {
+        status: 404,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
-    return new Response(JSON.stringify({ media }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    const arrayBuffer = await data.arrayBuffer();
+    const uint8 = new Uint8Array(arrayBuffer);
+    let binary = "";
+    // Process in chunks to avoid stack overflow
+    const chunkSize = 8192;
+    for (let i = 0; i < uint8.length; i += chunkSize) {
+      const chunk = uint8.subarray(i, Math.min(i + chunkSize, uint8.length));
+      binary += String.fromCharCode(...chunk);
+    }
+    const base64 = btoa(binary);
+    const mimeType = data.type || "application/octet-stream";
+
+    return new Response(
+      JSON.stringify({ data_url: `data:${mimeType};base64,${base64}` }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
   } catch (error) {
     return new Response(JSON.stringify({ error: error.message }), {
       status: 500,
