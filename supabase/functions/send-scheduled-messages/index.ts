@@ -35,44 +35,50 @@ Deno.serve(async (req) => {
     }
 
     if (manualMessageId) {
-      // Manual trigger: claim specific message
-      const { error: claimErr } = await supabase
-        .from("scheduled_messages")
-        .update({ processing_started_at: new Date().toISOString() })
-        .eq("id", manualMessageId)
-        .eq("is_active", true);
-
-      if (claimErr) {
-        return new Response(JSON.stringify({ error: claimErr.message }), {
-          status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-
+      // Manual trigger: send to ALL groups individually with per-group verification
       const { data: manualMsg } = await supabase
         .from("scheduled_messages")
         .select("*")
         .eq("id", manualMessageId)
+        .eq("is_active", true)
         .maybeSingle();
 
       if (!manualMsg) {
-        return new Response(JSON.stringify({ error: "Message not found" }), {
+        return new Response(JSON.stringify({ error: "Message not found or inactive" }), {
           status: 404,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
-      // Manual trigger: process one batch from current index. Cron handles remaining batches.
+      // Lock the message
+      await supabase
+        .from("scheduled_messages")
+        .update({ processing_started_at: new Date().toISOString() })
+        .eq("id", manualMessageId);
+
       let processed = 0, errors = 0;
       try {
-        await processMessage(supabase, manualMsg, true, (p, e) => {
-          processed += p;
-          errors += e;
-        });
+        const result = await processManualMessage(supabase, manualMsg);
+        processed = result.processed;
+        errors = result.errors;
       } catch (err) {
         console.error(`Manual send error for ${manualMessageId}:`, err);
-        await releaseLock(supabase, manualMessageId);
         errors++;
+      }
+
+      // Release lock and mark completed
+      const now = new Date().toISOString();
+      if (manualMsg.schedule_type === "once") {
+        await supabase.from("scheduled_messages").update({
+          is_active: false, last_run_at: now, next_run_at: null,
+          sent_group_index: 0, processing_started_at: null, last_completed_at: now,
+        }).eq("id", manualMessageId);
+      } else {
+        const nextRunAt = calculateNextRunAt(manualMsg, new Date());
+        await supabase.from("scheduled_messages").update({
+          last_run_at: now, next_run_at: nextRunAt,
+          sent_group_index: 0, processing_started_at: null, last_completed_at: now,
+        }).eq("id", manualMessageId);
       }
 
       return new Response(JSON.stringify({ processed, errors, manual: true }), {
@@ -150,6 +156,147 @@ Deno.serve(async (req) => {
     });
   }
 });
+
+// Manual send: processes ALL groups one-by-one with individual verification
+async function processManualMessage(supabase: any, msg: any) {
+  // Fetch campaign
+  let campaign: any = null;
+  if (msg.campaign_id) {
+    const { data: c } = await supabase.from("campaigns").select("*").eq("id", msg.campaign_id).maybeSingle();
+    campaign = c;
+    if (campaign && !campaign.is_active) return { processed: 0, errors: 0 };
+  }
+
+  const allGroupIds: string[] = campaign?.group_ids?.length ? campaign.group_ids : msg.group_ids;
+  if (!allGroupIds?.length) return { processed: 0, errors: 0 };
+
+  // Get API config
+  const effectiveApiConfigId = msg.api_config_id || campaign?.api_config_id;
+  if (!effectiveApiConfigId) {
+    console.error(`No API config ID for manual message ${msg.id}`);
+    return { processed: 0, errors: 0 };
+  }
+
+  const { data: config } = await supabase.from("api_configs").select("*").eq("id", effectiveApiConfigId).maybeSingle();
+  if (!config) {
+    console.error(`No API config for manual message ${msg.id}`);
+    return { processed: 0, errors: 0 };
+  }
+
+  // Resolve API URL/key from global_config if needed
+  let apiUrl = config.api_url;
+  let apiKey = config.api_key;
+  if (!apiUrl || apiUrl === "global" || !apiKey || apiKey === "global") {
+    const { data: globalCfg } = await supabase.from("global_config").select("evolution_api_url, evolution_api_key").limit(1).maybeSingle();
+    if (!globalCfg?.evolution_api_url) {
+      console.error(`No global Evolution API config for manual message ${msg.id}`);
+      return { processed: 0, errors: 0 };
+    }
+    apiUrl = globalCfg.evolution_api_url;
+    apiKey = globalCfg.evolution_api_key;
+  }
+  apiUrl = apiUrl.replace(/\/$/, "");
+  const instanceName = msg.instance_name || campaign?.instance_name || config.instance_name;
+  const content = msg.content as any;
+
+  // Determine timestamp threshold: only check logs created AFTER this manual trigger started
+  const triggerTime = new Date().toISOString();
+
+  let processed = 0, errors = 0;
+
+  console.log(`Manual send ${msg.id}: sending to ${allGroupIds.length} groups individually`);
+
+  for (let i = 0; i < allGroupIds.length; i++) {
+    const groupId = allGroupIds[i];
+
+    // Check if this specific group was already sent successfully in this trigger window
+    const { count: alreadySent } = await supabase
+      .from("message_logs")
+      .select("*", { count: "exact", head: true })
+      .eq("scheduled_message_id", msg.id)
+      .eq("group_id", groupId)
+      .eq("status", "sent")
+      .gte("created_at", triggerTime);
+
+    if ((alreadySent || 0) > 0) {
+      console.log(`Manual send ${msg.id}: group ${groupId} already sent, skipping`);
+      processed++;
+      continue;
+    }
+
+    // Delay between sends (skip first)
+    if (i > 0) {
+      await delay(DELAY_BETWEEN_MESSAGES_MS);
+    }
+
+    try {
+      // AI message generation
+      let aiGeneratedText: string | undefined;
+      if (msg.message_type === "ai") {
+        const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+        const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+        const aiResp = await fetch(`${supabaseUrl}/functions/v1/generate-ai-message`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${supabaseKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt: content.prompt || content.text || "", user_id: msg.user_id }),
+        });
+        const aiResult = await aiResp.json();
+        if (!aiResp.ok || aiResult.error) throw new Error(`AI generation failed: ${aiResult.error || "unknown"}`);
+        aiGeneratedText = aiResult.text;
+      }
+
+      const effectiveType = msg.message_type === "ai" ? "text" : msg.message_type;
+      const effectiveContent = msg.message_type === "ai" ? { ...content, text: aiGeneratedText } : content;
+
+      const { endpoint, body } = buildMessagePayload(effectiveType, apiUrl, instanceName, groupId, effectiveContent);
+      if (content.mentionsEveryOne) body.mentionsEveryOne = true;
+
+      const resp = await fetch(endpoint, {
+        method: "POST",
+        headers: { apikey: apiKey, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      const result = await resp.json();
+      const success = resp.ok;
+
+      // Log the result
+      await supabase.from("message_logs").insert({
+        user_id: msg.user_id,
+        api_config_id: msg.api_config_id,
+        scheduled_message_id: msg.id,
+        group_id: groupId,
+        message_type: msg.message_type,
+        content: content,
+        status: success ? "sent" : "error",
+        error_message: success ? null : JSON.stringify(result),
+        instance_name: instanceName,
+      });
+
+      if (success) processed++;
+      else errors++;
+
+      console.log(`Manual send ${msg.id}: group ${i + 1}/${allGroupIds.length} (${groupId}) → ${success ? "OK" : "ERROR"}`);
+    } catch (e) {
+      console.error(`Manual send error for group ${groupId}:`, e);
+      errors++;
+      await supabase.from("message_logs").insert({
+        user_id: msg.user_id,
+        api_config_id: msg.api_config_id,
+        scheduled_message_id: msg.id,
+        group_id: groupId,
+        message_type: msg.message_type,
+        content: content,
+        status: "error",
+        error_message: e.message,
+        instance_name: instanceName,
+      });
+    }
+  }
+
+  console.log(`Manual send ${msg.id}: DONE. ${processed} sent, ${errors} errors out of ${allGroupIds.length} groups`);
+  return { processed, errors };
+}
 
 async function processMessage(
   supabase: any,
