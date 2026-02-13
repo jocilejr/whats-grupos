@@ -225,12 +225,18 @@ export async function importBackup(backup: BackupFile, onProgress?: ProgressCall
     const clean = stripMeta(campaign);
     delete clean.api_config_id;
     const newConfigId = configIdMap.get(campaign.api_config_id);
-    if (!newConfigId) continue;
-    const { data } = await supabase
+    if (!newConfigId) {
+      console.warn("[backup-import] Skipping campaign, no matching api_config for:", campaign.api_config_id);
+      continue;
+    }
+    const { data, error } = await supabase
       .from("campaigns")
       .insert({ ...clean, user_id: user.id, api_config_id: newConfigId })
       .select("id")
       .single();
+    if (error) {
+      console.error("[backup-import] Failed to insert campaign:", campaign.name, error);
+    }
     if (data) campaignIdMap.set(campaign.id, data.id);
   }
 
