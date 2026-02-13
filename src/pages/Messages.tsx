@@ -91,6 +91,22 @@ export default function Messages() {
   const [sendStatuses, setSendStatuses] = useState<SendStatus[]>([]);
   const abortRef = useRef(false);
 
+  // Fetch instance connected number for contact card
+  const { data: instanceNumber } = useQuery({
+    queryKey: ["instance-number", selectedConfigId, selectedInstanceName],
+    queryFn: async () => {
+      if (!selectedConfigId || !selectedInstanceName) return null;
+      const resp = await supabase.functions.invoke("evolution-api?action=fetchInstances&configId=" + selectedConfigId);
+      if (resp.error) return null;
+      const instances = resp.data;
+      if (!Array.isArray(instances)) return null;
+      const inst = instances.find((i: any) => i.instance?.instanceName === selectedInstanceName);
+      return inst?.instance?.owner?.replace("@s.whatsapp.net", "") || null;
+    },
+    enabled: !!selectedConfigId && !!selectedInstanceName,
+    staleTime: 5 * 60 * 1000,
+  });
+
   // Fetch api_configs
   const { data: apiConfigs } = useQuery({
     queryKey: ["api-configs", user?.id],
@@ -576,7 +592,21 @@ export default function Messages() {
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground">Telefone (com DDI) *</Label>
-                <Input value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} placeholder="5511999999999" className="bg-background/50 border-border/50" disabled={sending} />
+                <div className="flex gap-2">
+                  <Input value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} placeholder="5511999999999" className="bg-background/50 border-border/50 flex-1" disabled={sending} />
+                  {instanceNumber && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="text-xs shrink-0"
+                      onClick={() => setContactPhone(instanceNumber)}
+                      disabled={sending}
+                    >
+                      Usar instância ({instanceNumber})
+                    </Button>
+                  )}
+                </div>
               </div>
             </div>
           )}
