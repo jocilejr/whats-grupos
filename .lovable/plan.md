@@ -1,87 +1,90 @@
 
 
-# Corrigir erro de CORS no Supabase Self-Hosted via Traefik
+# Sistema de Backup e Restauracao
 
-## Problema
+## Resumo
+Criar uma pagina de Backup/Restauracao acessivel pelo menu lateral, onde o usuario pode:
+1. **Exportar** todos os dados em um unico arquivo `.json` (dados do banco + arquivos de midia convertidos em base64 embutidos no JSON)
+2. **Importar** um arquivo `.json` para restaurar todos os dados em outro sistema
 
-O frontend em `https://app.simplificandogrupos.com` faz requisicoes para `https://api.app.simplificandogrupos.com` (Supabase self-hosted). O navegador bloqueia essas requisicoes porque o servidor nao retorna os headers CORS necessarios (`Access-Control-Allow-Origin`).
+## O que sera incluido no backup
 
-## Causa
+| Dados | Descricao |
+|-------|-----------|
+| Instancias (api_configs) | URLs, chaves, limites |
+| Campanhas (campaigns) | Nome, grupos, configuracoes |
+| Mensagens agendadas (scheduled_messages) | Agendamentos, cron, conteudo |
+| Templates (message_templates) | Modelos de mensagem |
+| Historico (message_logs) | Registros de envio |
+| Perfil (profiles) | Nome de exibicao |
+| Arquivos de midia | Imagens, videos, audios do storage bucket "media" |
 
-O Traefik repassa as requisicoes para o Kong (porta 8000), mas nao adiciona headers CORS. O Kong do Supabase self-hosted pode nao estar configurado para aceitar requisicoes da origem do frontend.
+## Como funciona
 
-## Solucao
+### Backup (Exportar)
+1. Busca todos os registros do usuario em cada tabela
+2. Para cada URL de midia encontrada nos templates/mensagens, faz download do arquivo e converte para base64
+3. Gera um objeto JSON com metadados (versao, data, email) + todos os dados + midias embutidas
+4. Baixa como arquivo `.json` no navegador
 
-Adicionar um middleware CORS na configuracao dinamica do Traefik (`traefik/supabase-api.yml`), que e o ponto mais simples e confiavel para resolver.
+### Restauracao (Importar)
+1. Usuario seleciona o arquivo `.json`
+2. Sistema valida a estrutura do arquivo
+3. Faz upload das midias de volta para o storage, obtendo novas URLs
+4. Substitui as URLs antigas pelas novas nos dados
+5. Insere os dados nas tabelas na ordem correta (respeitando dependencias):
+   - api_configs primeiro
+   - campaigns (depende de api_configs)
+   - scheduled_messages (depende de api_configs e campaigns)
+   - message_templates
+   - message_logs
+   - profiles (update)
+6. Mapeia IDs antigos para novos IDs gerados, mantendo as referencias corretas
 
-## Alteracoes
+## Mudancas no codigo
 
-### 1. `traefik/supabase-api.yml`
+### Novos arquivos
+- `src/pages/BackupPage.tsx` - Pagina principal com botoes de Backup e Restauracao
+- `src/lib/backup.ts` - Logica de exportacao e importacao (funcoes utilitarias)
 
-Adicionar middleware de CORS que permite requisicoes do frontend:
+### Arquivos modificados
+- `src/App.tsx` - Adicionar rota `/backup`
+- `src/components/AppSidebar.tsx` - Adicionar item "Backup" no menu
 
-```yaml
-http:
-  middlewares:
-    cors-supabase:
-      headers:
-        accessControlAllowOriginList:
-          - "https://{{FRONTEND_DOMAIN}}"
-        accessControlAllowMethods:
-          - GET
-          - POST
-          - PUT
-          - DELETE
-          - PATCH
-          - OPTIONS
-        accessControlAllowHeaders:
-          - Authorization
-          - Content-Type
-          - apikey
-          - x-client-info
-          - x-supabase-client-platform
-          - x-supabase-client-platform-version
-          - x-supabase-client-runtime
-          - x-supabase-client-runtime-version
-        accessControlAllowCredentials: true
-        accessControlMaxAge: 3600
+### Detalhes tecnicos
 
-  routers:
-    supabase-api:
-      rule: "Host(`{{API_DOMAIN}}`)"
-      entryPoints:
-        - websecure
-      service: supabase-kong
-      middlewares:
-        - cors-supabase
-      tls:
-        certResolver: "{{CERT_RESOLVER}}"
+**Exportacao:**
+- Edge function `backup-export` para buscar arquivos do storage e converter para base64 (evita problemas de CORS)
+- Arquivo JSON compactado com estrutura versionada
 
-  services:
-    supabase-kong:
-      loadBalancer:
-        servers:
-          - url: "http://host.docker.internal:8000"
+**Importacao:**
+- Processamento no cliente com feedback de progresso
+- Mapeamento de IDs antigos -> novos via `Map<string, string>`
+- Ordem de insercao: api_configs -> campaigns -> scheduled_messages/templates/logs
+- Re-upload de midias para o bucket "media" com novos paths
+
+**Estrutura do arquivo de backup:**
+```text
+{
+  "version": 1,
+  "created_at": "2026-02-13T...",
+  "user_email": "user@example.com",
+  "data": {
+    "profiles": [...],
+    "api_configs": [...],
+    "campaigns": [...],
+    "scheduled_messages": [...],
+    "message_templates": [...],
+    "message_logs": [...]
+  },
+  "media": {
+    "path/arquivo.jpg": "data:image/jpeg;base64,..."
+  }
+}
 ```
 
-### 2. `install.sh`
-
-Atualizar o bloco de `sed` que substitui placeholders no `supabase-api.yml` para tambem substituir `{{FRONTEND_DOMAIN}}` pelo dominio correto (ex: `app.simplificandogrupos.com`).
-
-### 3. `scripts/deploy.sh`
-
-Adicionar a mesma substituicao de `{{FRONTEND_DOMAIN}}` e re-copiar o arquivo para o Traefik durante redeploys.
-
-## Apos implementar
-
-Voce precisara executar no servidor:
-
-```bash
-cd /root/whats-grupos
-git pull
-# Recopiar a config atualizada para o Traefik
-docker cp traefik/supabase-api.yml $(docker ps -q -f name=traefik):/etc/traefik/dynamic/supabase-api.yml
-```
-
-O Traefik detecta mudancas automaticamente (file watch esta ativo), entao nao precisa reiniciar.
+**Edge function `backup-export`:**
+- Recebe lista de URLs de midia
+- Faz fetch de cada uma e retorna os arquivos em base64
+- Necessaria porque o browser nao consegue fazer fetch direto do storage por CORS
 
