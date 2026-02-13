@@ -1,5 +1,6 @@
+import { useMemo } from "react";
 import {
-  Sparkles, FileText, Play, Mic, MapPin, User, BarChart3, List,
+  Sparkles, Play, Mic, MapPin, User, BarChart3, List,
   CheckCheck, File,
 } from "lucide-react";
 
@@ -26,26 +27,41 @@ export interface WhatsAppPreviewProps {
 
 function TimeStamp() {
   return (
-    <span className="inline-flex items-center gap-1 ml-2 float-right mt-1">
-      <span className="text-[10px] text-[#ffffff99]">12:00</span>
-      <CheckCheck className="h-3 w-3 text-[#53bdeb]" />
+    <span className="inline-flex items-center gap-0.5 ml-1.5 align-bottom whitespace-nowrap" style={{ float: 'right', marginTop: '3px' }}>
+      <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.55)', lineHeight: 1 }}>12:00</span>
+      <CheckCheck style={{ width: '14px', height: '14px', color: '#53bdeb' }} />
     </span>
   );
 }
 
-function BubbleWrapper({ children, noBubble = false }: { children: React.ReactNode; noBubble?: boolean }) {
+function Bubble({ children, noBubble = false }: { children: React.ReactNode; noBubble?: boolean }) {
   if (noBubble) {
-    return <div className="flex justify-end">{children}</div>;
+    return <div className="flex justify-end px-3 py-0.5">{children}</div>;
   }
   return (
-    <div className="flex justify-end">
-      <div className="relative bg-[#005c4b] rounded-lg rounded-tr-none max-w-[320px] shadow-md">
+    <div className="flex justify-end px-[18px] py-[1px]">
+      <div
+        style={{
+          backgroundColor: '#005c4b',
+          borderRadius: '7.5px',
+          borderTopRightRadius: 0,
+          maxWidth: '85%',
+          padding: '6px 7px 8px 9px',
+          position: 'relative',
+          boxShadow: '0 1px 0.5px rgba(0,0,0,0.13)',
+        }}
+      >
         {/* Tail */}
-        <div
-          className="absolute -top-0 -right-2 w-0 h-0"
-          style={{ borderStyle: 'solid', borderWidth: '0 0 8px 8px', borderColor: 'transparent transparent transparent #005c4b' }}
-        />
-        <div className="p-2 px-2.5">{children}</div>
+        <svg
+          viewBox="0 0 8 13"
+          height="13"
+          width="8"
+          style={{ position: 'absolute', top: 0, right: '-8px' }}
+        >
+          <path opacity=".13" d="M5.188 1H0v11.193l6.467-8.625C7.526 2.156 6.958 1 5.188 1z" />
+          <path fill="#005c4b" d="M5.188 0H0v11.193l6.467-8.625C7.526 1.156 6.958 0 5.188 0z" />
+        </svg>
+        {children}
       </div>
     </div>
   );
@@ -53,18 +69,25 @@ function BubbleWrapper({ children, noBubble = false }: { children: React.ReactNo
 
 function EmptyState() {
   return (
-    <div className="flex items-center justify-center h-full min-h-[120px]">
-      <p className="text-[#ffffff55] text-sm text-center">Componha uma mensagem para ver o preview</p>
+    <div className="flex items-center justify-center" style={{ minHeight: '180px' }}>
+      <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '13px', textAlign: 'center' }}>
+        Componha uma mensagem<br />para ver o preview
+      </p>
     </div>
   );
 }
 
+// Stable waveform heights to avoid re-render jitter
+const WAVEFORM_HEIGHTS = Array.from({ length: 30 }, (_, i) =>
+  Math.sin(i * 0.6) * 10 + Math.cos(i * 1.2) * 5 + 8
+);
 
 export function WhatsAppPreview(props: WhatsAppPreviewProps) {
   const {
-    messageType, textContent, mediaUrl, caption, locName, locAddress,
-    locLat, locLng, contactName, contactPhone, pollName, pollOptions,
-    listTitle, listDescription, listButtonText, listFooter, listSections,
+    messageType, textContent, mediaUrl, caption,
+    locName, locAddress, locLat, locLng,
+    contactName, contactPhone, pollName, pollOptions,
+    listTitle, listDescription, listButtonText, listFooter,
     aiPrompt,
   } = props;
 
@@ -85,192 +108,177 @@ export function WhatsAppPreview(props: WhatsAppPreviewProps) {
     switch (messageType) {
       case "text":
         return (
-          <BubbleWrapper>
-            <div>
-              <span className="text-[#e9edef] text-[13px] whitespace-pre-wrap break-words">{textContent}</span>
-              <TimeStamp />
-            </div>
-          </BubbleWrapper>
+          <Bubble>
+            <span style={{ fontSize: '14.2px', color: '#e9edef', whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: '19px' }}>
+              {textContent}
+            </span>
+            <TimeStamp />
+          </Bubble>
         );
 
       case "ai":
         return (
-          <BubbleWrapper>
-            <div className="flex items-center gap-2 py-1">
-              <Sparkles className="h-4 w-4 text-[#53bdeb] shrink-0" />
-              <span className="text-[#e9edef] text-[13px] italic opacity-70">Texto gerado pela I.A.</span>
+          <Bubble>
+            <div className="flex items-center gap-1.5" style={{ marginBottom: '4px' }}>
+              <Sparkles style={{ width: '14px', height: '14px', color: '#53bdeb', flexShrink: 0 }} />
+              <span style={{ fontSize: '13px', color: '#e9edef', fontStyle: 'italic', opacity: 0.75 }}>
+                Texto gerado pela I.A.
+              </span>
             </div>
-            <p className="text-[#ffffff66] text-[11px] mt-1 border-t border-[#ffffff15] pt-1.5">
+            <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '4px', marginTop: '2px' }}>
               Prompt: {aiPrompt}
             </p>
             <TimeStamp />
-          </BubbleWrapper>
+          </Bubble>
         );
 
       case "image":
         return (
-          <BubbleWrapper>
-            <div>
-              <div className="rounded-md overflow-hidden mb-1 bg-[#ffffff10]">
-                <img src={mediaUrl} alt="Preview" className="w-full max-h-[180px] object-cover" />
-              </div>
-              {caption && (
-                <div>
-                  <span className="text-[#e9edef] text-[13px] whitespace-pre-wrap">{caption}</span>
-                  <span className="text-[#e9edef] text-[13px] whitespace-pre-wrap">{caption}</span>
-                </div>
-              )}
-              <TimeStamp />
+          <Bubble>
+            <div style={{ borderRadius: '6px', overflow: 'hidden', marginBottom: caption ? '4px' : '0' }}>
+              <img src={mediaUrl} alt="" style={{ width: '100%', maxHeight: '200px', objectFit: 'cover', display: 'block' }} />
             </div>
-          </BubbleWrapper>
+            {caption && (
+              <span style={{ fontSize: '14.2px', color: '#e9edef', whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: '19px' }}>
+                {caption}
+              </span>
+            )}
+            <TimeStamp />
+          </Bubble>
         );
 
       case "video":
         return (
-          <BubbleWrapper>
-            <div>
-              <div className="rounded-md overflow-hidden mb-1 bg-[#ffffff10] h-[120px] flex items-center justify-center relative">
-                <div className="absolute inset-0 bg-gradient-to-b from-transparent to-[#00000066]" />
-                <div className="h-10 w-10 rounded-full bg-[#00000088] flex items-center justify-center z-10">
-                  <Play className="h-5 w-5 text-white fill-white ml-0.5" />
-                </div>
+          <Bubble>
+            <div style={{ borderRadius: '6px', overflow: 'hidden', marginBottom: caption ? '4px' : '0', height: '140px', background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+              <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, transparent 60%, rgba(0,0,0,0.5))' }} />
+              <div style={{ width: '44px', height: '44px', borderRadius: '50%', background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1 }}>
+                <Play style={{ width: '20px', height: '20px', color: 'white', fill: 'white', marginLeft: '2px' }} />
               </div>
-              {caption && (
-                <div>
-                  <span className="text-[#e9edef] text-[13px] whitespace-pre-wrap">{caption}</span>
-                </div>
-              )}
-              <TimeStamp />
             </div>
-          </BubbleWrapper>
+            {caption && (
+              <span style={{ fontSize: '14.2px', color: '#e9edef', whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: '19px' }}>
+                {caption}
+              </span>
+            )}
+            <TimeStamp />
+          </Bubble>
         );
 
       case "document":
         return (
-          <BubbleWrapper>
-            <div>
-              <div className="flex items-center gap-2 bg-[#ffffff10] rounded-md p-2.5 mb-1">
-                <File className="h-8 w-8 text-[#53bdeb] shrink-0" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-[#e9edef] text-[12px] font-medium truncate">{mediaUrl?.split("/").pop() || "documento"}</p>
-                  <p className="text-[#ffffff66] text-[10px]">Documento</p>
-                </div>
+          <Bubble>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'rgba(255,255,255,0.06)', borderRadius: '8px', padding: '10px 12px', marginBottom: caption ? '4px' : '0' }}>
+              <File style={{ width: '30px', height: '30px', color: '#53bdeb', flexShrink: 0 }} />
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <p style={{ fontSize: '13px', color: '#e9edef', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {mediaUrl?.split("/").pop() || "documento"}
+                </p>
+                <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)' }}>Documento</p>
               </div>
-              {caption && (
-                <div>
-                  <span className="text-[#e9edef] text-[13px] whitespace-pre-wrap">{caption}</span>
-                </div>
-              )}
-              <TimeStamp />
             </div>
-          </BubbleWrapper>
+            {caption && (
+              <span style={{ fontSize: '14.2px', color: '#e9edef', whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: '19px' }}>
+                {caption}
+              </span>
+            )}
+            <TimeStamp />
+          </Bubble>
         );
 
       case "audio":
         return (
-          <BubbleWrapper>
-            <div className="flex items-center gap-2.5 py-1">
-              <div className="h-9 w-9 rounded-full bg-[#00a884] flex items-center justify-center shrink-0">
-                <Mic className="h-4 w-4 text-white" />
+          <Bubble>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', paddingTop: '2px', paddingBottom: '2px' }}>
+              <div style={{ width: '34px', height: '34px', borderRadius: '50%', background: '#00a884', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <Mic style={{ width: '16px', height: '16px', color: 'white' }} />
               </div>
-              <div className="flex-1 space-y-1">
-                {/* Fake waveform */}
-                <div className="flex items-end gap-[2px] h-5">
-                  {Array.from({ length: 28 }, (_, i) => {
-                    const h = Math.sin(i * 0.7) * 12 + Math.random() * 6 + 4;
-                    return <div key={i} className="w-[3px] rounded-full bg-[#ffffff55]" style={{ height: `${h}px` }} />;
-                  })}
+              <div style={{ flex: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'end', gap: '1.5px', height: '20px' }}>
+                  {WAVEFORM_HEIGHTS.map((h, i) => (
+                    <div key={i} style={{ width: '2.5px', borderRadius: '9px', background: 'rgba(255,255,255,0.4)', height: `${h}px` }} />
+                  ))}
                 </div>
-                <p className="text-[10px] text-[#ffffff66]">0:12</p>
+                <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', marginTop: '2px' }}>0:12</p>
               </div>
             </div>
             <TimeStamp />
-          </BubbleWrapper>
+          </Bubble>
         );
 
       case "sticker":
         return (
-          <BubbleWrapper noBubble>
-            <div className="max-w-[160px]">
-              <img src={mediaUrl} alt="Sticker" className="w-full h-auto" />
+          <Bubble noBubble>
+            <div style={{ maxWidth: '140px' }}>
+              <img src={mediaUrl} alt="Sticker" style={{ width: '100%', height: 'auto' }} />
             </div>
-          </BubbleWrapper>
+          </Bubble>
         );
 
       case "location":
         return (
-          <BubbleWrapper>
-            <div>
-              <div className="rounded-md overflow-hidden mb-1.5 bg-[#1a3a2a] h-[100px] flex items-center justify-center relative">
-                <div className="absolute inset-0 opacity-30" style={{ background: 'repeating-linear-gradient(0deg, transparent, transparent 20px, #ffffff10 20px, #ffffff10 21px), repeating-linear-gradient(90deg, transparent, transparent 20px, #ffffff10 20px, #ffffff10 21px)' }} />
-                <MapPin className="h-8 w-8 text-[#ff5252] z-10" />
-              </div>
-              {locName && <p className="text-[#e9edef] text-[13px] font-medium">{locName}</p>}
-              {locAddress && <p className="text-[#ffffff88] text-[11px]">{locAddress}</p>}
-              {!locName && !locAddress && <p className="text-[#ffffff88] text-[11px]">{locLat}, {locLng}</p>}
-              <TimeStamp />
+          <Bubble>
+            <div style={{ borderRadius: '6px', overflow: 'hidden', marginBottom: '4px', height: '100px', background: '#1a3a2a', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+              <div style={{ position: 'absolute', inset: 0, opacity: 0.2, backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 20px, rgba(255,255,255,0.06) 20px, rgba(255,255,255,0.06) 21px), repeating-linear-gradient(90deg, transparent, transparent 20px, rgba(255,255,255,0.06) 20px, rgba(255,255,255,0.06) 21px)' }} />
+              <MapPin style={{ width: '28px', height: '28px', color: '#ff5252', zIndex: 1 }} />
             </div>
-          </BubbleWrapper>
+            {locName && <p style={{ fontSize: '13px', color: '#e9edef', fontWeight: 500 }}>{locName}</p>}
+            {locAddress && <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)' }}>{locAddress}</p>}
+            {!locName && !locAddress && <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)' }}>{locLat}, {locLng}</p>}
+            <TimeStamp />
+          </Bubble>
         );
 
       case "contact":
         return (
-          <BubbleWrapper>
-            <div>
-              <div className="flex items-center gap-2.5 pb-2 border-b border-[#ffffff15]">
-                <div className="h-10 w-10 rounded-full bg-[#ffffff15] flex items-center justify-center shrink-0">
-                  <User className="h-5 w-5 text-[#aebac1]" />
-                </div>
-                <div>
-                  <p className="text-[#e9edef] text-[13px] font-medium">{contactName}</p>
-                  <p className="text-[#ffffff88] text-[11px]">{contactPhone}</p>
-                </div>
+          <Bubble>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+              <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <User style={{ width: '20px', height: '20px', color: '#aebac1' }} />
               </div>
-              <div className="pt-1.5 text-center">
-                <p className="text-[#53bdeb] text-[13px] font-medium">Enviar mensagem</p>
+              <div>
+                <p style={{ fontSize: '13.5px', color: '#e9edef', fontWeight: 500 }}>{contactName}</p>
+                <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)' }}>{contactPhone}</p>
               </div>
-              <TimeStamp />
             </div>
-          </BubbleWrapper>
+            <div style={{ paddingTop: '6px', textAlign: 'center' }}>
+              <span style={{ fontSize: '13px', color: '#53bdeb', fontWeight: 500 }}>Enviar mensagem</span>
+            </div>
+            <TimeStamp />
+          </Bubble>
         );
 
       case "poll":
         return (
-          <BubbleWrapper>
-            <div>
-              <div className="flex items-center gap-1.5 mb-2">
-                <BarChart3 className="h-3.5 w-3.5 text-[#53bdeb]" />
-                <span className="text-[10px] text-[#53bdeb] uppercase font-medium tracking-wider">Enquete</span>
-              </div>
-              <p className="text-[#e9edef] text-[14px] font-medium mb-2">{pollName}</p>
-              <div className="space-y-1.5">
-                {(pollOptions || []).filter(o => o.trim()).map((opt, i) => (
-                  <div key={i} className="rounded-md border border-[#ffffff20] px-3 py-1.5 text-center">
-                    <span className="text-[#53bdeb] text-[13px]">{opt}</span>
-                  </div>
-                ))}
-              </div>
-              <TimeStamp />
+          <Bubble>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginBottom: '6px' }}>
+              <BarChart3 style={{ width: '13px', height: '13px', color: '#53bdeb' }} />
+              <span style={{ fontSize: '10px', color: '#53bdeb', textTransform: 'uppercase', fontWeight: 600, letterSpacing: '0.5px' }}>Enquete</span>
             </div>
-          </BubbleWrapper>
+            <p style={{ fontSize: '14.2px', color: '#e9edef', fontWeight: 500, marginBottom: '8px' }}>{pollName}</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+              {(pollOptions || []).filter(o => o.trim()).map((opt, i) => (
+                <div key={i} style={{ borderRadius: '8px', border: '1px solid rgba(255,255,255,0.12)', padding: '6px 10px', textAlign: 'center' }}>
+                  <span style={{ fontSize: '13px', color: '#53bdeb' }}>{opt}</span>
+                </div>
+              ))}
+            </div>
+            <TimeStamp />
+          </Bubble>
         );
 
       case "list":
         return (
-          <BubbleWrapper>
-            <div>
-              {listTitle && <p className="text-[#e9edef] text-[14px] font-medium">{listTitle}</p>}
-              {listDescription && <p className="text-[#e9edef] text-[13px] mt-0.5 whitespace-pre-wrap">{listDescription}</p>}
-              {listFooter && <p className="text-[#ffffff66] text-[11px] mt-1.5">{listFooter}</p>}
-              <TimeStamp />
-              <div className="border-t border-[#ffffff15] mt-2 pt-2 text-center">
-                <div className="flex items-center justify-center gap-1.5">
-                  <List className="h-3.5 w-3.5 text-[#53bdeb]" />
-                  <span className="text-[#53bdeb] text-[13px] font-medium">{listButtonText || "Ver opções"}</span>
-                </div>
-              </div>
+          <Bubble>
+            {listTitle && <p style={{ fontSize: '14.2px', color: '#e9edef', fontWeight: 500 }}>{listTitle}</p>}
+            {listDescription && <p style={{ fontSize: '14.2px', color: '#e9edef', marginTop: '2px', whiteSpace: 'pre-wrap', lineHeight: '19px' }}>{listDescription}</p>}
+            {listFooter && <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', marginTop: '6px' }}>{listFooter}</p>}
+            <TimeStamp />
+            <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', marginTop: '8px', paddingTop: '8px', textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}>
+              <List style={{ width: '14px', height: '14px', color: '#53bdeb' }} />
+              <span style={{ fontSize: '13px', color: '#53bdeb', fontWeight: 500 }}>{listButtonText || "Ver opções"}</span>
             </div>
-          </BubbleWrapper>
+          </Bubble>
         );
 
       default:
@@ -279,20 +287,36 @@ export function WhatsAppPreview(props: WhatsAppPreviewProps) {
   };
 
   return (
-    <div className="rounded-xl overflow-hidden border border-[#ffffff10]">
-      {/* WhatsApp header bar */}
-      <div className="bg-[#202c33] px-3 py-2 flex items-center gap-2">
-        <div className="h-2 w-2 rounded-full bg-[#00a884]" />
-        <span className="text-[11px] text-[#aebac1] font-medium">Preview</span>
+    <div style={{ borderRadius: '10px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.06)' }}>
+      {/* WhatsApp top bar */}
+      <div style={{ background: '#202c33', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: '#2a3942', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <User style={{ width: '16px', height: '16px', color: '#aebac1' }} />
+        </div>
+        <div>
+          <p style={{ fontSize: '13px', color: '#e9edef', fontWeight: 500, lineHeight: 1.2 }}>Grupo</p>
+          <p style={{ fontSize: '11px', color: '#8696a0', lineHeight: 1.2 }}>preview da mensagem</p>
+        </div>
       </div>
-      {/* Chat area with wallpaper */}
+      {/* Chat area */}
       <div
-        className="bg-[#0b141a] p-4 min-h-[140px] relative"
         style={{
-          backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.02'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
+          background: '#0b141a',
+          padding: '12px 0',
+          minHeight: '180px',
+          backgroundImage: `url("data:image/svg+xml,%3Csvg width='400' height='400' viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23ffffff' fill-opacity='0.015'%3E%3Ccircle cx='50' cy='50' r='3'/%3E%3Ccircle cx='150' cy='80' r='2'/%3E%3Ccircle cx='250' cy='30' r='2.5'/%3E%3Ccircle cx='350' cy='70' r='2'/%3E%3Ccircle cx='100' cy='150' r='2'/%3E%3Ccircle cx='200' cy='130' r='3'/%3E%3Ccircle cx='300' cy='160' r='2'/%3E%3Ccircle cx='50' cy='250' r='2.5'/%3E%3Ccircle cx='150' cy='220' r='2'/%3E%3Ccircle cx='250' cy='260' r='3'/%3E%3Ccircle cx='350' cy='230' r='2'/%3E%3Ccircle cx='100' cy='330' r='2'/%3E%3Ccircle cx='200' cy='350' r='2.5'/%3E%3Ccircle cx='300' cy='310' r='2'/%3E%3Ccircle cx='50' cy='370' r='3'/%3E%3Ccircle cx='350' cy='380' r='2'/%3E%3C/g%3E%3C/svg%3E")`,
         }}
       >
         {hasContent() ? renderContent() : <EmptyState />}
+      </div>
+      {/* Bottom bar */}
+      <div style={{ background: '#202c33', padding: '6px 10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div style={{ flex: 1, background: '#2a3942', borderRadius: '20px', padding: '7px 14px' }}>
+          <span style={{ fontSize: '12px', color: '#8696a0' }}>Digite uma mensagem</span>
+        </div>
+        <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: '#00a884', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Mic style={{ width: '16px', height: '16px', color: 'white' }} />
+        </div>
       </div>
     </div>
   );
