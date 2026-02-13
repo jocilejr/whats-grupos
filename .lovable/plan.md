@@ -1,90 +1,67 @@
 
 
-# Sistema de Backup e Restauracao
+## Plano: Tornar campanhas independentes das instancias
 
-## Resumo
-Criar uma pagina de Backup/Restauracao acessivel pelo menu lateral, onde o usuario pode:
-1. **Exportar** todos os dados em um unico arquivo `.json` (dados do banco + arquivos de midia convertidos em base64 embutidos no JSON)
-2. **Importar** um arquivo `.json` para restaurar todos os dados em outro sistema
+### Objetivo
+Permitir que campanhas existam sem uma instancia (api_config) vinculada, podendo trocar ou remover a instancia livremente. Deletar uma instancia nao apagara mais as campanhas.
 
-## O que sera incluido no backup
+### Mudancas necessarias
 
-| Dados | Descricao |
-|-------|-----------|
-| Instancias (api_configs) | URLs, chaves, limites |
-| Campanhas (campaigns) | Nome, grupos, configuracoes |
-| Mensagens agendadas (scheduled_messages) | Agendamentos, cron, conteudo |
-| Templates (message_templates) | Modelos de mensagem |
-| Historico (message_logs) | Registros de envio |
-| Perfil (profiles) | Nome de exibicao |
-| Arquivos de midia | Imagens, videos, audios do storage bucket "media" |
+#### 1. Migracao no banco de dados
+- Tornar `api_config_id` nullable na tabela `campaigns`
+- Remover a constraint de foreign key com CASCADE e recriar com `ON DELETE SET NULL`
+- Fazer o mesmo para `scheduled_messages` e `message_logs` (para consistencia)
 
-## Como funciona
-
-### Backup (Exportar)
-1. Busca todos os registros do usuario em cada tabela
-2. Para cada URL de midia encontrada nos templates/mensagens, faz download do arquivo e converte para base64
-3. Gera um objeto JSON com metadados (versao, data, email) + todos os dados + midias embutidas
-4. Baixa como arquivo `.json` no navegador
-
-### Restauracao (Importar)
-1. Usuario seleciona o arquivo `.json`
-2. Sistema valida a estrutura do arquivo
-3. Faz upload das midias de volta para o storage, obtendo novas URLs
-4. Substitui as URLs antigas pelas novas nos dados
-5. Insere os dados nas tabelas na ordem correta (respeitando dependencias):
-   - api_configs primeiro
-   - campaigns (depende de api_configs)
-   - scheduled_messages (depende de api_configs e campaigns)
-   - message_templates
-   - message_logs
-   - profiles (update)
-6. Mapeia IDs antigos para novos IDs gerados, mantendo as referencias corretas
-
-## Mudancas no codigo
-
-### Novos arquivos
-- `src/pages/BackupPage.tsx` - Pagina principal com botoes de Backup e Restauracao
-- `src/lib/backup.ts` - Logica de exportacao e importacao (funcoes utilitarias)
-
-### Arquivos modificados
-- `src/App.tsx` - Adicionar rota `/backup`
-- `src/components/AppSidebar.tsx` - Adicionar item "Backup" no menu
-
-### Detalhes tecnicos
-
-**Exportacao:**
-- Edge function `backup-export` para buscar arquivos do storage e converter para base64 (evita problemas de CORS)
-- Arquivo JSON compactado com estrutura versionada
-
-**Importacao:**
-- Processamento no cliente com feedback de progresso
-- Mapeamento de IDs antigos -> novos via `Map<string, string>`
-- Ordem de insercao: api_configs -> campaigns -> scheduled_messages/templates/logs
-- Re-upload de midias para o bucket "media" com novos paths
-
-**Estrutura do arquivo de backup:**
 ```text
-{
-  "version": 1,
-  "created_at": "2026-02-13T...",
-  "user_email": "user@example.com",
-  "data": {
-    "profiles": [...],
-    "api_configs": [...],
-    "campaigns": [...],
-    "scheduled_messages": [...],
-    "message_templates": [...],
-    "message_logs": [...]
-  },
-  "media": {
-    "path/arquivo.jpg": "data:image/jpeg;base64,..."
-  }
-}
+campaigns.api_config_id:      NOT NULL + CASCADE  -->  NULLABLE + SET NULL
+scheduled_messages.api_config_id: NOT NULL + CASCADE  -->  NULLABLE + SET NULL  
+message_logs.api_config_id:   NOT NULL + CASCADE  -->  NULLABLE + SET NULL
 ```
 
-**Edge function `backup-export`:**
-- Recebe lista de URLs de midia
-- Faz fetch de cada uma e retorna os arquivos em base64
-- Necessaria porque o browser nao consegue fazer fetch direto do storage por CORS
+#### 2. Formulario de campanha (CampaignDialog.tsx)
+- Remover a validacao obrigatoria de `configId` (linha 91: "Selecione uma instancia")
+- Permitir salvar campanha sem instancia selecionada, enviando `api_config_id: configId || null`
+- A selecao de instancia e grupos passa a ser opcional
+
+#### 3. Listagem de campanhas (Campaigns.tsx)
+- Tratar campanhas sem instancia vinculada na UI (ex: mostrar badge "Sem instancia" ou indicador visual)
+- Permitir que o usuario edite a campanha para vincular uma nova instancia a qualquer momento
+
+#### 4. Backup/Restore (backup.ts)
+- Na restauracao, nao pular campanhas sem `api_config_id` mapeado — importar com `api_config_id: null`
+- Mesmo tratamento para `scheduled_messages` e `message_logs`
+
+#### 5. Mensagens agendadas (ScheduledMessageForm.tsx)
+- Ao agendar mensagem, usar o `api_config_id` da campanha se disponivel, mas permitir que seja null (validar apenas no momento do envio)
+
+---
+
+### Secao tecnica
+
+**Migracao SQL:**
+```sql
+-- campaigns
+ALTER TABLE public.campaigns ALTER COLUMN api_config_id DROP NOT NULL;
+ALTER TABLE public.campaigns DROP CONSTRAINT campaigns_api_config_id_fkey;
+ALTER TABLE public.campaigns ADD CONSTRAINT campaigns_api_config_id_fkey
+  FOREIGN KEY (api_config_id) REFERENCES public.api_configs(id) ON DELETE SET NULL;
+
+-- scheduled_messages  
+ALTER TABLE public.scheduled_messages ALTER COLUMN api_config_id DROP NOT NULL;
+ALTER TABLE public.scheduled_messages DROP CONSTRAINT scheduled_messages_api_config_id_fkey;
+ALTER TABLE public.scheduled_messages ADD CONSTRAINT scheduled_messages_api_config_id_fkey
+  FOREIGN KEY (api_config_id) REFERENCES public.api_configs(id) ON DELETE SET NULL;
+
+-- message_logs
+ALTER TABLE public.message_logs ALTER COLUMN api_config_id DROP NOT NULL;
+ALTER TABLE public.message_logs DROP CONSTRAINT message_logs_api_config_id_fkey;
+ALTER TABLE public.message_logs ADD CONSTRAINT message_logs_api_config_id_fkey
+  FOREIGN KEY (api_config_id) REFERENCES public.api_configs(id) ON DELETE SET NULL;
+```
+
+**Arquivos modificados:**
+- `src/components/campaigns/CampaignDialog.tsx` — remover validacao obrigatoria, enviar null quando vazio
+- `src/pages/Campaigns.tsx` — tratar visualmente campanhas sem instancia
+- `src/lib/backup.ts` — nao pular registros sem api_config mapeado
+- `src/components/campaigns/ScheduledMessageForm.tsx` — tratar api_config_id opcional
 
