@@ -98,11 +98,18 @@ async function processMessage(
     return;
   }
 
-  // Get API config
+  // Get API config — fallback to campaign's api_config_id if message doesn't have one
+  const effectiveApiConfigId = msg.api_config_id || campaign?.api_config_id;
+  if (!effectiveApiConfigId) {
+    console.error(`No API config ID for message ${msg.id} (and no campaign fallback)`);
+    await releaseLock(supabase, msg.id);
+    return;
+  }
+
   const { data: config } = await supabase
     .from("api_configs")
     .select("*")
-    .eq("id", msg.api_config_id)
+    .eq("id", effectiveApiConfigId)
     .maybeSingle();
 
   if (!config) {
@@ -117,7 +124,7 @@ async function processMessage(
   const { count: sentLastHour } = await supabase
     .from("message_logs")
     .select("*", { count: "exact", head: true })
-    .eq("api_config_id", msg.api_config_id)
+    .eq("api_config_id", effectiveApiConfigId)
     .eq("status", "sent")
     .gte("created_at", oneHourAgo);
 
