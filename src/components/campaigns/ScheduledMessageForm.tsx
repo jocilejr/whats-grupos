@@ -111,6 +111,22 @@ export function ScheduledMessageForm({
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
 
+  // Fetch instance connected number for contact card
+  const { data: instanceNumber } = useQuery({
+    queryKey: ["instance-number", apiConfigId, instanceName],
+    queryFn: async () => {
+      if (!apiConfigId || !instanceName) return null;
+      const resp = await supabase.functions.invoke("evolution-api?action=fetchInstances&configId=" + apiConfigId);
+      if (resp.error) return null;
+      const instances = resp.data;
+      if (!Array.isArray(instances)) return null;
+      const inst = instances.find((i: any) => i.instance?.instanceName === instanceName);
+      return inst?.instance?.owner?.replace("@s.whatsapp.net", "") || null;
+    },
+    enabled: open && !!apiConfigId && !!instanceName,
+    staleTime: 5 * 60 * 1000,
+  });
+
   useEffect(() => {
     if (open) {
       const c = message?.content as any || {};
@@ -462,7 +478,20 @@ export function ScheduledMessageForm({
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-xs text-muted-foreground">Telefone (com DDI) *</Label>
-                    <Input value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} placeholder="5511999999999" className="bg-background/50 border-border/50" />
+                    <div className="flex gap-2">
+                      <Input value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} placeholder="5511999999999" className="bg-background/50 border-border/50 flex-1" />
+                      {instanceNumber && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="text-xs shrink-0"
+                          onClick={() => setContactPhone(instanceNumber)}
+                        >
+                          Usar instância ({instanceNumber})
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}
