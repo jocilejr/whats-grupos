@@ -65,10 +65,12 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
       if (campaign) {
         setName(campaign.name || "");
         setDescription(campaign.description || "");
-        setConfigId(campaign.api_config_id || "");
         setEvolutionInstance(campaign.instance_name || "");
         setGroupIds(campaign.group_ids || []);
         setIsActive(campaign.is_active ?? true);
+        // Resolve configId: use campaign's value, or look up from configs by instance name
+        const resolvedConfigId = campaign.api_config_id || configs?.find((c) => c.instance_name === campaign.instance_name)?.id || "";
+        setConfigId(resolvedConfigId);
       } else {
         setName("");
         setDescription("");
