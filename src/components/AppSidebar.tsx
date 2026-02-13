@@ -12,6 +12,7 @@ import {
   LogOut,
   Clock,
   DatabaseBackup,
+  ListOrdered,
   Shield,
   Users,
   Cog,
@@ -37,6 +38,7 @@ const userMenuItems = [
   { title: "Campanhas", icon: Megaphone, path: "/campaigns" },
   { title: "Templates", icon: FileText, path: "/templates" },
   { title: "Histórico", icon: History, path: "/history" },
+  { title: "Fila", icon: ListOrdered, path: "/queue" },
   { title: "Backup", icon: DatabaseBackup, path: "/backup" },
   { title: "Configurações", icon: Settings, path: "/settings" },
 ];

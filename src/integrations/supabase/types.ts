@@ -187,6 +187,94 @@ export type Database = {
           },
         ]
       }
+      message_queue: {
+        Row: {
+          api_config_id: string | null
+          api_key: string
+          api_url: string
+          campaign_id: string | null
+          completed_at: string | null
+          content: Json
+          created_at: string
+          error_message: string | null
+          execution_batch: string
+          group_id: string
+          group_name: string | null
+          id: string
+          instance_name: string
+          message_type: string
+          priority: number
+          scheduled_message_id: string | null
+          started_at: string | null
+          status: string
+          user_id: string
+        }
+        Insert: {
+          api_config_id?: string | null
+          api_key: string
+          api_url: string
+          campaign_id?: string | null
+          completed_at?: string | null
+          content?: Json
+          created_at?: string
+          error_message?: string | null
+          execution_batch?: string
+          group_id: string
+          group_name?: string | null
+          id?: string
+          instance_name: string
+          message_type?: string
+          priority?: number
+          scheduled_message_id?: string | null
+          started_at?: string | null
+          status?: string
+          user_id: string
+        }
+        Update: {
+          api_config_id?: string | null
+          api_key?: string
+          api_url?: string
+          campaign_id?: string | null
+          completed_at?: string | null
+          content?: Json
+          created_at?: string
+          error_message?: string | null
+          execution_batch?: string
+          group_id?: string
+          group_name?: string | null
+          id?: string
+          instance_name?: string
+          message_type?: string
+          priority?: number
+          scheduled_message_id?: string | null
+          started_at?: string | null
+          status?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "message_queue_api_config_id_fkey"
+            columns: ["api_config_id"]
+            isOneToOne: false
+            referencedRelation: "api_configs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "message_queue_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "message_queue_scheduled_message_id_fkey"
+            columns: ["scheduled_message_id"]
+            isOneToOne: false
+            referencedRelation: "scheduled_messages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       message_templates: {
         Row: {
           category: string | null
@@ -413,6 +501,36 @@ export type Database = {
         SetofOptions: {
           from: "*"
           to: "scheduled_messages"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      claim_next_queue_item: {
+        Args: never
+        Returns: {
+          api_config_id: string | null
+          api_key: string
+          api_url: string
+          campaign_id: string | null
+          completed_at: string | null
+          content: Json
+          created_at: string
+          error_message: string | null
+          execution_batch: string
+          group_id: string
+          group_name: string | null
+          id: string
+          instance_name: string
+          message_type: string
+          priority: number
+          scheduled_message_id: string | null
+          started_at: string | null
+          status: string
+          user_id: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "message_queue"
           isOneToOne: false
           isSetofReturn: true
         }
