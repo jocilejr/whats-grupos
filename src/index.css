@@ -45,13 +45,17 @@
     --sidebar-border: 215 20% 12%;
     --sidebar-ring: 28 85% 56%;
 
+    /* Logo blue for details */
+    --detail: 210 75% 52%;
+    --detail-foreground: 210 75% 72%;
+
     /* Status colors */
     --success: 142 60% 45%;
     --success-foreground: 142 60% 80%;
     --warning: 38 92% 50%;
     --warning-foreground: 38 92% 80%;
-    --info: 217 91% 60%;
-    --info-foreground: 217 91% 80%;
+    --info: 210 75% 52%;
+    --info-foreground: 210 75% 72%;
   }
 }
 
