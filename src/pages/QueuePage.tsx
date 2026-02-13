@@ -9,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { RefreshCw, Trash2, RotateCcw, Clock, Send, CheckCircle2, AlertCircle, Loader2, Settings2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -161,6 +162,19 @@ export default function QueuePage() {
     }
   };
 
+  const handleClearAllQueue = async () => {
+    const { error } = await supabase
+      .from("message_queue")
+      .delete()
+      .in("status", ["pending", "sent"]);
+    if (error) {
+      toast.error("Erro ao limpar fila");
+    } else {
+      toast.success("Fila limpa completamente");
+      queryClient.invalidateQueries({ queryKey: ["message-queue"] });
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -169,6 +183,25 @@ export default function QueuePage() {
           <p className="text-muted-foreground">Acompanhe o envio em tempo real</p>
         </div>
         <div className="flex gap-2">
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="destructive" size="sm">
+                <Trash2 className="h-4 w-4 mr-2" /> Limpar fila
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Limpar fila?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Esta ação removerá todos os itens pendentes e enviados da fila. Essa ação não pode ser desfeita.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogAction onClick={handleClearAllQueue} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                Limpar fila
+              </AlertDialogAction>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            </AlertDialogContent>
+          </AlertDialog>
           <Button variant="outline" size="sm" onClick={handleClearSent}>
             <Trash2 className="h-4 w-4 mr-2" /> Limpar concluídos
           </Button>
