@@ -11,9 +11,6 @@ const DELAY_BETWEEN_MESSAGES_MS = 10_000;
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// Max tolerance: messages older than this are skipped (unless manual)
-const OVERDUE_TOLERANCE_MS = 10 * 60 * 1000; // 10 minutes
-
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -102,45 +99,27 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Filter out overdue messages (>10min past scheduled time)
-    const now = Date.now();
-    const validMessages: typeof messages = [];
-    for (const msg of messages) {
-      if (msg.next_run_at) {
-        const scheduledTime = new Date(msg.next_run_at).getTime();
-        if (now - scheduledTime > OVERDUE_TOLERANCE_MS) {
-          console.log(`Message ${msg.id}: skipping (overdue by ${Math.round((now - scheduledTime) / 60000)}min). Will reschedule.`);
-          // Reschedule to next occurrence instead of sending late
-          await skipAndReschedule(supabase, msg);
-          continue;
-        }
-      }
-      validMessages.push(msg);
-    }
-
-    if (!validMessages.length) {
-      return new Response(JSON.stringify({ processed: 0, skipped: messages.length }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
     let processed = 0;
     let errors = 0;
     let isFirstSend = true;
 
     for (const msg of messages) {
       try {
-        await processMessage(supabase, msg, isFirstSend, (p, e, first) => {
-          processed += p;
-          errors += e;
-          isFirstSend = first;
-        });
-        // After first message's first group, isFirstSend is false
-        isFirstSend = false;
+        const result = await processMessage(supabase, msg, isFirstSend);
+        processed += result.processed;
+        errors += result.errors;
+        if (result.processed > 0) isFirstSend = false;
+        
+        // If any error occurred, stop this execution entirely
+        if (result.errors > 0 || result.stopped) {
+          console.log(`Message ${msg.id}: execution stopped due to error. Will retry on next activation or manual trigger.`);
+          break;
+        }
       } catch (msgError) {
         console.error(`Error processing message ${msg.id}:`, msgError);
         await releaseLock(supabase, msg.id);
         errors++;
+        break; // Stop on error
       }
     }
 
@@ -301,8 +280,7 @@ async function processMessage(
   supabase: any,
   msg: any,
   isFirstSend: boolean,
-  onProgress: (processed: number, errors: number, isFirstSend: boolean) => void
-) {
+): Promise<{ processed: number; errors: number; stopped: boolean }> {
   // Fetch campaign
   let campaign: any = null;
   if (msg.campaign_id) {
@@ -310,44 +288,28 @@ async function processMessage(
     campaign = c;
     if (campaign && !campaign.is_active) {
       await releaseLock(supabase, msg.id);
-      return;
+      return { processed: 0, errors: 0, stopped: false };
     }
   }
 
   const allGroupIds: string[] = campaign?.group_ids?.length ? campaign.group_ids : msg.group_ids;
   if (!allGroupIds?.length) {
     await releaseLock(supabase, msg.id);
-    return;
+    return { processed: 0, errors: 0, stopped: false };
   }
 
   const effectiveApiConfigId = msg.api_config_id || campaign?.api_config_id;
   if (!effectiveApiConfigId) {
     console.error(`No API config ID for message ${msg.id}`);
     await releaseLock(supabase, msg.id);
-    return;
+    return { processed: 0, errors: 0, stopped: true };
   }
 
   const { data: config } = await supabase.from("api_configs").select("*").eq("id", effectiveApiConfigId).maybeSingle();
   if (!config) {
     console.error(`No API config for message ${msg.id}`);
     await releaseLock(supabase, msg.id);
-    return;
-  }
-
-  // Rate limit check
-  const maxPerHour = config.max_messages_per_hour || 100;
-  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-  const { count: sentLastHour } = await supabase
-    .from("message_logs")
-    .select("*", { count: "exact", head: true })
-    .eq("api_config_id", effectiveApiConfigId)
-    .eq("status", "sent")
-    .gte("created_at", oneHourAgo);
-
-  if ((sentLastHour || 0) >= maxPerHour) {
-    console.log(`Rate limit reached for ${config.instance_name}: ${sentLastHour}/${maxPerHour}/h. Skipping.`);
-    await releaseLock(supabase, msg.id);
-    return;
+    return { processed: 0, errors: 0, stopped: true };
   }
 
   // Resolve API URL/key from global_config if needed
@@ -358,7 +320,7 @@ async function processMessage(
     if (!globalCfg?.evolution_api_url) {
       console.error(`No global Evolution API config for message ${msg.id}`);
       await releaseLock(supabase, msg.id);
-      return;
+      return { processed: 0, errors: 0, stopped: true };
     }
     apiUrl = globalCfg.evolution_api_url;
     apiKey = globalCfg.evolution_api_key;
@@ -373,12 +335,11 @@ async function processMessage(
   console.log(`Message ${msg.id}: processing ${allGroupIds.length} groups with per-group duplicate check`);
 
   let totalProcessed = 0;
-  let totalErrors = 0;
 
   for (let i = 0; i < allGroupIds.length; i++) {
     const groupId = allGroupIds[i];
 
-    // Per-group duplicate check: skip if already sent successfully since last completion
+    // Per-group duplicate check: skip if already sent successfully in this execution
     const { count: alreadySent } = await supabase
       .from("message_logs")
       .select("*", { count: "exact", head: true })
@@ -390,14 +351,13 @@ async function processMessage(
     if ((alreadySent || 0) > 0) {
       console.log(`Message ${msg.id}: group ${groupId} already sent, skipping`);
       totalProcessed++;
-      continue; // Already sent — no delay needed
+      continue;
     }
 
     // Delay between sends (skip first)
-    if (!isFirstSend) {
+    if (!isFirstSend || totalProcessed > 0) {
       await delay(DELAY_BETWEEN_MESSAGES_MS);
     }
-    isFirstSend = false;
 
     try {
       // AI message generation
@@ -442,13 +402,17 @@ async function processMessage(
         instance_name: instanceName,
       });
 
-      if (success) totalProcessed++;
-      else totalErrors++;
-
-      console.log(`Message ${msg.id}: group ${i + 1}/${allGroupIds.length} (${groupId}) → ${success ? "OK" : "ERROR"}`);
+      if (success) {
+        totalProcessed++;
+        console.log(`Message ${msg.id}: group ${i + 1}/${allGroupIds.length} (${groupId}) → OK`);
+      } else {
+        // ERROR: stop execution, don't continue to other groups
+        console.error(`Message ${msg.id}: group ${i + 1}/${allGroupIds.length} (${groupId}) → ERROR. Stopping execution.`);
+        await releaseLock(supabase, msg.id);
+        return { processed: totalProcessed, errors: 1, stopped: true };
+      }
     } catch (e) {
       console.error(`Send error for group ${groupId}:`, e);
-      totalErrors++;
       await supabase.from("message_logs").insert({
         user_id: msg.user_id,
         api_config_id: msg.api_config_id,
@@ -460,12 +424,13 @@ async function processMessage(
         error_message: e.message,
         instance_name: instanceName,
       });
+      // ERROR: stop execution
+      await releaseLock(supabase, msg.id);
+      return { processed: totalProcessed, errors: 1, stopped: true };
     }
   }
 
-  onProgress(totalProcessed, totalErrors, isFirstSend);
-
-  // All groups processed — finalize
+  // All groups processed successfully — finalize
   const now = new Date();
   if (msg.schedule_type === "once") {
     await supabase.from("scheduled_messages").update({
@@ -479,7 +444,8 @@ async function processMessage(
       sent_group_index: 0, processing_started_at: null, last_completed_at: now.toISOString(),
     }).eq("id", msg.id);
   }
-  console.log(`Message ${msg.id}: ALL done. ${totalProcessed} sent, ${totalErrors} errors out of ${allGroupIds.length} groups`);
+  console.log(`Message ${msg.id}: ALL done. ${totalProcessed} sent out of ${allGroupIds.length} groups`);
+  return { processed: totalProcessed, errors: 0, stopped: false };
 }
 
 function calculateNextRunAt(msg: any, now: Date): string | null {
@@ -519,28 +485,6 @@ function calculateNextRunAt(msg: any, now: Date): string | null {
   }
 
   return null;
-}
-
-async function skipAndReschedule(supabase: any, msg: any) {
-  const now = new Date();
-  if (msg.schedule_type === "once") {
-    // Once-type: just deactivate, don't send late
-    await supabase.from("scheduled_messages").update({
-      is_active: false,
-      next_run_at: null,
-      processing_started_at: null,
-    }).eq("id", msg.id);
-    console.log(`Message ${msg.id}: once-type overdue, deactivated.`);
-  } else {
-    // Recurring: calculate next run and skip this one
-    const nextRunAt = calculateNextRunAt(msg, now);
-    await supabase.from("scheduled_messages").update({
-      next_run_at: nextRunAt,
-      processing_started_at: null,
-      sent_group_index: 0,
-    }).eq("id", msg.id);
-    console.log(`Message ${msg.id}: overdue, rescheduled to ${nextRunAt}.`);
-  }
 }
 
 async function releaseLock(supabase: any, msgId: string) {
