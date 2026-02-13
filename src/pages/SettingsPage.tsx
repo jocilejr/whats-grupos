@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { Plus, Trash2, Wifi, WifiOff, Loader2, CheckCircle2, XCircle, Pencil } from "lucide-react";
+import { Plus, Trash2, Wifi, WifiOff, Loader2, CheckCircle2, XCircle, Pencil, RefreshCw } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -22,6 +22,9 @@ export default function SettingsPage() {
   const [instanceName, setInstanceName] = useState("");
   const [apiUrl, setApiUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [loadingInstances, setLoadingInstances] = useState(false);
+  const [availableInstances, setAvailableInstances] = useState<any[]>([]);
+  const [showInstanceSelector, setShowInstanceSelector] = useState(false);
 
   const { data: configs, isLoading } = useQuery({
     queryKey: ["api-configs", user?.id],
@@ -156,6 +159,48 @@ export default function SettingsPage() {
     }
   };
 
+  const fetchAvailableInstances = async () => {
+    if (!apiUrl || !apiKey) {
+      toast({ title: "Preencha a URL e a chave de API primeiro", variant: "destructive" });
+      return;
+    }
+
+    setLoadingInstances(true);
+    try {
+      // First, create a temporary config to test the API connection and fetch instances
+      // We'll use a local fetch to the Evolution API instead of edge function
+      const headers = { apikey: apiKey };
+      const resp = await fetch(`${apiUrl}/instance/fetchInstances`, { headers });
+
+      if (!resp.ok) {
+        throw new Error("Erro ao conectar. Verifique a URL e API Key.");
+      }
+
+      const data = await resp.json();
+      
+      if (Array.isArray(data.data)) {
+        setAvailableInstances(data.data);
+        setShowInstanceSelector(true);
+      } else if (Array.isArray(data)) {
+        setAvailableInstances(data);
+        setShowInstanceSelector(true);
+      } else {
+        toast({ title: "Nenhuma instância encontrada", variant: "destructive" });
+      }
+    } catch (error: any) {
+      toast({ title: "Erro", description: error.message, variant: "destructive" });
+    } finally {
+      setLoadingInstances(false);
+    }
+  };
+
+  const selectInstance = (instance: any) => {
+    const instName = instance.instance?.instanceName || instance.name || instance.instanceName;
+    setInstanceName(instName);
+    setShowInstanceSelector(false);
+    toast({ title: `Instância "${instName}" selecionada!` });
+  };
+
   const getStateForConfig = (id: string) => {
     const s = connectionStates[id];
     if (!s) return null;
@@ -187,12 +232,27 @@ export default function SettingsPage() {
           >
             <div className="space-y-2">
               <Label>Nome da Instância</Label>
-              <Input
-                value={instanceName}
-                onChange={(e) => setInstanceName(e.target.value)}
-                placeholder="Ex: Minha instância principal"
-                required
-              />
+              <div className="flex gap-2">
+                <Input
+                  value={instanceName}
+                  onChange={(e) => setInstanceName(e.target.value)}
+                  placeholder="Ex: Minha instância principal"
+                  required
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={fetchAvailableInstances}
+                  disabled={loadingInstances || !apiUrl || !apiKey}
+                  className="px-3"
+                >
+                  {loadingInstances ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
             </div>
             <div className="space-y-2">
               <Label>URL da API</Label>
@@ -343,6 +403,48 @@ export default function SettingsPage() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Instance Selector Dialog */}
+      <Dialog open={showInstanceSelector} onOpenChange={setShowInstanceSelector}>
+        <DialogContent className="sm:rounded-2xl border-border/50 bg-card">
+          <DialogHeader>
+            <DialogTitle>Selecionar Instância</DialogTitle>
+            <CardDescription>Escolha uma das instâncias disponíveis na sua Evolution API</CardDescription>
+          </DialogHeader>
+          {availableInstances.length === 0 ? (
+            <p className="text-muted-foreground">Nenhuma instância encontrada.</p>
+          ) : (
+            <div className="space-y-2 max-h-[400px] overflow-y-auto">
+              {availableInstances.map((instance, idx) => {
+                const instName = instance.instance?.instanceName || instance.name || instance.instanceName;
+                const status = instance.connectionStatus || instance.instance?.state || "unknown";
+                return (
+                  <Button
+                    key={idx}
+                    type="button"
+                    variant="outline"
+                    className="w-full justify-between h-auto py-3 px-4 text-left"
+                    onClick={() => selectInstance(instance)}
+                  >
+                    <div className="flex flex-col gap-1 flex-1">
+                      <span className="font-medium">{instName}</span>
+                      <span className="text-xs text-muted-foreground">Status: {status}</span>
+                    </div>
+                    {status === "open" && (
+                      <Badge variant="default" className="ml-2">
+                        <CheckCircle2 className="h-3 w-3 mr-1" /> Conectado
+                      </Badge>
+                    )}
+                  </Button>
+                );
+              })}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" type="button" onClick={() => setShowInstanceSelector(false)}>Fechar</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
