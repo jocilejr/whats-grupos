@@ -1,5 +1,5 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Send, CalendarClock, Users, Wifi } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
+import { Send, CalendarClock, Wifi, Megaphone, TrendingUp, Activity } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -10,7 +10,7 @@ export default function Dashboard() {
   const { data: stats } = useQuery({
     queryKey: ["dashboard-stats", user?.id],
     queryFn: async () => {
-      const [logsRes, schedulesRes, configsRes] = await Promise.all([
+      const [logsRes, schedulesRes, configsRes, campaignsRes] = await Promise.all([
         supabase
           .from("message_logs")
           .select("id, status", { count: "exact" })
@@ -25,11 +25,16 @@ export default function Dashboard() {
           .select("id", { count: "exact" })
           .eq("user_id", user!.id)
           .eq("is_active", true),
+        supabase
+          .from("campaigns")
+          .select("id", { count: "exact" })
+          .eq("user_id", user!.id),
       ]);
       return {
         totalSent: logsRes.count ?? 0,
         activeSchedules: schedulesRes.count ?? 0,
         activeConfigs: configsRes.count ?? 0,
+        totalCampaigns: campaignsRes.count ?? 0,
       };
     },
     enabled: !!user,
@@ -40,42 +45,81 @@ export default function Dashboard() {
       title: "Mensagens Enviadas",
       value: stats?.totalSent ?? 0,
       icon: Send,
-      description: "Total de mensagens",
+      gradient: "from-primary/20 to-primary/5",
+      iconColor: "text-primary",
+      borderColor: "border-primary/20",
+      glowColor: "shadow-[0_0_30px_hsl(28_85%_56%/0.08)]",
     },
     {
       title: "Agendamentos Ativos",
       value: stats?.activeSchedules ?? 0,
       icon: CalendarClock,
-      description: "Mensagens programadas",
+      gradient: "from-blue-500/20 to-blue-500/5",
+      iconColor: "text-blue-400",
+      borderColor: "border-blue-500/20",
+      glowColor: "shadow-[0_0_30px_hsl(217_91%_60%/0.08)]",
+    },
+    {
+      title: "Campanhas",
+      value: stats?.totalCampaigns ?? 0,
+      icon: Megaphone,
+      gradient: "from-emerald-500/20 to-emerald-500/5",
+      iconColor: "text-emerald-400",
+      borderColor: "border-emerald-500/20",
+      glowColor: "shadow-[0_0_30px_hsl(142_60%_45%/0.08)]",
     },
     {
       title: "Instâncias Ativas",
       value: stats?.activeConfigs ?? 0,
       icon: Wifi,
-      description: "APIs conectadas",
+      gradient: "from-violet-500/20 to-violet-500/5",
+      iconColor: "text-violet-400",
+      borderColor: "border-violet-500/20",
+      glowColor: "shadow-[0_0_30px_hsl(270_60%_50%/0.08)]",
     },
   ];
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
-        <p className="text-muted-foreground">Visão geral do seu sistema de automação</p>
+    <div className="space-y-8">
+      {/* Header */}
+      <div className="relative">
+        <div className="absolute -top-4 -left-4 w-32 h-32 bg-primary/5 rounded-full blur-3xl" />
+        <div className="relative flex items-center gap-4">
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20 shadow-[0_0_25px_hsl(28_85%_56%/0.15)]">
+            <Activity className="h-7 w-7 text-primary" />
+          </div>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text">Dashboard</h1>
+            <p className="text-muted-foreground text-sm mt-0.5">Visão geral do seu sistema de automação</p>
+          </div>
+        </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
+      {/* Stats Grid */}
+      <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-4">
         {cards.map((card) => (
-          <Card key={card.title}>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                {card.title}
-              </CardTitle>
-              <card.icon className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold">{card.value}</div>
-              <p className="text-xs text-muted-foreground mt-1">{card.description}</p>
+          <Card
+            key={card.title}
+            className={`relative overflow-hidden border ${card.borderColor} ${card.glowColor} hover:scale-[1.02] transition-all duration-300 group`}
+          >
+            {/* Top gradient bar */}
+            <div className={`absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r ${card.gradient}`} />
+            
+            <CardContent className="pt-6 pb-5">
+              <div className="flex items-start justify-between mb-4">
+                <div className={`flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br ${card.gradient} border border-white/5`}>
+                  <card.icon className={`h-5 w-5 ${card.iconColor}`} />
+                </div>
+                <TrendingUp className="h-4 w-4 text-muted-foreground/40 group-hover:text-primary/60 transition-colors" />
+              </div>
+              <div className="space-y-1">
+                <p className="text-4xl font-bold tracking-tighter">{card.value}</p>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{card.title}</p>
+              </div>
             </CardContent>
+
+            {/* Subtle corner glow */}
+            <div className={`absolute -bottom-8 -right-8 w-24 h-24 bg-gradient-to-tl ${card.gradient} rounded-full blur-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-500`} />
           </Card>
         ))}
       </div>

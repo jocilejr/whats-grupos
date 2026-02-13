@@ -358,22 +358,32 @@ export default function Messages() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Enviar Mensagem</h1>
-        <p className="text-muted-foreground">Envie mensagens imediatas para grupos do WhatsApp</p>
+      {/* Header */}
+      <div className="relative">
+        <div className="absolute -top-4 -left-4 w-32 h-32 bg-primary/5 rounded-full blur-3xl" />
+        <div className="relative flex items-center gap-4">
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20 shadow-[0_0_25px_hsl(28_85%_56%/0.15)]">
+            <Send className="h-7 w-7 text-primary" />
+          </div>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Enviar Mensagem</h1>
+            <p className="text-muted-foreground text-sm mt-0.5">Envie mensagens imediatas para grupos do WhatsApp</p>
+          </div>
+        </div>
       </div>
 
       {/* Instance selector */}
-      <Card>
+      <Card className="border-border/30 overflow-hidden">
+        <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-primary/20 to-transparent" />
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Instância</CardTitle>
+          <CardTitle className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Instância</CardTitle>
         </CardHeader>
         <CardContent>
           {!apiConfigs?.length ? (
             <div className="rounded-xl border border-dashed border-border/50 p-6 text-center">
               <AlertTriangle className="h-6 w-6 text-muted-foreground mx-auto mb-2" />
               <p className="text-sm text-muted-foreground">
-                Configure uma instância da Evolution API nas Configurações primeiro.
+                Configure uma instância nas Configurações primeiro.
               </p>
             </div>
           ) : (
