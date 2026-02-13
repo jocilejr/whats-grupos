@@ -77,6 +77,11 @@
     font-family: 'Space Grotesk', sans-serif;
   }
 
+  /* Menu item transitions in sidebar */
+  .group\/menu-item-custom {
+    @apply transition-all duration-300 ease-out;
+  }
+
   /* Hide scrollbars globally but keep scrolling */
   * {
     scrollbar-width: none;
