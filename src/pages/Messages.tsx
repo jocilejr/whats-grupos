@@ -71,6 +71,7 @@ export default function Messages() {
   // Contact
   const [contactName, setContactName] = useState("");
   const [contactPhone, setContactPhone] = useState("");
+  const [useInstancePhone, setUseInstancePhone] = useState(false);
 
   // Poll
   const [pollName, setPollName] = useState("");
@@ -234,7 +235,7 @@ export default function Messages() {
       case "location":
         base.name = locName; base.address = locAddress;
         base.latitude = parseFloat(locLat); base.longitude = parseFloat(locLng); break;
-      case "contact": base.contactName = contactName; base.contactPhone = contactPhone; break;
+      case "contact": base.contactName = contactName; base.contactPhone = (useInstancePhone && instanceNumber) ? instanceNumber : contactPhone; break;
       case "poll":
         base.pollName = pollName; base.pollOptions = pollOptions.filter((o) => o.trim());
         base.pollSelectable = pollSelectable; break;
@@ -592,22 +593,29 @@ export default function Messages() {
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground">Telefone (com DDI) *</Label>
-                <div className="flex gap-2">
-                  <Input value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} placeholder="5511999999999" className="bg-background/50 border-border/50 flex-1" disabled={sending} />
-                  {instanceNumber && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="text-xs shrink-0"
-                      onClick={() => setContactPhone(instanceNumber)}
-                      disabled={sending}
-                    >
-                      Usar instância ({instanceNumber})
-                    </Button>
-                  )}
-                </div>
+                <Input
+                  value={useInstancePhone && instanceNumber ? instanceNumber : contactPhone}
+                  onChange={(e) => setContactPhone(e.target.value)}
+                  placeholder="5511999999999"
+                  className="bg-background/50 border-border/50"
+                  disabled={(useInstancePhone && !!instanceNumber) || sending}
+                />
               </div>
+              {instanceNumber && (
+                <div className="flex items-center justify-between rounded-lg border border-border/30 bg-background/30 p-3">
+                  <div className="space-y-0.5">
+                    <p className="text-sm font-medium">Usar número da instância</p>
+                    <p className="text-xs text-muted-foreground">Preencher com {instanceNumber}</p>
+                  </div>
+                  <Switch
+                    checked={useInstancePhone}
+                    onCheckedChange={(checked) => {
+                      setUseInstancePhone(checked);
+                      if (checked && instanceNumber) setContactPhone(instanceNumber);
+                    }}
+                  />
+                </div>
+              )}
             </div>
           )}
 
