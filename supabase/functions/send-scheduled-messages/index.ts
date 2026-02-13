@@ -368,8 +368,8 @@ async function processMessage(
   const instanceName = msg.instance_name || campaign?.instance_name || config.instance_name;
   const content = msg.content as any;
 
-  // Use last_completed_at as reference: only check logs after last completion
-  const sinceTime = msg.last_completed_at || msg.last_run_at || msg.created_at;
+  // Use processing_started_at as reference: only check logs after this execution began
+  const sinceTime = msg.processing_started_at;
 
   console.log(`Message ${msg.id}: processing ${allGroupIds.length} groups with per-group duplicate check`);
 
