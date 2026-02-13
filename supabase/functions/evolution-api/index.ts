@@ -215,6 +215,15 @@ Deno.serve(async (req) => {
         break;
       }
 
+      case "deleteInstance": {
+        const resp = await fetch(`${apiUrl}/instance/delete/${instanceName}`, {
+          method: "DELETE",
+          headers,
+        });
+        result = await resp.json();
+        break;
+      }
+
       default:
         return json({ error: "Invalid action" }, 400);
     }
