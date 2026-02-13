@@ -384,7 +384,7 @@ export default function Messages() {
               <SelectContent>
                 {apiConfigs.map((config) => (
                   <SelectItem key={config.id} value={config.id}>
-                    {config.instance_name} — {config.api_url}
+                    {config.instance_name}
                   </SelectItem>
                 ))}
               </SelectContent>
