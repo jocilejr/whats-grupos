@@ -95,10 +95,19 @@ export default function HistoryPage() {
   };
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Histórico</h1>
-        <p className="text-muted-foreground">Log de todas as mensagens enviadas</p>
+    <div className="space-y-8">
+      {/* Header */}
+      <div className="relative">
+        <div className="absolute -top-4 -left-4 w-32 h-32 bg-primary/5 rounded-full blur-3xl" />
+        <div className="relative flex items-center gap-4">
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20 shadow-[0_0_25px_hsl(28_85%_56%/0.15)]">
+            <History className="h-7 w-7 text-primary" />
+          </div>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Histórico</h1>
+            <p className="text-muted-foreground text-sm mt-0.5">Log de todas as mensagens enviadas</p>
+          </div>
+        </div>
       </div>
 
       <Card>
