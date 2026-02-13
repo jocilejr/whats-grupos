@@ -1,13 +1,15 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { RefreshCw, Trash2, RotateCcw, Clock, Send, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { RefreshCw, Trash2, RotateCcw, Clock, Send, CheckCircle2, AlertCircle, Loader2, Settings2 } from "lucide-react";
 import { toast } from "sonner";
 
 type QueueItem = {
@@ -43,6 +45,45 @@ export default function QueuePage() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [delaySeconds, setDelaySeconds] = useState<number>(10);
+  const [delayInput, setDelayInput] = useState<string>("10");
+
+  // Fetch delay config
+  const { data: globalConfig } = useQuery({
+    queryKey: ["global-config-delay"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("global_config")
+        .select("queue_delay_seconds")
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!user,
+  });
+
+  useEffect(() => {
+    if (globalConfig?.queue_delay_seconds != null) {
+      setDelaySeconds(globalConfig.queue_delay_seconds);
+      setDelayInput(String(globalConfig.queue_delay_seconds));
+    }
+  }, [globalConfig]);
+
+  const saveDelay = useMutation({
+    mutationFn: async (seconds: number) => {
+      const { error } = await supabase
+        .from("global_config")
+        .update({ queue_delay_seconds: seconds } as any)
+        .not("id", "is", null);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["global-config-delay"] });
+      toast.success("Delay atualizado!");
+    },
+    onError: () => toast.error("Erro ao salvar delay"),
+  });
 
   const { data: queueItems = [], isLoading } = useQuery({
     queryKey: ["message-queue", statusFilter],
@@ -157,7 +198,39 @@ export default function QueuePage() {
         </Card>
       </div>
 
-      {/* Filter */}
+      {/* Delay config */}
+      <Card>
+        <CardContent className="pt-6">
+          <div className="flex items-center gap-4">
+            <Settings2 className="h-5 w-5 text-muted-foreground shrink-0" />
+            <div className="flex items-center gap-3 flex-1">
+              <Label htmlFor="delay" className="text-sm whitespace-nowrap">Delay entre mensagens:</Label>
+              <Input
+                id="delay"
+                type="number"
+                min={1}
+                max={300}
+                className="w-24"
+                value={delayInput}
+                onChange={(e) => setDelayInput(e.target.value)}
+              />
+              <span className="text-sm text-muted-foreground">segundos</span>
+              <Button
+                size="sm"
+                disabled={saveDelay.isPending || Number(delayInput) === delaySeconds}
+                onClick={() => {
+                  const val = Math.max(1, Math.min(300, Number(delayInput) || 10));
+                  setDelayInput(String(val));
+                  saveDelay.mutate(val);
+                }}
+              >
+                {saveDelay.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Salvar"}
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       <div className="flex items-center gap-2">
         <span className="text-sm text-muted-foreground">Filtrar:</span>
         <Select value={statusFilter} onValueChange={setStatusFilter}>

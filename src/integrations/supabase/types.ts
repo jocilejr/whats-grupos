@@ -104,6 +104,7 @@ export type Database = {
           evolution_api_url: string
           id: string
           openai_api_key: string
+          queue_delay_seconds: number
           updated_at: string
         }
         Insert: {
@@ -112,6 +113,7 @@ export type Database = {
           evolution_api_url?: string
           id?: string
           openai_api_key?: string
+          queue_delay_seconds?: number
           updated_at?: string
         }
         Update: {
@@ -120,6 +122,7 @@ export type Database = {
           evolution_api_url?: string
           id?: string
           openai_api_key?: string
+          queue_delay_seconds?: number
           updated_at?: string
         }
         Relationships: []
