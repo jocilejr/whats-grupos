@@ -1,67 +1,61 @@
 
-
-## Plano: Tornar campanhas independentes das instancias
+## Plano: Aba "Avancado" com agendamento personalizado via Cron
 
 ### Objetivo
-Permitir que campanhas existam sem uma instancia (api_config) vinculada, podendo trocar ou remover a instancia livremente. Deletar uma instancia nao apagara mais as campanhas.
+Adicionar uma quinta aba "Avancado" no dialogo de mensagens da campanha, permitindo criar agendamentos personalizados como "Dia 1 e dia 16 de cada mes" ou qualquer combinacao de dias/horarios.
 
-### Mudancas necessarias
+### Como funciona para o usuario
+- Nova aba "Avancado" com icone de engrenagem ao lado das abas existentes (Unico, Diario, Semanal, Mensal)
+- No formulario de agendamento, o usuario seleciona visualmente os dias do mes (1-31) clicando nos numeros desejados
+- Define o horario de envio
+- Exemplo: seleciona dias 1 e 16, horario 08:00 = mensagem enviada no dia 1 e 16 de cada mes as 08:00
 
-#### 1. Migracao no banco de dados
-- Tornar `api_config_id` nullable na tabela `campaigns`
-- Remover a constraint de foreign key com CASCADE e recriar com `ON DELETE SET NULL`
-- Fazer o mesmo para `scheduled_messages` e `message_logs` (para consistencia)
+### Mudancas tecnicas
 
+#### 1. CampaignMessagesDialog.tsx
+- Adicionar nova aba "Avancado" (value="custom") com icone `Settings2` ou `Cog`
+- Listar mensagens com `schedule_type="custom"`
+- Botao "Adicionar Mensagem" igual as outras abas
+
+#### 2. ScheduledMessageForm.tsx
+- Novo estado `customDays: number[]` para dias do mes selecionados (ex: [1, 16])
+- Quando `scheduleType === "custom"`, exibir grid clicavel com numeros 1-31 (similar ao grid de dias da semana no weekly)
+- Campo de horario (`runTime`)
+- No `buildContent()`, salvar `customDays` e `runTime` no content
+- No `computeNextRunAt()`, calcular proximo dia valido baseado nos `customDays`
+- Validacao: ao menos 1 dia selecionado
+
+#### 3. CampaignMessageList.tsx
+- Exibir pills dos dias selecionados para mensagens do tipo "custom" (similar aos dias da semana no weekly)
+- Na aba de programacao expandida, mostrar os dias selecionados
+
+#### 4. Edge Function (send-scheduled-messages)
+- Na funcao `calculateNextRunAt`, adicionar logica para `schedule_type === "custom"`:
+  - Ler `content.customDays` (array de numeros)
+  - Encontrar o proximo dia do mes que esta na lista
+  - Se nenhum dia restante no mes atual, ir para o primeiro dia valido do proximo mes
+
+### Detalhes de implementacao
+
+**Grid de dias do mes (ScheduledMessageForm):**
 ```text
-campaigns.api_config_id:      NOT NULL + CASCADE  -->  NULLABLE + SET NULL
-scheduled_messages.api_config_id: NOT NULL + CASCADE  -->  NULLABLE + SET NULL  
-message_logs.api_config_id:   NOT NULL + CASCADE  -->  NULLABLE + SET NULL
+ 1   2   3   4   5   6   7
+ 8   9  10  11  12  13  14
+15  16  17  18  19  20  21
+22  23  24  25  26  27  28
+29  30  31
 ```
+Cada numero e clicavel e fica destacado quando selecionado (estilo igual aos botoes de dia da semana).
 
-#### 2. Formulario de campanha (CampaignDialog.tsx)
-- Remover a validacao obrigatoria de `configId` (linha 91: "Selecione uma instancia")
-- Permitir salvar campanha sem instancia selecionada, enviando `api_config_id: configId || null`
-- A selecao de instancia e grupos passa a ser opcional
-
-#### 3. Listagem de campanhas (Campaigns.tsx)
-- Tratar campanhas sem instancia vinculada na UI (ex: mostrar badge "Sem instancia" ou indicador visual)
-- Permitir que o usuario edite a campanha para vincular uma nova instancia a qualquer momento
-
-#### 4. Backup/Restore (backup.ts)
-- Na restauracao, nao pular campanhas sem `api_config_id` mapeado — importar com `api_config_id: null`
-- Mesmo tratamento para `scheduled_messages` e `message_logs`
-
-#### 5. Mensagens agendadas (ScheduledMessageForm.tsx)
-- Ao agendar mensagem, usar o `api_config_id` da campanha se disponivel, mas permitir que seja null (validar apenas no momento do envio)
-
----
-
-### Secao tecnica
-
-**Migracao SQL:**
-```sql
--- campaigns
-ALTER TABLE public.campaigns ALTER COLUMN api_config_id DROP NOT NULL;
-ALTER TABLE public.campaigns DROP CONSTRAINT campaigns_api_config_id_fkey;
-ALTER TABLE public.campaigns ADD CONSTRAINT campaigns_api_config_id_fkey
-  FOREIGN KEY (api_config_id) REFERENCES public.api_configs(id) ON DELETE SET NULL;
-
--- scheduled_messages  
-ALTER TABLE public.scheduled_messages ALTER COLUMN api_config_id DROP NOT NULL;
-ALTER TABLE public.scheduled_messages DROP CONSTRAINT scheduled_messages_api_config_id_fkey;
-ALTER TABLE public.scheduled_messages ADD CONSTRAINT scheduled_messages_api_config_id_fkey
-  FOREIGN KEY (api_config_id) REFERENCES public.api_configs(id) ON DELETE SET NULL;
-
--- message_logs
-ALTER TABLE public.message_logs ALTER COLUMN api_config_id DROP NOT NULL;
-ALTER TABLE public.message_logs DROP CONSTRAINT message_logs_api_config_id_fkey;
-ALTER TABLE public.message_logs ADD CONSTRAINT message_logs_api_config_id_fkey
-  FOREIGN KEY (api_config_id) REFERENCES public.api_configs(id) ON DELETE SET NULL;
-```
+**Calculo do proximo envio (computeNextRunAt para "custom"):**
+- Ordenar os `customDays`
+- A partir da data atual, encontrar o proximo dia valido no mes atual ou no proximo mes
+- Aplicar o horario configurado
 
 **Arquivos modificados:**
-- `src/components/campaigns/CampaignDialog.tsx` — remover validacao obrigatoria, enviar null quando vazio
-- `src/pages/Campaigns.tsx` — tratar visualmente campanhas sem instancia
-- `src/lib/backup.ts` — nao pular registros sem api_config mapeado
-- `src/components/campaigns/ScheduledMessageForm.tsx` — tratar api_config_id opcional
+- `src/components/campaigns/CampaignMessagesDialog.tsx` - nova aba "Avancado"
+- `src/components/campaigns/ScheduledMessageForm.tsx` - grid de dias + logica de calculo
+- `src/components/campaigns/CampaignMessageList.tsx` - exibicao dos dias customizados
+- `supabase/functions/send-scheduled-messages/index.ts` - calculateNextRunAt para custom
 
+**Sem migracao necessaria:** A tabela `scheduled_messages` ja possui o campo `schedule_type` (text) que aceita qualquer valor, e os dias personalizados sao armazenados no JSON do campo `content`.
