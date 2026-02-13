@@ -186,7 +186,7 @@ export default function Campaigns() {
                     </div>
                     <div className="flex-1 rounded-lg bg-secondary/60 border border-border/30 px-3 py-2 text-center">
                       <div className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground mb-0.5">
-                        <CalendarClock className="h-3 w-3 text-blue-400/70" />
+                        <CalendarClock className="h-3 w-3 text-[hsl(210,75%,62%)]/70" />
                         Mensagens
                       </div>
                       <p className="text-lg font-bold tracking-tight">{msgCount}</p>

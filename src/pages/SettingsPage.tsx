@@ -230,28 +230,28 @@ export default function SettingsPage() {
                 key={config.id}
                 className={`relative overflow-hidden transition-all group ${
                   connected 
-                    ? "border-emerald-500/20 shadow-[0_0_20px_hsl(142_60%_45%/0.06)]" 
+                    ? "border-[hsl(210_75%_52%/0.2)] shadow-[0_0_20px_hsl(210_75%_52%/0.06)]" 
                     : "border-border/30"
                 }`}
               >
                 <div className={`absolute top-0 left-0 right-0 h-[2px] transition-all ${
-                  connected ? "bg-gradient-to-r from-transparent via-emerald-500/60 to-transparent" : "bg-transparent"
+                  connected ? "bg-gradient-to-r from-transparent via-[hsl(210,75%,52%)]/60 to-transparent" : "bg-transparent"
                 }`} />
                 <CardContent className="py-4 flex items-center justify-between gap-3">
                   <div className="flex items-center gap-3 flex-1 min-w-0">
                     <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-all ${
                       connected
-                        ? "bg-gradient-to-br from-emerald-500/20 to-emerald-500/5 border border-emerald-500/20"
+                        ? "bg-gradient-to-br from-[hsl(210_75%_52%/0.2)] to-[hsl(210_75%_52%/0.05)] border border-[hsl(210_75%_52%/0.2)]"
                         : "bg-secondary border border-border/30"
                     }`}>
-                      <Wifi className={`h-4 w-4 ${connected ? "text-emerald-400" : "text-muted-foreground"}`} />
+                      <Wifi className={`h-4 w-4 ${connected ? "text-[hsl(210,75%,62%)]" : "text-muted-foreground"}`} />
                     </div>
                     <div className="min-w-0">
                       <p className="font-semibold text-[15px]">{config.instance_name}</p>
                       {state && (
                         <div className="flex items-center gap-1.5 mt-0.5">
                           {connected ? (
-                            <Badge className="bg-emerald-500/15 text-emerald-400 border-emerald-500/20 text-[10px] gap-1 px-1.5 py-0">
+                            <Badge className="bg-[hsl(210_75%_52%/0.15)] text-[hsl(210,75%,62%)] border-[hsl(210_75%_52%/0.2)] text-[10px] gap-1 px-1.5 py-0">
                               <CheckCircle2 className="h-2.5 w-2.5" /> Conectado
                             </Badge>
                           ) : (

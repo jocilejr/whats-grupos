@@ -23,7 +23,7 @@ const TYPE_META: Record<string, { icon: any; label: string }> = {
 const CATEGORY_COLORS: Record<string, string> = {
   geral: "bg-secondary text-secondary-foreground",
   marketing: "bg-primary/15 text-primary",
-  informativo: "bg-blue-500/15 text-blue-600",
+  informativo: "bg-[hsl(210_75%_52%/0.15)] text-[hsl(210,75%,62%)]",
   suporte: "bg-amber-500/15 text-amber-600",
 };
 
