@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, Pencil, UserX, UserCheck, Users } from "lucide-react";
+import { Plus, Pencil, UserX, UserCheck, Users, Sparkles } from "lucide-react";
 
 async function callAdminApi(action: string, body?: any) {
   const { data: { session } } = await supabase.auth.getSession();
@@ -43,6 +43,7 @@ export default function AdminUsers() {
   const [maxInstances, setMaxInstances] = useState(1);
   const [maxMsgs, setMaxMsgs] = useState(100);
   const [maxCampaigns, setMaxCampaigns] = useState(5);
+  const [maxAiRequests, setMaxAiRequests] = useState(50);
 
   const { data: users, isLoading } = useQuery({
     queryKey: ["admin-users"],
@@ -54,6 +55,7 @@ export default function AdminUsers() {
       callAdminApi("createUser", {
         email, password, display_name: displayName,
         max_instances: maxInstances, max_messages_per_hour: maxMsgs, max_campaigns: maxCampaigns,
+        max_ai_requests_per_month: maxAiRequests,
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin-users"] });
@@ -84,7 +86,7 @@ export default function AdminUsers() {
 
   const resetForm = () => {
     setEmail(""); setPassword(""); setDisplayName("");
-    setMaxInstances(1); setMaxMsgs(100); setMaxCampaigns(5);
+    setMaxInstances(1); setMaxMsgs(100); setMaxCampaigns(5); setMaxAiRequests(50);
   };
 
   const openEdit = (u: any) => {
@@ -92,6 +94,7 @@ export default function AdminUsers() {
     setMaxInstances(u.plan?.max_instances ?? 1);
     setMaxMsgs(u.plan?.max_messages_per_hour ?? 100);
     setMaxCampaigns(u.plan?.max_campaigns ?? 5);
+    setMaxAiRequests(u.plan?.max_ai_requests_per_month ?? 50);
   };
 
   return (
@@ -120,10 +123,11 @@ export default function AdminUsers() {
                   <TableHead>Nome</TableHead>
                   <TableHead>Email</TableHead>
                   <TableHead>Role</TableHead>
-                  <TableHead>Instâncias</TableHead>
-                  <TableHead>Msgs/h</TableHead>
-                  <TableHead>Campanhas</TableHead>
-                  <TableHead>Status</TableHead>
+                   <TableHead>Instâncias</TableHead>
+                   <TableHead>Msgs/h</TableHead>
+                   <TableHead>Campanhas</TableHead>
+                   <TableHead>I.A./mês</TableHead>
+                   <TableHead>Status</TableHead>
                   <TableHead>Ações</TableHead>
                 </TableRow>
               </TableHeader>
@@ -138,6 +142,7 @@ export default function AdminUsers() {
                     <TableCell>{u.plan?.max_instances ?? "-"}</TableCell>
                     <TableCell>{u.plan?.max_messages_per_hour ?? "-"}</TableCell>
                     <TableCell>{u.plan?.max_campaigns ?? "-"}</TableCell>
+                    <TableCell>{u.plan?.max_ai_requests_per_month ?? "-"}</TableCell>
                     <TableCell>
                       <Badge variant={u.plan?.is_active !== false ? "default" : "destructive"}>
                         {u.plan?.is_active !== false ? "Ativo" : "Inativo"}
@@ -186,7 +191,7 @@ export default function AdminUsers() {
               <Label>Nome</Label>
               <Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
             </div>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Max Instâncias</Label>
                 <Input type="number" min={1} value={maxInstances} onChange={(e) => setMaxInstances(Number(e.target.value))} />
@@ -198,6 +203,10 @@ export default function AdminUsers() {
               <div className="space-y-2">
                 <Label>Campanhas</Label>
                 <Input type="number" min={1} value={maxCampaigns} onChange={(e) => setMaxCampaigns(Number(e.target.value))} />
+              </div>
+              <div className="space-y-2">
+                <Label>I.A. / mês</Label>
+                <Input type="number" min={0} value={maxAiRequests} onChange={(e) => setMaxAiRequests(Number(e.target.value))} />
               </div>
             </div>
             <DialogFooter>
@@ -214,8 +223,8 @@ export default function AdminUsers() {
       <Dialog open={!!editUser} onOpenChange={(o) => !o && setEditUser(null)}>
         <DialogContent>
           <DialogHeader><DialogTitle>Editar Plano - {editUser?.display_name || editUser?.email}</DialogTitle></DialogHeader>
-          <form onSubmit={(e) => { e.preventDefault(); updatePlan.mutate({ user_id: editUser.user_id, max_instances: maxInstances, max_messages_per_hour: maxMsgs, max_campaigns: maxCampaigns }); }} className="space-y-4">
-            <div className="grid grid-cols-3 gap-4">
+          <form onSubmit={(e) => { e.preventDefault(); updatePlan.mutate({ user_id: editUser.user_id, max_instances: maxInstances, max_messages_per_hour: maxMsgs, max_campaigns: maxCampaigns, max_ai_requests_per_month: maxAiRequests }); }} className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Max Instâncias</Label>
                 <Input type="number" min={1} value={maxInstances} onChange={(e) => setMaxInstances(Number(e.target.value))} />
@@ -227,6 +236,10 @@ export default function AdminUsers() {
               <div className="space-y-2">
                 <Label>Campanhas</Label>
                 <Input type="number" min={1} value={maxCampaigns} onChange={(e) => setMaxCampaigns(Number(e.target.value))} />
+              </div>
+              <div className="space-y-2">
+                <Label>I.A. / mês</Label>
+                <Input type="number" min={0} value={maxAiRequests} onChange={(e) => setMaxAiRequests(Number(e.target.value))} />
               </div>
             </div>
             <DialogFooter>

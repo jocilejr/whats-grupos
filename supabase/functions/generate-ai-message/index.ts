@@ -12,7 +12,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { prompt } = await req.json();
+    const { prompt, user_id } = await req.json();
 
     if (!prompt || typeof prompt !== "string") {
       return new Response(
@@ -21,11 +21,53 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Fetch OpenAI key from global_config using service role
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-    );
+    // Resolve user: from body (backend calls) or from auth header
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supabase = createClient(supabaseUrl, serviceKey);
+
+    let resolvedUserId = user_id;
+    if (!resolvedUserId) {
+      const authHeader = req.headers.get("Authorization") ?? "";
+      if (authHeader.startsWith("Bearer ")) {
+        const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+        const userClient = createClient(supabaseUrl, anonKey, {
+          global: { headers: { Authorization: authHeader } },
+        });
+        const { data: { user } } = await userClient.auth.getUser();
+        resolvedUserId = user?.id;
+      }
+    }
+
+    // Check AI usage limit
+    if (resolvedUserId) {
+      const { data: plan } = await supabase
+        .from("user_plans")
+        .select("max_ai_requests_per_month")
+        .eq("user_id", resolvedUserId)
+        .maybeSingle();
+
+      const maxRequests = plan?.max_ai_requests_per_month ?? 50;
+
+      // Count AI messages this month
+      const startOfMonth = new Date();
+      startOfMonth.setDate(1);
+      startOfMonth.setHours(0, 0, 0, 0);
+
+      const { count } = await supabase
+        .from("message_logs")
+        .select("*", { count: "exact", head: true })
+        .eq("user_id", resolvedUserId)
+        .eq("message_type", "ai")
+        .gte("created_at", startOfMonth.toISOString());
+
+      if ((count || 0) >= maxRequests) {
+        return new Response(
+          JSON.stringify({ error: `Limite de ${maxRequests} requisições de I.A. por mês atingido.` }),
+          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    }
 
     const { data: config, error: configError } = await supabase
       .from("global_config")
