@@ -11,7 +11,7 @@ import {
   FileText, Image, Video, File, Pencil, Trash2, Loader2,
   Clock, AlertCircle, Mic, Sticker, MapPin,
   Contact, BarChart3, List, AtSign, Link2, CalendarDays,
-  CalendarClock, Calendar, ChevronDown, ChevronUp, Settings2,
+  CalendarClock, Calendar, ChevronDown, ChevronUp, Settings2, Play,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -85,6 +85,26 @@ export function CampaignMessageList({ campaignId, apiConfigId, instanceName, gro
       queryClient.invalidateQueries({ queryKey: ["campaign-scheduled-messages"] });
       queryClient.invalidateQueries({ queryKey: ["campaign-message-counts"] });
       toast({ title: "Mensagem excluída" });
+    },
+  });
+
+  const manualSendMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const { data, error } = await supabase.functions.invoke("send-scheduled-messages", {
+        body: { messageId: id },
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["campaign-scheduled-messages"] });
+      toast({
+        title: "Envio iniciado",
+        description: `${data?.processed || 0} grupo(s) processado(s)${data?.errors ? `, ${data.errors} erro(s)` : ""}`,
+      });
+    },
+    onError: (err: any) => {
+      toast({ title: "Erro ao enviar", description: err.message, variant: "destructive" });
     },
   });
 
@@ -485,6 +505,20 @@ export function CampaignMessageList({ campaignId, apiConfigId, instanceName, gro
                     <span className="text-[11px] text-muted-foreground">{active ? "Ativo" : "Inativo"}</span>
                   </div>
                   <div className="flex items-center gap-1">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs gap-1 border-[hsl(var(--success))]/30 text-[hsl(var(--success))] hover:bg-[hsl(var(--success))]/10"
+                      onClick={() => manualSendMutation.mutate(msg.id)}
+                      disabled={manualSendMutation.isPending}
+                    >
+                      {manualSendMutation.isPending ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Play className="h-3 w-3" />
+                      )}
+                      Enviar agora
+                    </Button>
                     <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={() => onEdit(msg)}>
                       <Pencil className="h-3 w-3" />Editar
                     </Button>

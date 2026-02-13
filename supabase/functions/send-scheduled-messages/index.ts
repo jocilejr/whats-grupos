@@ -12,6 +12,9 @@ const DELAY_BETWEEN_MESSAGES_MS = 10_000;
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// Max tolerance: messages older than this are skipped (unless manual)
+const OVERDUE_TOLERANCE_MS = 10 * 60 * 1000; // 10 minutes
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -21,6 +24,60 @@ Deno.serve(async (req) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // Check if this is a manual trigger for a specific message
+    let manualMessageId: string | null = null;
+    if (req.method === "POST") {
+      try {
+        const body = await req.json();
+        manualMessageId = body?.messageId || null;
+      } catch { /* ignore parse errors */ }
+    }
+
+    if (manualMessageId) {
+      // Manual trigger: claim specific message
+      const { error: claimErr } = await supabase
+        .from("scheduled_messages")
+        .update({ processing_started_at: new Date().toISOString() })
+        .eq("id", manualMessageId)
+        .eq("is_active", true);
+
+      if (claimErr) {
+        return new Response(JSON.stringify({ error: claimErr.message }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const { data: manualMsg } = await supabase
+        .from("scheduled_messages")
+        .select("*")
+        .eq("id", manualMessageId)
+        .maybeSingle();
+
+      if (!manualMsg) {
+        return new Response(JSON.stringify({ error: "Message not found" }), {
+          status: 404,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      let processed = 0, errors = 0;
+      try {
+        await processMessage(supabase, manualMsg, true, (p, e) => {
+          processed += p;
+          errors += e;
+        });
+      } catch (err) {
+        console.error(`Manual send error for ${manualMessageId}:`, err);
+        await releaseLock(supabase, manualMessageId);
+        errors++;
+      }
+
+      return new Response(JSON.stringify({ processed, errors, manual: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     // ATOMIC claim: prevents race condition
     const { data: messages, error: fetchError } = await supabase.rpc("claim_due_messages");
@@ -35,6 +92,28 @@ Deno.serve(async (req) => {
 
     if (!messages?.length) {
       return new Response(JSON.stringify({ processed: 0 }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Filter out overdue messages (>10min past scheduled time)
+    const now = Date.now();
+    const validMessages: typeof messages = [];
+    for (const msg of validMessages) {
+      if (msg.next_run_at) {
+        const scheduledTime = new Date(msg.next_run_at).getTime();
+        if (now - scheduledTime > OVERDUE_TOLERANCE_MS) {
+          console.log(`Message ${msg.id}: skipping (overdue by ${Math.round((now - scheduledTime) / 60000)}min). Will reschedule.`);
+          // Reschedule to next occurrence instead of sending late
+          await skipAndReschedule(supabase, msg);
+          continue;
+        }
+      }
+      validMessages.push(msg);
+    }
+
+    if (!validMessages.length) {
+      return new Response(JSON.stringify({ processed: 0, skipped: messages.length }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -304,6 +383,28 @@ function calculateNextRunAt(msg: any, now: Date): string | null {
   }
 
   return null;
+}
+
+async function skipAndReschedule(supabase: any, msg: any) {
+  const now = new Date();
+  if (msg.schedule_type === "once") {
+    // Once-type: just deactivate, don't send late
+    await supabase.from("scheduled_messages").update({
+      is_active: false,
+      next_run_at: null,
+      processing_started_at: null,
+    }).eq("id", msg.id);
+    console.log(`Message ${msg.id}: once-type overdue, deactivated.`);
+  } else {
+    // Recurring: calculate next run and skip this one
+    const nextRunAt = calculateNextRunAt(msg, now);
+    await supabase.from("scheduled_messages").update({
+      next_run_at: nextRunAt,
+      processing_started_at: null,
+      sent_group_index: 0,
+    }).eq("id", msg.id);
+    console.log(`Message ${msg.id}: overdue, rescheduled to ${nextRunAt}.`);
+  }
 }
 
 async function releaseLock(supabase: any, msgId: string) {
