@@ -8,7 +8,6 @@ const corsHeaders = {
 
 // No batch size limit — duplicate check per group prevents re-sending
 const DELAY_BETWEEN_MESSAGES_MS = 10_000;
-const DELAY_BETWEEN_MESSAGES_MS = 10_000;
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
