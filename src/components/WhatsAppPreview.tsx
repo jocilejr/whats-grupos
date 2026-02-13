@@ -114,16 +114,16 @@ function LinkPreviewCard({ url }: { url: string }) {
 
   return (
     <div style={{ borderRadius: '6px', overflow: 'hidden', marginBottom: '4px', border: '1px solid rgba(255,255,255,0.06)' }}>
-      <div style={{ height: '100px', background: '#0d1b2a', position: 'relative', overflow: 'hidden' }}>
+      <div style={{ background: '#0d1b2a', position: 'relative', overflow: 'hidden' }}>
         {ogData?.image ? (
           <img
             src={ogData.image}
             alt=""
-            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+            style={{ width: '100%', height: 'auto', display: 'block' }}
             onError={(e) => { e.currentTarget.style.display = 'none'; }}
           />
         ) : (
-          <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ width: '100%', height: '80px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <img src={faviconUrl} alt="" style={{ width: '32px', height: '32px', opacity: 0.4 }} />
           </div>
         )}
