@@ -82,6 +82,36 @@ const WAVEFORM_HEIGHTS = Array.from({ length: 30 }, (_, i) =>
   Math.sin(i * 0.6) * 10 + Math.cos(i * 1.2) * 5 + 8
 );
 
+// Format WhatsApp text: *bold*, _italic_, ~strikethrough~, ```monospace```
+function formatWhatsAppText(text: string): React.ReactNode[] {
+  const parts: React.ReactNode[] = [];
+  // Regex: ```code```, *bold*, _italic_, ~strike~
+  const regex = /```([\s\S]*?)```|\*([^*]+)\*|_([^_]+)_|~([^~]+)~/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  let key = 0;
+
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+    if (match[1] !== undefined) {
+      parts.push(<code key={key++} style={{ fontFamily: 'monospace', fontSize: '13px', background: 'rgba(255,255,255,0.06)', borderRadius: '3px', padding: '1px 3px' }}>{match[1]}</code>);
+    } else if (match[2] !== undefined) {
+      parts.push(<strong key={key++} style={{ fontWeight: 700 }}>{match[2]}</strong>);
+    } else if (match[3] !== undefined) {
+      parts.push(<em key={key++}>{match[3]}</em>);
+    } else if (match[4] !== undefined) {
+      parts.push(<del key={key++}>{match[4]}</del>);
+    }
+    lastIndex = match.index + match[0].length;
+  }
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+  return parts;
+}
+
 // Detect URL in text
 const URL_REGEX = /https?:\/\/[^\s]+/i;
 
@@ -183,7 +213,7 @@ export function WhatsAppPreview(props: WhatsAppPreviewProps) {
           <Bubble>
             {detectedUrl && <LinkPreviewCard url={detectedUrl} />}
             <span style={{ fontSize: '14.2px', color: '#e9edef', whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: '19px' }}>
-              {textContent}
+              {formatWhatsAppText(textContent || '')}
             </span>
             <TimeStamp />
           </Bubble>
@@ -213,7 +243,7 @@ export function WhatsAppPreview(props: WhatsAppPreviewProps) {
             </div>
             {caption && (
               <span style={{ fontSize: '14.2px', color: '#e9edef', whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: '19px' }}>
-                {caption}
+                {formatWhatsAppText(caption)}
               </span>
             )}
             <TimeStamp />
@@ -231,7 +261,7 @@ export function WhatsAppPreview(props: WhatsAppPreviewProps) {
             </div>
             {caption && (
               <span style={{ fontSize: '14.2px', color: '#e9edef', whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: '19px' }}>
-                {caption}
+                {formatWhatsAppText(caption)}
               </span>
             )}
             <TimeStamp />
@@ -252,7 +282,7 @@ export function WhatsAppPreview(props: WhatsAppPreviewProps) {
             </div>
             {caption && (
               <span style={{ fontSize: '14.2px', color: '#e9edef', whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: '19px' }}>
-                {caption}
+                {formatWhatsAppText(caption)}
               </span>
             )}
             <TimeStamp />
