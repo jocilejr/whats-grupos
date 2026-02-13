@@ -20,7 +20,7 @@ import { Switch } from "@/components/ui/switch";
 import {
   Loader2, CalendarClock, FileText, Image, Video, File,
   Upload, CalendarIcon, BookTemplate, Mic, Sticker, MapPin,
-  Contact, BarChart3, List, Plus, Trash2, AtSign, Link2,
+  Contact, BarChart3, List, Plus, Trash2, AtSign, Link2, Sparkles,
 } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
@@ -38,6 +38,7 @@ interface ScheduledMessageFormProps {
 
 const MESSAGE_TYPES = [
   { value: "text", icon: FileText, label: "Texto" },
+  { value: "ai", icon: Sparkles, label: "I.A." },
   { value: "image", icon: Image, label: "Imagem" },
   { value: "video", icon: Video, label: "Vídeo" },
   { value: "document", icon: File, label: "Documento" },
@@ -66,6 +67,7 @@ export function ScheduledMessageForm({
 
   // Text
   const [textContent, setTextContent] = useState("");
+  const [aiPrompt, setAiPrompt] = useState("");
   const [mentionAll, setMentionAll] = useState(false);
   const [linkPreview, setLinkPreview] = useState(true);
   // Media (image/video/document/audio/sticker)
@@ -115,6 +117,7 @@ export function ScheduledMessageForm({
       if (message) {
         setMessageType(message.message_type || "text");
         setTextContent(c.text || "");
+        setAiPrompt(c.prompt || "");
         setMentionAll(c.mentionsEveryOne || false);
         setLinkPreview(c.linkPreview !== false);
         setMediaUrl(c.mediaUrl || c.audio || c.sticker || "");
@@ -139,7 +142,7 @@ export function ScheduledMessageForm({
         setWeekDays(c.weekDays || [1]); setMonthDay(c.monthDay || 1);
         setCustomDays(c.customDays || []);
       } else {
-        setMessageType("text"); setTextContent(""); setMentionAll(false); setLinkPreview(true); setMediaUrl(""); setCaption("");
+        setMessageType("text"); setTextContent(""); setAiPrompt(""); setMentionAll(false); setLinkPreview(true); setMediaUrl(""); setCaption("");
         setLocName(""); setLocAddress(""); setLocLat(""); setLocLng("");
         setContactName(""); setContactPhone("");
         setPollName(""); setPollOptions(["", ""]); setPollSelectable(1);
@@ -225,6 +228,7 @@ export function ScheduledMessageForm({
     const base: any = {};
     switch (messageType) {
       case "text": base.text = textContent; base.linkPreview = linkPreview; break;
+      case "ai": base.prompt = aiPrompt; break;
       case "image": case "video": case "document":
         base.mediaUrl = mediaUrl; base.caption = caption; base.fileName = mediaUrl.split("/").pop(); break;
       case "audio": base.audio = mediaUrl; break;
@@ -254,6 +258,7 @@ export function ScheduledMessageForm({
   const validate = () => {
     switch (messageType) {
       case "text": if (!textContent.trim()) { toast({ title: "Digite a mensagem", variant: "destructive" }); return false; } break;
+      case "ai": if (!aiPrompt.trim()) { toast({ title: "Digite o prompt para a I.A.", variant: "destructive" }); return false; } break;
       case "image": case "video": case "document": case "audio": case "sticker":
         if (!mediaUrl) { toast({ title: "Envie o arquivo", variant: "destructive" }); return false; } break;
       case "location":
@@ -378,6 +383,20 @@ export function ScheduledMessageForm({
                       </div>
                     </div>
                     <Switch checked={linkPreview} onCheckedChange={setLinkPreview} />
+                  </div>
+                </div>
+              )}
+
+              {/* AI */}
+              {messageType === "ai" && (
+                <div className="space-y-3">
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Prompt para I.A.</Label>
+                    <Textarea value={aiPrompt} onChange={(e) => setAiPrompt(e.target.value)} rows={4} placeholder="Ex: Escreva uma mensagem motivacional para o grupo de vendas..." className="bg-background/50 border-border/50 resize-none" />
+                    <p className="text-[11px] text-muted-foreground">
+                      <Sparkles className="h-3 w-3 inline mr-1" />
+                      A I.A. gerará o texto automaticamente no momento do disparo.
+                    </p>
                   </div>
                 </div>
               )}

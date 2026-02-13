@@ -157,7 +157,32 @@ async function processMessage(
       }
       isFirstSend = false;
 
-      const { endpoint, body } = buildMessagePayload(msg.message_type, apiUrl, instanceName, groupId, content);
+      // For AI messages, generate text first
+      let aiGeneratedText: string | undefined;
+      if (msg.message_type === "ai") {
+        const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+        const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+        const aiResp = await fetch(`${supabaseUrl}/functions/v1/generate-ai-message`, {
+          method: "POST",
+          headers: { 
+            Authorization: `Bearer ${supabaseKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ prompt: content.prompt || content.text || "" }),
+        });
+        const aiResult = await aiResp.json();
+        if (!aiResp.ok || aiResult.error) {
+          throw new Error(`AI generation failed: ${aiResult.error || "unknown"}`);
+        }
+        aiGeneratedText = aiResult.text;
+      }
+
+      const effectiveType = msg.message_type === "ai" ? "text" : msg.message_type;
+      const effectiveContent = msg.message_type === "ai" 
+        ? { ...content, text: aiGeneratedText } 
+        : content;
+
+      const { endpoint, body } = buildMessagePayload(effectiveType, apiUrl, instanceName, groupId, effectiveContent);
       if (content.mentionsEveryOne) body.mentionsEveryOne = true;
 
       const resp = await fetch(endpoint, {

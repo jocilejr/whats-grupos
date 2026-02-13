@@ -16,12 +16,13 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Send, FileText, Image, Video, File, Mic, Sticker, MapPin,
   Contact, BarChart3, List, Plus, Trash2, AtSign, Link2,
-  Upload, Loader2, CheckCircle2, XCircle, AlertTriangle,
+  Upload, Loader2, CheckCircle2, XCircle, AlertTriangle, Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const MESSAGE_TYPES = [
   { value: "text", icon: FileText, label: "Texto" },
+  { value: "ai", icon: Sparkles, label: "I.A." },
   { value: "image", icon: Image, label: "Imagem" },
   { value: "video", icon: Video, label: "Vídeo" },
   { value: "document", icon: File, label: "Documento" },
@@ -52,6 +53,7 @@ export default function Messages() {
 
   // Text
   const [textContent, setTextContent] = useState("");
+  const [aiPrompt, setAiPrompt] = useState("");
   const [mentionAll, setMentionAll] = useState(false);
   const [linkPreview, setLinkPreview] = useState(true);
 
@@ -138,7 +140,7 @@ export default function Messages() {
     }
   };
 
-  const buildPayload = (groupId: string) => {
+  const buildPayload = (groupId: string, generatedText?: string) => {
     const base: any = { number: groupId };
     if (mentionAll) base.mentionsEveryOne = true;
 
@@ -146,6 +148,10 @@ export default function Messages() {
       case "text":
         base.text = textContent;
         base.linkPreview = linkPreview;
+        break;
+      case "ai":
+        base.text = generatedText || "";
+        base.linkPreview = true;
         break;
       case "image":
       case "video":
@@ -188,7 +194,7 @@ export default function Messages() {
 
   const getAction = () => {
     switch (messageType) {
-      case "text": return "sendText";
+      case "text": case "ai": return "sendText";
       case "image": case "video": case "document": return "sendMedia";
       case "audio": return "sendAudio";
       case "sticker": return "sendSticker";
@@ -200,10 +206,11 @@ export default function Messages() {
     }
   };
 
-  const buildLogContent = () => {
+  const buildLogContent = (generatedText?: string) => {
     const base: any = {};
     switch (messageType) {
       case "text": base.text = textContent; base.linkPreview = linkPreview; break;
+      case "ai": base.prompt = aiPrompt; if (generatedText) base.generatedText = generatedText; break;
       case "image": case "video": case "document":
         base.mediaUrl = mediaUrl; base.caption = caption; break;
       case "audio": base.audio = mediaUrl; break;
@@ -229,6 +236,7 @@ export default function Messages() {
     if (selectedGroupIds.length === 0) { toast({ title: "Selecione ao menos um grupo", variant: "destructive" }); return false; }
     switch (messageType) {
       case "text": if (!textContent.trim()) { toast({ title: "Digite a mensagem", variant: "destructive" }); return false; } break;
+      case "ai": if (!aiPrompt.trim()) { toast({ title: "Digite o prompt para a I.A.", variant: "destructive" }); return false; } break;
       case "image": case "video": case "document": case "audio": case "sticker":
         if (!mediaUrl) { toast({ title: "Envie o arquivo", variant: "destructive" }); return false; } break;
       case "location":
@@ -261,7 +269,6 @@ export default function Messages() {
 
     const { data: { session } } = await supabase.auth.getSession();
     const action = getAction();
-    const logContent = buildLogContent();
     let successCount = 0;
     let errorCount = 0;
 
@@ -273,7 +280,24 @@ export default function Messages() {
       );
 
       try {
-        const payload = buildPayload(statuses[i].groupId);
+        // For AI messages, generate text for each group
+        let generatedText: string | undefined;
+        if (messageType === "ai") {
+          const aiResp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-ai-message`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${session?.access_token}`,
+              apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ prompt: aiPrompt }),
+          });
+          const aiResult = await aiResp.json();
+          if (!aiResp.ok || aiResult.error) throw new Error(aiResult.error || "Erro ao gerar texto com I.A.");
+          generatedText = aiResult.text;
+        }
+
+        const payload = buildPayload(statuses[i].groupId, generatedText);
         const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/evolution-api?action=${action}&configId=${selectedConfigId}&instanceName=${encodeURIComponent(selectedInstanceName)}`;
         const resp = await fetch(url, {
           method: "POST",
@@ -290,12 +314,12 @@ export default function Messages() {
           throw new Error(result.error || result.message || "Erro no envio");
         }
 
+        const logContent = buildLogContent(generatedText);
         setSendStatuses((prev) =>
           prev.map((s, idx) => (idx === i ? { ...s, status: "sent" } : s))
         );
         successCount++;
 
-        // Log success
         await supabase.from("message_logs").insert({
           user_id: user.id,
           api_config_id: selectedConfigId,
@@ -313,6 +337,7 @@ export default function Messages() {
         );
         errorCount++;
 
+        const logContent = buildLogContent();
         await supabase.from("message_logs").insert({
           user_id: user.id,
           api_config_id: selectedConfigId,
@@ -342,7 +367,7 @@ export default function Messages() {
         variant: "destructive",
       });
     }
-  }, [selectedGroupIds, selectedConfigId, selectedInstanceName, messageType, textContent, mediaUrl, caption, locLat, locLng, locName, locAddress, contactName, contactPhone, pollName, pollOptions, pollSelectable, listTitle, listDescription, listButtonText, listFooter, listSections, mentionAll, linkPreview, user, groupsMap]);
+  }, [selectedGroupIds, selectedConfigId, selectedInstanceName, messageType, textContent, aiPrompt, mediaUrl, caption, locLat, locLng, locName, locAddress, contactName, contactPhone, pollName, pollOptions, pollSelectable, listTitle, listDescription, listButtonText, listFooter, listSections, mentionAll, linkPreview, user, groupsMap]);
 
   const completedCount = sendStatuses.filter((s) => s.status === "sent" || s.status === "error").length;
   const progressPercent = sendStatuses.length > 0 ? (completedCount / sendStatuses.length) * 100 : 0;
@@ -425,7 +450,7 @@ export default function Messages() {
           <CardTitle className="text-base">Tipo de mensagem</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-5 sm:grid-cols-10 gap-1.5">
+          <div className="grid grid-cols-5 sm:grid-cols-11 gap-1.5">
             {MESSAGE_TYPES.map((t) => (
               <button
                 key={t.value}
@@ -469,6 +494,20 @@ export default function Messages() {
                   </div>
                 </div>
                 <Switch checked={linkPreview} onCheckedChange={setLinkPreview} disabled={sending} />
+              </div>
+            </div>
+          )}
+
+          {/* AI */}
+          {messageType === "ai" && (
+            <div className="space-y-3">
+              <div className="space-y-2">
+                <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Prompt para I.A.</Label>
+                <Textarea value={aiPrompt} onChange={(e) => setAiPrompt(e.target.value)} rows={4} placeholder="Ex: Escreva uma mensagem motivacional para o grupo de vendas..." className="bg-background/50 border-border/50 resize-none" disabled={sending} />
+                <p className="text-[11px] text-muted-foreground">
+                  <Sparkles className="h-3 w-3 inline mr-1" />
+                  A I.A. gerará um texto diferente para cada grupo no momento do envio.
+                </p>
               </div>
             </div>
           )}
