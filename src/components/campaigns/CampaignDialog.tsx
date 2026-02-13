@@ -49,22 +49,8 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
     enabled: !!user,
   });
 
-  const { data: evolutionInstances, isLoading: loadingInstances } = useQuery({
-    queryKey: ["evolution-instances", configId],
-    queryFn: async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/evolution-api?action=fetchInstances&configId=${configId}`;
-      const resp = await fetch(url, {
-        headers: {
-          Authorization: `Bearer ${session?.access_token}`,
-          apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-        },
-      });
-      if (!resp.ok) throw new Error("Erro ao buscar instâncias");
-      return await resp.json();
-    },
-    enabled: !!configId,
-  });
+  // Derive available instance names from user's configured api_configs
+  const availableInstances = configs?.map((c) => c.instance_name).filter(Boolean) || [];
 
   useEffect(() => {
     if (open) {
@@ -171,35 +157,21 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
           </div>
 
           {/* Instância WhatsApp */}
-          {configId && (
+          {configId && availableInstances.length > 0 && (
             <div className="space-y-2">
               <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
                 <Zap className="h-3 w-3" />Instância WhatsApp
               </Label>
-              {loadingInstances ? (
-                <div className="rounded-xl border border-border/50 p-4 text-center">
-                  <Loader2 className="h-4 w-4 animate-spin text-primary mx-auto mb-1" />
-                  <p className="text-xs text-muted-foreground">Buscando instâncias...</p>
-                </div>
-              ) : (
-                <Select value={evolutionInstance} onValueChange={(v) => { setEvolutionInstance(v); setGroupIds([]); }}>
-                  <SelectTrigger className="bg-background/50 border-border/50"><SelectValue placeholder="Selecione a instância" /></SelectTrigger>
-                  <SelectContent>
-                    {Array.isArray(evolutionInstances) && evolutionInstances.map((inst: any) => {
-                      const instName = inst.instance?.instanceName || inst.name || inst.instanceName;
-                      const status = inst.connectionStatus;
-                      return (
-                        <SelectItem key={instName} value={instName}>
-                          <span className="flex items-center gap-2">
-                            <span className={`h-2 w-2 rounded-full ${status === "open" ? "bg-green-500" : "bg-red-500"}`} />
-                            {instName}
-                          </span>
-                        </SelectItem>
-                      );
-                    })}
-                  </SelectContent>
-                </Select>
-              )}
+              <Select value={evolutionInstance} onValueChange={(v) => { setEvolutionInstance(v); setGroupIds([]); }}>
+                <SelectTrigger className="bg-background/50 border-border/50"><SelectValue placeholder="Selecione a instância" /></SelectTrigger>
+                <SelectContent>
+                  {availableInstances.map((instName) => (
+                    <SelectItem key={instName} value={instName}>
+                      {instName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           )}
 
