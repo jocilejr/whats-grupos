@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
 import {
   Sparkles, Play, Mic, MapPin, User, BarChart3, List,
   CheckCheck, File,
@@ -86,20 +86,47 @@ const WAVEFORM_HEIGHTS = Array.from({ length: 30 }, (_, i) =>
 const URL_REGEX = /https?:\/\/[^\s]+/i;
 
 function LinkPreviewCard({ url }: { url: string }) {
-  const domain = (() => {
+  const [ogData, setOgData] = useState<{ image?: string; title?: string; domain?: string } | null>(null);
+
+  const domain = useMemo(() => {
     try { return new URL(url).hostname.replace('www.', ''); } catch { return url; }
-  })();
+  }, [url]);
+
+  useEffect(() => {
+    setOgData(null);
+    const controller = new AbortController();
+    fetch(`https://api.microlink.io?url=${encodeURIComponent(url)}`, { signal: controller.signal })
+      .then(r => r.json())
+      .then(res => {
+        if (res.status === 'success' && res.data) {
+          setOgData({
+            image: res.data.image?.url || res.data.logo?.url,
+            title: res.data.title,
+            domain: res.data.publisher || domain,
+          });
+        }
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [url, domain]);
+
   const faviconUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=128`;
-  const screenshotUrl = `https://image.thum.io/get/width/600/crop/400/${url}`;
+
   return (
     <div style={{ borderRadius: '6px', overflow: 'hidden', marginBottom: '4px', border: '1px solid rgba(255,255,255,0.06)' }}>
       <div style={{ height: '100px', background: '#0d1b2a', position: 'relative', overflow: 'hidden' }}>
-        <img
-          src={screenshotUrl}
-          alt=""
-          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', opacity: 0.85 }}
-          onError={(e) => { e.currentTarget.style.display = 'none'; }}
-        />
+        {ogData?.image ? (
+          <img
+            src={ogData.image}
+            alt=""
+            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+            onError={(e) => { e.currentTarget.style.display = 'none'; }}
+          />
+        ) : (
+          <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <img src={faviconUrl} alt="" style={{ width: '32px', height: '32px', opacity: 0.4 }} />
+          </div>
+        )}
       </div>
       <div style={{ background: 'rgba(255,255,255,0.04)', padding: '8px 10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
         <img
@@ -111,7 +138,7 @@ function LinkPreviewCard({ url }: { url: string }) {
         <div style={{ minWidth: 0 }}>
           <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', textTransform: 'lowercase', lineHeight: 1.2 }}>{domain}</p>
           <p style={{ fontSize: '12.5px', color: '#e9edef', fontWeight: 500, lineHeight: '16px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {domain.charAt(0).toUpperCase() + domain.slice(1)}
+            {ogData?.title || domain.charAt(0).toUpperCase() + domain.slice(1)}
           </p>
         </div>
       </div>
