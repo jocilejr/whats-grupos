@@ -278,23 +278,8 @@ export default function Messages() {
     setSending(true);
 
     try {
-      // Resolve API URL/key
       const config = apiConfigs?.find((c) => c.id === selectedConfigId);
       if (!config) throw new Error("Instância não encontrada");
-
-      let apiUrl = config.api_url;
-      let apiKey = config.api_key;
-      if (!apiUrl || apiUrl === "global" || !apiKey || apiKey === "global") {
-        const { data: globalCfg } = await supabase
-          .from("global_config")
-          .select("evolution_api_url, evolution_api_key")
-          .limit(1)
-          .maybeSingle();
-        if (!globalCfg?.evolution_api_url) throw new Error("Configuração global não encontrada");
-        apiUrl = globalCfg.evolution_api_url;
-        apiKey = globalCfg.evolution_api_key;
-      }
-      apiUrl = apiUrl.replace(/\/$/, "");
 
       // For AI messages, generate the text before enqueuing
       let content = buildLogContent();
@@ -325,8 +310,8 @@ export default function Messages() {
         message_type: effectiveType,
         content: content,
         api_config_id: selectedConfigId,
-        api_url: apiUrl,
-        api_key: apiKey,
+        api_url: "resolved-at-runtime",
+        api_key: "resolved-at-runtime",
         status: "pending",
         priority: index,
         execution_batch: executionBatch,
