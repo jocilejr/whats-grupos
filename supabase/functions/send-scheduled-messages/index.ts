@@ -6,7 +6,9 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-// No batch size limit — duplicate check per group prevents re-sending
+// Manual sends: no duplicate check, fail-fast on first error, full restart on retry
+// Cron sends: per-group duplicate check using processing_started_at to prevent re-sends on timeout
+// All timestamps are in UTC (Deno/Supabase runs in UTC)
 const DELAY_BETWEEN_MESSAGES_MS = 10_000;
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -62,19 +64,24 @@ Deno.serve(async (req) => {
         errors++;
       }
 
-      // Release lock and mark completed
-      const now = new Date().toISOString();
-      if (manualMsg.schedule_type === "once") {
-        await supabase.from("scheduled_messages").update({
-          is_active: false, last_run_at: now, next_run_at: null,
-          sent_group_index: 0, processing_started_at: null, last_completed_at: now,
-        }).eq("id", manualMessageId);
+      // Bug 3: Only mark completed if NO errors; otherwise just release lock
+      if (errors === 0) {
+        const now = new Date().toISOString();
+        if (manualMsg.schedule_type === "once") {
+          await supabase.from("scheduled_messages").update({
+            is_active: false, last_run_at: now, next_run_at: null,
+            processing_started_at: null, last_completed_at: now,
+          }).eq("id", manualMessageId);
+        } else {
+          const nextRunAt = calculateNextRunAt(manualMsg, new Date());
+          await supabase.from("scheduled_messages").update({
+            last_run_at: now, next_run_at: nextRunAt,
+            processing_started_at: null, last_completed_at: now,
+          }).eq("id", manualMessageId);
+        }
       } else {
-        const nextRunAt = calculateNextRunAt(manualMsg, new Date());
-        await supabase.from("scheduled_messages").update({
-          last_run_at: now, next_run_at: nextRunAt,
-          sent_group_index: 0, processing_started_at: null, last_completed_at: now,
-        }).eq("id", manualMessageId);
+        // Errors occurred: just release lock so it can be retried
+        await releaseLock(supabase, manualMessageId);
       }
 
       return new Response(JSON.stringify({ processed, errors, manual: true }), {
@@ -177,30 +184,13 @@ async function processManualMessage(supabase: any, msg: any) {
   const instanceName = msg.instance_name || campaign?.instance_name || config.instance_name;
   const content = msg.content as any;
 
-  // Determine timestamp threshold: only check logs created AFTER this manual trigger started
-  const triggerTime = new Date().toISOString();
-
+  // Bug 2: No duplicate check for manual — always send to ALL groups from scratch
   let processed = 0, errors = 0;
 
   console.log(`Manual send ${msg.id}: sending to ${allGroupIds.length} groups individually`);
 
   for (let i = 0; i < allGroupIds.length; i++) {
     const groupId = allGroupIds[i];
-
-    // Check if this specific group was already sent successfully in this trigger window
-    const { count: alreadySent } = await supabase
-      .from("message_logs")
-      .select("*", { count: "exact", head: true })
-      .eq("scheduled_message_id", msg.id)
-      .eq("group_id", groupId)
-      .eq("status", "sent")
-      .gte("created_at", triggerTime);
-
-    if ((alreadySent || 0) > 0) {
-      console.log(`Manual send ${msg.id}: group ${groupId} already sent, skipping`);
-      processed++;
-      continue;
-    }
 
     // Delay between sends (skip first)
     if (i > 0) {
@@ -251,10 +241,14 @@ async function processManualMessage(supabase: any, msg: any) {
         instance_name: instanceName,
       });
 
-      if (success) processed++;
-      else errors++;
-
-      console.log(`Manual send ${msg.id}: group ${i + 1}/${allGroupIds.length} (${groupId}) → ${success ? "OK" : "ERROR"}`);
+      if (success) {
+        processed++;
+        console.log(`Manual send ${msg.id}: group ${i + 1}/${allGroupIds.length} (${groupId}) → OK`);
+      } else {
+        errors++;
+        console.error(`Manual send ${msg.id}: group ${i + 1}/${allGroupIds.length} (${groupId}) → ERROR. Stopping.`);
+        break; // Bug 1: stop on first error
+      }
     } catch (e) {
       console.error(`Manual send error for group ${groupId}:`, e);
       errors++;
@@ -269,6 +263,7 @@ async function processManualMessage(supabase: any, msg: any) {
         error_message: e.message,
         instance_name: instanceName,
       });
+      break; // Bug 1: stop on first error
     }
   }
 
@@ -329,12 +324,29 @@ async function processMessage(
   const instanceName = msg.instance_name || campaign?.instance_name || config.instance_name;
   const content = msg.content as any;
 
-  console.log(`Message ${msg.id}: processing ${allGroupIds.length} groups`);
+  // Bug 6: capture processing_started_at for duplicate check on cron retries
+  const processingStartedAt = msg.processing_started_at;
+  console.log(`Message ${msg.id}: processing ${allGroupIds.length} groups (started at ${processingStartedAt})`);
 
   let totalProcessed = 0;
 
   for (let i = 0; i < allGroupIds.length; i++) {
     const groupId = allGroupIds[i];
+
+    // Bug 6: Per-group duplicate check — skip if already sent in this execution window
+    const { count: alreadySent } = await supabase
+      .from("message_logs")
+      .select("*", { count: "exact", head: true })
+      .eq("scheduled_message_id", msg.id)
+      .eq("group_id", groupId)
+      .eq("status", "sent")
+      .gte("created_at", processingStartedAt);
+
+    if ((alreadySent || 0) > 0) {
+      console.log(`Message ${msg.id}: group ${groupId} already sent in this execution, skipping`);
+      totalProcessed++;
+      continue;
+    }
 
     // Delay between sends (skip first)
     if (!isFirstSend || totalProcessed > 0) {
@@ -417,13 +429,13 @@ async function processMessage(
   if (msg.schedule_type === "once") {
     await supabase.from("scheduled_messages").update({
       is_active: false, last_run_at: now.toISOString(), next_run_at: null,
-      sent_group_index: 0, processing_started_at: null, last_completed_at: now.toISOString(),
+      processing_started_at: null, last_completed_at: now.toISOString(),
     }).eq("id", msg.id);
   } else {
     const nextRunAt = calculateNextRunAt(msg, now);
     await supabase.from("scheduled_messages").update({
       last_run_at: now.toISOString(), next_run_at: nextRunAt,
-      sent_group_index: 0, processing_started_at: null, last_completed_at: now.toISOString(),
+      processing_started_at: null, last_completed_at: now.toISOString(),
     }).eq("id", msg.id);
   }
   console.log(`Message ${msg.id}: ALL done. ${totalProcessed} sent out of ${allGroupIds.length} groups`);
