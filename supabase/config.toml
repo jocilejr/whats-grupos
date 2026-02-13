@@ -5,3 +5,6 @@ verify_jwt = false
 
 [functions.backup-export]
 verify_jwt = false
+
+[functions.generate-ai-message]
+verify_jwt = false
