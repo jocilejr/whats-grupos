@@ -62,12 +62,42 @@ Deno.serve(async (req) => {
         });
       }
 
+      // Reset sent_group_index so manual trigger sends ALL groups from the start
+      await supabase
+        .from("scheduled_messages")
+        .update({ sent_group_index: 0 })
+        .eq("id", manualMessageId);
+      manualMsg.sent_group_index = 0;
+
       let processed = 0, errors = 0;
       try {
-        await processMessage(supabase, manualMsg, true, (p, e) => {
-          processed += p;
-          errors += e;
-        });
+        // Loop through all batches until all groups are sent
+        let currentMsg = { ...manualMsg };
+        let isFirstSend = true;
+        while (true) {
+          let batchProcessed = 0, batchErrors = 0;
+          await processMessage(supabase, currentMsg, isFirstSend, (p, e, first) => {
+            batchProcessed = p;
+            batchErrors = e;
+            isFirstSend = first;
+          });
+          processed += batchProcessed;
+          errors += batchErrors;
+          isFirstSend = false;
+
+          // Reload message to check updated sent_group_index
+          const { data: refreshed } = await supabase
+            .from("scheduled_messages")
+            .select("*")
+            .eq("id", manualMessageId)
+            .maybeSingle();
+
+          if (!refreshed || refreshed.sent_group_index === 0 || refreshed.last_completed_at) {
+            // All groups done (index reset to 0 means completion)
+            break;
+          }
+          currentMsg = refreshed;
+        }
       } catch (err) {
         console.error(`Manual send error for ${manualMessageId}:`, err);
         await releaseLock(supabase, manualMessageId);
