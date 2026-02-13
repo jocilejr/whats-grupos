@@ -51,8 +51,10 @@ export function AppSidebar() {
 
   return (
     <Sidebar>
-      <SidebarHeader className="p-4 flex justify-center">
-        <img src={logoImg} alt="Simplificando Grupos" className="h-12 w-auto" />
+      <SidebarHeader className="p-3">
+        <div className="flex items-center justify-center px-2">
+          <img src={logoImg} alt="Simplificando Grupos" className="h-14 w-full object-contain" />
+        </div>
         <div className="flex items-center gap-2 mt-3 rounded-lg bg-sidebar-accent/50 px-3 py-2">
           <Clock className="h-3.5 w-3.5 text-sidebar-foreground/60" />
           <div className="flex flex-col">
