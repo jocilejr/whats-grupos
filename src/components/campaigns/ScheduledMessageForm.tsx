@@ -335,7 +335,7 @@ export function ScheduledMessageForm({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col sm:rounded-2xl border-border/50 bg-card p-0 gap-0">
+      <DialogContent className="max-w-[95vw] w-[1100px] max-h-[90vh] flex flex-col sm:rounded-2xl border-border/50 bg-card p-0 gap-0">
         <DialogHeader className="px-6 pt-5 pb-3 border-b border-border/30 shrink-0">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
@@ -348,7 +348,8 @@ export function ScheduledMessageForm({
           </div>
         </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto min-h-0">
+        <div className="flex-1 overflow-hidden min-h-0 flex">
+          <div className="flex-1 overflow-y-auto min-h-0">
           <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)}>
             <div className="px-6 pt-3">
               <TabsList className="w-full bg-secondary/40 h-10 p-1">
@@ -607,31 +608,6 @@ export function ScheduledMessageForm({
                 </div>
               )}
 
-              {/* WhatsApp Preview */}
-              <div className="space-y-2">
-                <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Preview</Label>
-                <WhatsAppPreview
-                  messageType={messageType}
-                  textContent={textContent}
-                  mediaUrl={mediaUrl}
-                  caption={caption}
-                  locName={locName}
-                  locAddress={locAddress}
-                  locLat={locLat}
-                  locLng={locLng}
-                  contactName={contactName}
-                  contactPhone={useInstancePhone && instanceNumber ? instanceNumber : contactPhone}
-                  pollName={pollName}
-                  pollOptions={pollOptions}
-                  listTitle={listTitle}
-                  listDescription={listDescription}
-                  listButtonText={listButtonText}
-                  listFooter={listFooter}
-                  listSections={listSections}
-                  mentionAll={mentionAll}
-                  aiPrompt={aiPrompt}
-                />
-              </div>
 
               {/* Global options */}
               <div className="border-t border-border/30 pt-4 space-y-2">
@@ -761,6 +737,38 @@ export function ScheduledMessageForm({
               <TemplateSelectorInline onSelect={handleTemplateSelect} />
             </TabsContent>
           </Tabs>
+          </div>
+
+          {/* Right side: WhatsApp Preview */}
+          <div className="hidden md:flex w-[340px] shrink-0 border-l border-border/30 flex-col">
+            <div className="px-4 py-3 border-b border-border/30">
+              <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Preview</Label>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 flex items-start justify-center">
+              <div className="w-full sticky top-0">
+                <WhatsAppPreview
+                  messageType={messageType}
+                  textContent={textContent}
+                  mediaUrl={mediaUrl}
+                  caption={caption}
+                  locName={locName}
+                  locAddress={locAddress}
+                  locLat={locLat}
+                  locLng={locLng}
+                  contactName={contactName}
+                  contactPhone={useInstancePhone && instanceNumber ? instanceNumber : contactPhone}
+                  pollName={pollName}
+                  pollOptions={pollOptions}
+                  listTitle={listTitle}
+                  listDescription={listDescription}
+                  listButtonText={listButtonText}
+                  listFooter={listFooter}
+                  listSections={listSections}
+                  aiPrompt={aiPrompt}
+                />
+              </div>
+            </div>
+          </div>
         </div>
 
         <DialogFooter className="px-6 py-3 border-t border-border/30 gap-2 shrink-0">

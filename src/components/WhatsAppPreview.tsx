@@ -21,7 +21,6 @@ export interface WhatsAppPreviewProps {
   listButtonText?: string;
   listFooter?: string;
   listSections?: { title: string; rows: { title: string; description: string }[] }[];
-  mentionAll?: boolean;
   aiPrompt?: string;
 }
 
@@ -60,16 +59,13 @@ function EmptyState() {
   );
 }
 
-function MentionBadge() {
-  return <span className="text-[#53bdeb] text-[13px]">@todos </span>;
-}
 
 export function WhatsAppPreview(props: WhatsAppPreviewProps) {
   const {
     messageType, textContent, mediaUrl, caption, locName, locAddress,
     locLat, locLng, contactName, contactPhone, pollName, pollOptions,
     listTitle, listDescription, listButtonText, listFooter, listSections,
-    mentionAll, aiPrompt,
+    aiPrompt,
   } = props;
 
   const hasContent = () => {
@@ -91,7 +87,6 @@ export function WhatsAppPreview(props: WhatsAppPreviewProps) {
         return (
           <BubbleWrapper>
             <div>
-              {mentionAll && <MentionBadge />}
               <span className="text-[#e9edef] text-[13px] whitespace-pre-wrap break-words">{textContent}</span>
               <TimeStamp />
             </div>
@@ -121,7 +116,7 @@ export function WhatsAppPreview(props: WhatsAppPreviewProps) {
               </div>
               {caption && (
                 <div>
-                  {mentionAll && <MentionBadge />}
+                  <span className="text-[#e9edef] text-[13px] whitespace-pre-wrap">{caption}</span>
                   <span className="text-[#e9edef] text-[13px] whitespace-pre-wrap">{caption}</span>
                 </div>
               )}
@@ -142,7 +137,6 @@ export function WhatsAppPreview(props: WhatsAppPreviewProps) {
               </div>
               {caption && (
                 <div>
-                  {mentionAll && <MentionBadge />}
                   <span className="text-[#e9edef] text-[13px] whitespace-pre-wrap">{caption}</span>
                 </div>
               )}
@@ -164,7 +158,6 @@ export function WhatsAppPreview(props: WhatsAppPreviewProps) {
               </div>
               {caption && (
                 <div>
-                  {mentionAll && <MentionBadge />}
                   <span className="text-[#e9edef] text-[13px] whitespace-pre-wrap">{caption}</span>
                 </div>
               )}
