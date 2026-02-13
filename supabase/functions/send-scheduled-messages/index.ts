@@ -168,7 +168,7 @@ async function processMessage(
             Authorization: `Bearer ${supabaseKey}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ prompt: content.prompt || content.text || "" }),
+          body: JSON.stringify({ prompt: content.prompt || content.text || "", user_id: msg.user_id }),
         });
         const aiResult = await aiResp.json();
         if (!aiResp.ok || aiResult.error) {

@@ -56,7 +56,7 @@ Deno.serve(async (req) => {
     switch (action) {
       case "createUser": {
         const body = await req.json();
-        const { email, password, display_name, max_instances, max_messages_per_hour, max_campaigns } = body;
+        const { email, password, display_name, max_instances, max_messages_per_hour, max_campaigns, max_ai_requests_per_month } = body;
 
         if (!email || !password) return json({ error: "email and password required" }, 400);
 
@@ -79,6 +79,7 @@ Deno.serve(async (req) => {
           max_instances: max_instances ?? 1,
           max_messages_per_hour: max_messages_per_hour ?? 100,
           max_campaigns: max_campaigns ?? 5,
+          max_ai_requests_per_month: max_ai_requests_per_month ?? 50,
         });
 
         return json({ success: true, user_id: userId, email });
@@ -86,13 +87,14 @@ Deno.serve(async (req) => {
 
       case "updatePlan": {
         const body = await req.json();
-        const { user_id, max_instances, max_messages_per_hour, max_campaigns, is_active } = body;
+        const { user_id, max_instances, max_messages_per_hour, max_campaigns, max_ai_requests_per_month, is_active } = body;
         if (!user_id) return json({ error: "user_id required" }, 400);
 
         const updates: Record<string, unknown> = {};
         if (max_instances !== undefined) updates.max_instances = max_instances;
         if (max_messages_per_hour !== undefined) updates.max_messages_per_hour = max_messages_per_hour;
         if (max_campaigns !== undefined) updates.max_campaigns = max_campaigns;
+        if (max_ai_requests_per_month !== undefined) updates.max_ai_requests_per_month = max_ai_requests_per_month;
         if (is_active !== undefined) updates.is_active = is_active;
 
         const { error } = await supabase.from("user_plans").update(updates).eq("user_id", user_id);

@@ -1,0 +1,1 @@
+ALTER TABLE public.user_plans ADD COLUMN max_ai_requests_per_month integer NOT NULL DEFAULT 50;

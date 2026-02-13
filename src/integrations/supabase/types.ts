@@ -333,6 +333,7 @@ export type Database = {
           created_at: string
           id: string
           is_active: boolean
+          max_ai_requests_per_month: number
           max_campaigns: number
           max_instances: number
           max_messages_per_hour: number
@@ -343,6 +344,7 @@ export type Database = {
           created_at?: string
           id?: string
           is_active?: boolean
+          max_ai_requests_per_month?: number
           max_campaigns?: number
           max_instances?: number
           max_messages_per_hour?: number
@@ -353,6 +355,7 @@ export type Database = {
           created_at?: string
           id?: string
           is_active?: boolean
+          max_ai_requests_per_month?: number
           max_campaigns?: number
           max_instances?: number
           max_messages_per_hour?: number
