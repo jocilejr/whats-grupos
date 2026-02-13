@@ -271,22 +271,33 @@ export async function importBackup(backup: BackupFile, onProgress?: ProgressCall
     });
   }
 
-  // 6. message_logs
+  // 6. message_logs (batch insert)
   onProgress?.("Restaurando histórico...", 85);
-  for (const log of backup.data.message_logs) {
-    const clean = stripMeta(log);
-    delete clean.api_config_id;
-    delete clean.scheduled_message_id;
-    const newConfigId = configIdMap.get(log.api_config_id);
-    if (!newConfigId) continue;
-    const content = replaceUrls(clean.content, urlMap);
-    await supabase.from("message_logs").insert({
-      ...clean,
-      content: content as Json,
-      user_id: user.id,
-      api_config_id: newConfigId,
-      scheduled_message_id: null,
-    });
+  const logRecords = backup.data.message_logs
+    .map((log) => {
+      const clean = stripMeta(log);
+      delete clean.api_config_id;
+      delete clean.scheduled_message_id;
+      const newConfigId = configIdMap.get(log.api_config_id);
+      if (!newConfigId) return null;
+      const content = replaceUrls(clean.content, urlMap);
+      return {
+        ...clean,
+        content: content as Json,
+        user_id: user.id,
+        api_config_id: newConfigId,
+        scheduled_message_id: null,
+      };
+    })
+    .filter(Boolean);
+
+  // Insert in batches of 500
+  const BATCH_SIZE = 500;
+  for (let i = 0; i < logRecords.length; i += BATCH_SIZE) {
+    const batch = logRecords.slice(i, i + BATCH_SIZE);
+    const pct = 85 + Math.round((i / logRecords.length) * 10);
+    onProgress?.(`Restaurando histórico... (${i + batch.length}/${logRecords.length})`, pct);
+    await supabase.from("message_logs").insert(batch as any[]);
   }
 
   // 7. profiles (update)
