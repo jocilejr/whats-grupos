@@ -538,6 +538,7 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      cleanup_old_queue_items: { Args: never; Returns: undefined }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -545,6 +546,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      reset_stuck_queue_items: { Args: never; Returns: undefined }
     }
     Enums: {
       app_role: "admin" | "user"
