@@ -32,6 +32,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 
+const menuItemClasses = "transition-all duration-300 ease-out group/menu-item-custom";
+
 const userMenuItems = [
   { title: "Dashboard", icon: LayoutDashboard, path: "/" },
   { title: "Enviar Mensagem", icon: Send, path: "/messages" },
@@ -89,17 +91,18 @@ export function AppSidebar() {
             <SidebarGroupContent>
               <SidebarMenu>
                 {adminMenuItems.map((item) => (
-                  <SidebarMenuItem key={item.path}>
-                    <SidebarMenuButton
-                      isActive={location.pathname === item.path}
-                      onClick={() => navigate(item.path)}
-                      tooltip={item.title}
-                    >
-                      <item.icon className="h-4 w-4" />
-                      <span>{item.title}</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
+                   <SidebarMenuItem key={item.path} className={menuItemClasses}>
+                     <SidebarMenuButton
+                       isActive={location.pathname === item.path}
+                       onClick={() => navigate(item.path)}
+                       tooltip={item.title}
+                       className="transition-all duration-300 data-[active=true]:shadow-md data-[active=true]:shadow-primary/30"
+                     >
+                       <item.icon className="h-4 w-4 transition-transform duration-300 group-hover/menu-item-custom:scale-110" />
+                       <span className="transition-all duration-300">{item.title}</span>
+                     </SidebarMenuButton>
+                   </SidebarMenuItem>
+                 ))}
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
@@ -109,17 +112,18 @@ export function AppSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               {userMenuItems.map((item) => (
-                <SidebarMenuItem key={item.path}>
-                  <SidebarMenuButton
-                    isActive={location.pathname === item.path}
-                    onClick={() => navigate(item.path)}
-                    tooltip={item.title}
-                  >
-                    <item.icon className="h-4 w-4" />
-                    <span>{item.title}</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+                 <SidebarMenuItem key={item.path} className={menuItemClasses}>
+                   <SidebarMenuButton
+                     isActive={location.pathname === item.path}
+                     onClick={() => navigate(item.path)}
+                     tooltip={item.title}
+                     className="transition-all duration-300 data-[active=true]:shadow-md data-[active=true]:shadow-primary/30"
+                   >
+                     <item.icon className="h-4 w-4 transition-transform duration-300 group-hover/menu-item-custom:scale-110" />
+                     <span className="transition-all duration-300">{item.title}</span>
+                   </SidebarMenuButton>
+                 </SidebarMenuItem>
+               ))}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
