@@ -269,7 +269,7 @@ export function ScheduledMessageForm({
         : null;
 
       const payload = {
-        user_id: user!.id, campaign_id: campaignId, api_config_id: apiConfigId,
+        user_id: user!.id, campaign_id: campaignId, api_config_id: apiConfigId || null,
         instance_name: instanceName, group_ids: groupIds, message_type: messageType,
         content, schedule_type: scheduleType, scheduled_at: scheduledAtValue,
         next_run_at: nextRunAt, is_active: true,
