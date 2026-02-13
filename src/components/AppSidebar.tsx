@@ -9,10 +9,10 @@ import {
   History,
   Settings,
   LogOut,
-  MessageSquare,
   Clock,
   DatabaseBackup,
 } from "lucide-react";
+import logoImg from "@/assets/logo.png";
 import {
   Sidebar,
   SidebarContent,
@@ -53,11 +53,9 @@ export function AppSidebar() {
     <Sidebar>
       <SidebarHeader className="p-4">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-sidebar-primary text-sidebar-primary-foreground">
-            <MessageSquare className="h-5 w-5" />
-          </div>
+          <img src={logoImg} alt="Simplificando Grupos" className="h-10 w-10 rounded-xl object-cover" />
           <div>
-            <h2 className="text-sm font-semibold text-sidebar-foreground">Whats Grupos</h2>
+            <h2 className="text-sm font-semibold text-sidebar-foreground">Simplificando Grupos</h2>
             <p className="text-xs text-sidebar-foreground/60">Automação WhatsApp</p>
           </div>
         </div>
