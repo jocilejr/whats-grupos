@@ -1,26 +1,32 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+const ALLOWED_ORIGINS = (Deno.env.get("ALLOWED_ORIGINS") || "*").split(",").map(s => s.trim());
 
-function json(data: unknown, status = 200) {
+function getCorsHeaders(req: Request) {
+  const origin = req.headers.get("Origin") || "";
+  const allowed = ALLOWED_ORIGINS.includes("*") || ALLOWED_ORIGINS.includes(origin);
+  return {
+    "Access-Control-Allow-Origin": allowed ? origin : ALLOWED_ORIGINS[0],
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  };
+}
+
+function json(data: unknown, status = 200, req?: Request) {
+  const headers = req ? getCorsHeaders(req) : { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type" };
   return new Response(JSON.stringify(data), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: { ...headers, "Content-Type": "application/json" },
   });
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  if (req.method === "OPTIONS") return new Response("ok", { headers: getCorsHeaders(req) });
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const adminApiKey = Deno.env.get("ADMIN_API_KEY");
 
-    // Auth: accept either ADMIN_API_KEY or a logged-in admin user
     const authHeader = req.headers.get("Authorization") ?? "";
     let isAuthorized = false;
 
@@ -31,7 +37,6 @@ Deno.serve(async (req) => {
     const supabase = createClient(supabaseUrl, serviceKey);
 
     if (!isAuthorized) {
-      // Try JWT-based admin auth
       const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
       const userClient = createClient(supabaseUrl, anonKey, {
         global: { headers: { Authorization: authHeader } },
@@ -48,7 +53,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    if (!isAuthorized) return json({ error: "Unauthorized" }, 401);
+    if (!isAuthorized) return json({ error: "Unauthorized" }, 401, req);
 
     const url = new URL(req.url);
     const action = url.searchParams.get("action");
@@ -58,7 +63,7 @@ Deno.serve(async (req) => {
         const body = await req.json();
         const { email, password, display_name, max_instances, max_messages_per_hour, max_campaigns, max_ai_requests_per_month } = body;
 
-        if (!email || !password) return json({ error: "email and password required" }, 400);
+        if (!email || !password) return json({ error: "email and password required" }, 400, req);
 
         const { data: newUser, error: createErr } = await supabase.auth.admin.createUser({
           email,
@@ -66,14 +71,12 @@ Deno.serve(async (req) => {
           email_confirm: true,
           user_metadata: { display_name: display_name || email.split("@")[0] },
         });
-        if (createErr) return json({ error: createErr.message }, 400);
+        if (createErr) return json({ error: createErr.message }, 400, req);
 
         const userId = newUser.user.id;
 
-        // Insert role
         await supabase.from("user_roles").insert({ user_id: userId, role: "user" });
 
-        // Insert plan
         await supabase.from("user_plans").insert({
           user_id: userId,
           max_instances: max_instances ?? 1,
@@ -82,13 +85,13 @@ Deno.serve(async (req) => {
           max_ai_requests_per_month: max_ai_requests_per_month ?? 50,
         });
 
-        return json({ success: true, user_id: userId, email });
+        return json({ success: true, user_id: userId, email }, 200, req);
       }
 
       case "updatePlan": {
         const body = await req.json();
         const { user_id, max_instances, max_messages_per_hour, max_campaigns, max_ai_requests_per_month, is_active } = body;
-        if (!user_id) return json({ error: "user_id required" }, 400);
+        if (!user_id) return json({ error: "user_id required" }, 400, req);
 
         const updates: Record<string, unknown> = {};
         if (max_instances !== undefined) updates.max_instances = max_instances;
@@ -98,9 +101,9 @@ Deno.serve(async (req) => {
         if (is_active !== undefined) updates.is_active = is_active;
 
         const { error } = await supabase.from("user_plans").update(updates).eq("user_id", user_id);
-        if (error) return json({ error: error.message }, 400);
+        if (error) return json({ error: error.message }, 400, req);
 
-        return json({ success: true });
+        return json({ success: true }, 200, req);
       }
 
       case "listUsers": {
@@ -114,24 +117,23 @@ Deno.serve(async (req) => {
           role: (roles ?? []).find((r: any) => r.user_id === p.user_id)?.role ?? "user",
         }));
 
-        return json(users);
+        return json(users, 200, req);
       }
 
       case "deleteUser": {
         const body = await req.json();
         const { user_id } = body;
-        if (!user_id) return json({ error: "user_id required" }, 400);
+        if (!user_id) return json({ error: "user_id required" }, 400, req);
 
-        // Deactivate plan
         await supabase.from("user_plans").update({ is_active: false }).eq("user_id", user_id);
 
-        return json({ success: true });
+        return json({ success: true }, 200, req);
       }
 
       default:
-        return json({ error: "Invalid action" }, 400);
+        return json({ error: "Invalid action" }, 400, req);
     }
   } catch (error: any) {
-    return json({ error: error.message }, 500);
+    return json({ error: error.message }, 500, req);
   }
 });

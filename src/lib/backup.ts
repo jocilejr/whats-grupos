@@ -60,7 +60,21 @@ export async function exportBackup(onProgress?: ProgressCallback): Promise<Backu
   const { data: message_templates } = await supabase.from("message_templates").select("*");
 
   onProgress?.("Buscando histórico...", 55);
-  const { data: message_logs } = await supabase.from("message_logs").select("*");
+  const message_logs: any[] = [];
+  {
+    let from = 0;
+    const PAGE = 1000;
+    while (true) {
+      const { data } = await supabase
+        .from("message_logs")
+        .select("*")
+        .range(from, from + PAGE - 1);
+      if (!data?.length) break;
+      message_logs.push(...data);
+      if (data.length < PAGE) break;
+      from += PAGE;
+    }
+  }
 
   const allRecords = [
     ...(message_templates || []),

@@ -1,15 +1,22 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
-};
+const ALLOWED_ORIGINS = (Deno.env.get("ALLOWED_ORIGINS") || "*").split(",").map(s => s.trim());
 
-function json(data: unknown, status = 200) {
+function getCorsHeaders(req: Request) {
+  const origin = req.headers.get("Origin") || "";
+  const allowed = ALLOWED_ORIGINS.includes("*") || ALLOWED_ORIGINS.includes(origin);
+  return {
+    "Access-Control-Allow-Origin": allowed ? origin : ALLOWED_ORIGINS[0],
+    "Access-Control-Allow-Headers":
+      "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+  };
+}
+
+function json(data: unknown, status = 200, req?: Request) {
+  const headers = req ? getCorsHeaders(req) : { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type" };
   return new Response(JSON.stringify(data), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: { ...headers, "Content-Type": "application/json" },
   });
 }
 
@@ -25,36 +32,57 @@ async function getGlobalConfig(supabase: any) {
   return data;
 }
 
+const SEND_ACTIONS = new Set([
+  "sendText", "sendMedia", "sendAudio", "sendSticker",
+  "sendLocation", "sendContact", "sendPoll", "sendList",
+]);
+
+async function checkRateLimit(supabase: any, userId: string): Promise<{ limited: boolean; max: number }> {
+  const { data: plan } = await supabase
+    .from("user_plans")
+    .select("max_messages_per_hour")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  const max = plan?.max_messages_per_hour ?? 100;
+
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  const { count } = await supabase
+    .from("message_logs")
+    .select("*", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .gte("created_at", oneHourAgo);
+
+  return { limited: (count || 0) >= max, max };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+    return new Response("ok", { headers: getCorsHeaders(req) });
   }
 
   try {
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader) return json({ error: "No authorization header" }, 401);
+    if (!authHeader) return json({ error: "No authorization header" }, 401, req);
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-    // User-scoped client for auth
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
     const userClient = createClient(supabaseUrl, anonKey, {
       global: { headers: { Authorization: authHeader } },
     });
     const { data: { user }, error: userError } = await userClient.auth.getUser();
-    if (userError || !user) return json({ error: "Unauthorized" }, 401);
+    if (userError || !user) return json({ error: "Unauthorized" }, 401, req);
 
-    // Service client for global config access
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     const url = new URL(req.url);
     const action = url.searchParams.get("action");
     const configId = url.searchParams.get("configId");
 
-    if (!configId) return json({ error: "configId is required" }, 400);
+    if (!configId) return json({ error: "configId is required" }, 400, req);
 
-    // Verify user owns this config
     const { data: config, error: configError } = await supabase
       .from("api_configs")
       .select("*")
@@ -62,11 +90,18 @@ Deno.serve(async (req) => {
       .eq("user_id", user.id)
       .maybeSingle();
 
-    if (configError || !config) return json({ error: "API config not found" }, 404);
+    if (configError || !config) return json({ error: "API config not found" }, 404, req);
 
-    // Get global Evolution API config
+    // Rate limiting for send actions
+    if (action && SEND_ACTIONS.has(action)) {
+      const { limited, max } = await checkRateLimit(supabase, user.id);
+      if (limited) {
+        return json({ error: `Limite de ${max} mensagens por hora atingido. Aguarde antes de enviar mais.` }, 429, req);
+      }
+    }
+
     const globalConfig = await getGlobalConfig(supabase);
-    if (!globalConfig) return json({ error: "Evolution API not configured. Contact admin." }, 500);
+    if (!globalConfig) return json({ error: "Evolution API not configured. Contact admin." }, 500, req);
 
     const apiUrl = globalConfig.evolution_api_url.replace(/\/$/, "");
     const apiKey = globalConfig.evolution_api_key;
@@ -225,11 +260,11 @@ Deno.serve(async (req) => {
       }
 
       default:
-        return json({ error: "Invalid action" }, 400);
+        return json({ error: "Invalid action" }, 400, req);
     }
 
-    return json(result);
+    return json(result, 200, req);
   } catch (error: any) {
-    return json({ error: error.message }, 500);
+    return json({ error: error.message }, 500, req);
   }
 });
