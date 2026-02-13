@@ -82,6 +82,34 @@ const WAVEFORM_HEIGHTS = Array.from({ length: 30 }, (_, i) =>
   Math.sin(i * 0.6) * 10 + Math.cos(i * 1.2) * 5 + 8
 );
 
+// Detect URL in text
+const URL_REGEX = /https?:\/\/[^\s]+/i;
+
+function LinkPreviewCard({ url }: { url: string }) {
+  const domain = (() => {
+    try { return new URL(url).hostname.replace('www.', ''); } catch { return url; }
+  })();
+  return (
+    <div style={{ borderRadius: '6px', overflow: 'hidden', marginBottom: '4px', border: '1px solid rgba(255,255,255,0.06)' }}>
+      <div style={{ height: '90px', background: 'linear-gradient(135deg, #1a2a3a 0%, #0d1b2a 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+        <div style={{ position: 'absolute', inset: 0, opacity: 0.06, backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(255,255,255,0.1) 10px, rgba(255,255,255,0.1) 11px)' }} />
+        <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: 'rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1 }}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.4)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+          </svg>
+        </div>
+      </div>
+      <div style={{ background: 'rgba(255,255,255,0.04)', padding: '8px 10px' }}>
+        <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', marginBottom: '2px', textTransform: 'lowercase' }}>{domain}</p>
+        <p style={{ fontSize: '12.5px', color: '#e9edef', fontWeight: 500, lineHeight: '16px' }}>
+          {domain.charAt(0).toUpperCase() + domain.slice(1)}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export function WhatsAppPreview(props: WhatsAppPreviewProps) {
   const {
     messageType, textContent, mediaUrl, caption,
@@ -90,6 +118,14 @@ export function WhatsAppPreview(props: WhatsAppPreviewProps) {
     listTitle, listDescription, listButtonText, listFooter,
     aiPrompt,
   } = props;
+
+  const detectedUrl = useMemo(() => {
+    if (messageType === 'text' && textContent) {
+      const match = textContent.match(URL_REGEX);
+      return match ? match[0] : null;
+    }
+    return null;
+  }, [messageType, textContent]);
 
   const hasContent = () => {
     switch (messageType) {
@@ -109,6 +145,7 @@ export function WhatsAppPreview(props: WhatsAppPreviewProps) {
       case "text":
         return (
           <Bubble>
+            {detectedUrl && <LinkPreviewCard url={detectedUrl} />}
             <span style={{ fontSize: '14.2px', color: '#e9edef', whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: '19px' }}>
               {textContent}
             </span>
