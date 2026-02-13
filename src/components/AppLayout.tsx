@@ -1,6 +1,8 @@
+import { Suspense } from "react";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Outlet, useLocation } from "react-router-dom";
+import { Loader2 } from "lucide-react";
 
 const pageTitles: Record<string, string> = {
   "/": "Dashboard",
@@ -14,6 +16,14 @@ const pageTitles: Record<string, string> = {
   "/admin/users": "Gerenciar Usuários",
   "/admin/config": "Configuração Global",
 };
+
+function ContentLoader() {
+  return (
+    <div className="flex items-center justify-center py-20">
+      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+    </div>
+  );
+}
 
 export function AppLayout() {
   const location = useLocation();
@@ -31,7 +41,9 @@ export function AppLayout() {
             )}
           </div>
           <div className="p-4 lg:p-6">
-            <Outlet />
+            <Suspense fallback={<ContentLoader />}>
+              <Outlet />
+            </Suspense>
           </div>
         </main>
       </div>
