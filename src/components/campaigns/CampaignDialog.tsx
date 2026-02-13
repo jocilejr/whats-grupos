@@ -14,7 +14,7 @@ import { Switch } from "@/components/ui/switch";
 import { GroupSelector } from "./GroupSelector";
 
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Megaphone, Server, Users, Zap } from "lucide-react";
+import { Loader2, Megaphone, Users, Zap } from "lucide-react";
 
 interface CampaignDialogProps {
   open: boolean;
@@ -49,8 +49,16 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
     enabled: !!user,
   });
 
-  // Derive available instance names from user's configured api_configs
-  const availableInstances = configs?.map((c) => c.instance_name).filter(Boolean) || [];
+  // Build list of instances from user's api_configs, each with its config id
+  const instanceOptions = configs?.map((c) => ({ configId: c.id, instanceName: c.instance_name })).filter(o => o.instanceName) || [];
+
+  // When user selects an instance, auto-resolve the configId
+  const handleInstanceSelect = (instName: string) => {
+    setEvolutionInstance(instName);
+    const matched = configs?.find((c) => c.instance_name === instName);
+    setConfigId(matched?.id || "");
+    setGroupIds([]);
+  };
 
   useEffect(() => {
     if (open) {
@@ -141,33 +149,18 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
             <Textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Descreva o objetivo da campanha" rows={2} className="bg-background/50 border-border/50 focus:border-primary/50 resize-none" />
           </div>
 
-          {/* Conexão */}
-          <div className="space-y-2">
-            <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-              <Server className="h-3 w-3" />Conexão
-            </Label>
-            <Select value={configId} onValueChange={(v) => { setConfigId(v); setEvolutionInstance(""); setGroupIds([]); }}>
-              <SelectTrigger className="bg-background/50 border-border/50"><SelectValue placeholder="Selecione a conexão" /></SelectTrigger>
-              <SelectContent>
-                {configs?.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>{c.instance_name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
           {/* Instância WhatsApp */}
-          {configId && availableInstances.length > 0 && (
+          {instanceOptions.length > 0 && (
             <div className="space-y-2">
               <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
                 <Zap className="h-3 w-3" />Instância WhatsApp
               </Label>
-              <Select value={evolutionInstance} onValueChange={(v) => { setEvolutionInstance(v); setGroupIds([]); }}>
+              <Select value={evolutionInstance} onValueChange={handleInstanceSelect}>
                 <SelectTrigger className="bg-background/50 border-border/50"><SelectValue placeholder="Selecione a instância" /></SelectTrigger>
                 <SelectContent>
-                  {availableInstances.map((instName) => (
-                    <SelectItem key={instName} value={instName}>
-                      {instName}
+                  {instanceOptions.map((opt) => (
+                    <SelectItem key={opt.configId} value={opt.instanceName}>
+                      {opt.instanceName}
                     </SelectItem>
                   ))}
                 </SelectContent>
