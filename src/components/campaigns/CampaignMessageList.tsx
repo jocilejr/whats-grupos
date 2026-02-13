@@ -56,7 +56,14 @@ export function CampaignMessageList({ campaignId, apiConfigId, instanceName, gro
         .eq("schedule_type", scheduleType)
         .order("created_at", { ascending: false });
       if (error) throw error;
-      return data;
+      // Sort by run time ascending
+      return (data || []).sort((a, b) => {
+        const getT = (m: any) => {
+          const c = m.content as any || {};
+          return c.runTime || (m.scheduled_at ? new Date(m.scheduled_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : "08:00");
+        };
+        return getT(a).localeCompare(getT(b));
+      });
     },
     enabled: !!user && !!campaignId,
   });
