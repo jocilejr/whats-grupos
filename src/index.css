@@ -6,44 +6,44 @@
 
 @layer base {
   :root {
-    --background: 220 20% 7%;
+    --background: 215 28% 7%;
     --foreground: 210 15% 93%;
 
-    --card: 220 20% 10%;
+    --card: 215 25% 10%;
     --card-foreground: 210 15% 93%;
 
-    --popover: 220 20% 12%;
+    --popover: 215 25% 12%;
     --popover-foreground: 210 15% 93%;
 
-    --primary: 142 60% 50%;
+    --primary: 28 85% 56%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 220 15% 18%;
+    --secondary: 215 20% 18%;
     --secondary-foreground: 210 15% 90%;
 
-    --muted: 220 15% 15%;
+    --muted: 215 20% 15%;
     --muted-foreground: 215 15% 55%;
 
-    --accent: 220 15% 18%;
-    --accent-foreground: 142 60% 60%;
+    --accent: 215 20% 18%;
+    --accent-foreground: 28 85% 65%;
 
     --destructive: 0 62% 40%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 220 15% 18%;
-    --input: 220 15% 20%;
-    --ring: 142 60% 50%;
+    --border: 215 20% 18%;
+    --input: 215 20% 20%;
+    --ring: 28 85% 56%;
 
     --radius: 0.75rem;
 
-    --sidebar-background: 220 25% 6%;
+    --sidebar-background: 215 30% 6%;
     --sidebar-foreground: 210 15% 85%;
-    --sidebar-primary: 142 60% 50%;
+    --sidebar-primary: 28 85% 56%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 220 15% 12%;
+    --sidebar-accent: 215 20% 12%;
     --sidebar-accent-foreground: 210 15% 90%;
-    --sidebar-border: 220 15% 12%;
-    --sidebar-ring: 142 60% 50%;
+    --sidebar-border: 215 20% 12%;
+    --sidebar-ring: 28 85% 56%;
 
     /* Status colors */
     --success: 142 60% 45%;
