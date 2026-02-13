@@ -52,7 +52,7 @@ export default function Dashboard() {
     queryKey: ["dashboard-stats", user?.id],
     queryFn: async () => {
       const [logsRes, schedulesRes, configsRes, campaignsRes] = await Promise.all([
-        supabase.from("message_logs").select("id, status", { count: "exact" }).eq("user_id", user!.id),
+        supabase.from("message_logs").select("*", { count: "exact", head: true }).eq("user_id", user!.id),
         supabase.from("scheduled_messages").select("id", { count: "exact" }).eq("user_id", user!.id).eq("is_active", true),
         supabase.from("api_configs").select("id", { count: "exact" }).eq("user_id", user!.id).eq("is_active", true),
         supabase.from("campaigns").select("id", { count: "exact" }).eq("user_id", user!.id),
@@ -78,7 +78,8 @@ export default function Dashboard() {
         .select("created_at, status, message_type, group_name")
         .eq("user_id", user!.id)
         .gte("created_at", thirtyDaysAgo.toISOString())
-        .order("created_at", { ascending: true });
+        .order("created_at", { ascending: true })
+        .limit(5000);
       if (error) throw error;
       return data ?? [];
     },
@@ -95,7 +96,8 @@ export default function Dashboard() {
         .from("message_logs")
         .select("status, message_type")
         .eq("user_id", user!.id)
-        .gte("created_at", startOfToday.toISOString());
+        .gte("created_at", startOfToday.toISOString())
+        .limit(5000);
       if (error) throw error;
       const sent = (data ?? []).filter(l => l.status === "sent").length;
       const errors = (data ?? []).filter(l => l.status === "error").length;

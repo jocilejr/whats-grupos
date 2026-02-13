@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+// Internal function called by cron — CORS kept permissive
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -87,7 +88,6 @@ async function handleCronTrigger(supabase: any) {
       const queued = await enqueueMessage(supabase, msg);
       totalQueued += queued;
 
-      // Finalize the scheduled message (update next_run_at, etc.)
       const now = new Date();
       if (msg.schedule_type === "once") {
         await supabase.from("scheduled_messages").update({
@@ -115,7 +115,6 @@ async function handleCronTrigger(supabase: any) {
 }
 
 async function enqueueMessage(supabase: any, msg: any): Promise<number> {
-  // Fetch campaign
   let campaign: any = null;
   if (msg.campaign_id) {
     const { data: c } = await supabase.from("campaigns").select("*").eq("id", msg.campaign_id).maybeSingle();
@@ -126,7 +125,6 @@ async function enqueueMessage(supabase: any, msg: any): Promise<number> {
   const allGroupIds: string[] = campaign?.group_ids?.length ? campaign.group_ids : msg.group_ids;
   if (!allGroupIds?.length) return 0;
 
-  // Get API config
   const effectiveApiConfigId = msg.api_config_id || campaign?.api_config_id;
   if (!effectiveApiConfigId) {
     console.error(`No API config ID for message ${msg.id}`);
@@ -139,7 +137,6 @@ async function enqueueMessage(supabase: any, msg: any): Promise<number> {
     return 0;
   }
 
-  // Resolve API URL/key
   let apiUrl = config.api_url;
   let apiKey = config.api_key;
   if (!apiUrl || apiUrl === "global" || !apiKey || apiKey === "global") {
@@ -156,7 +153,6 @@ async function enqueueMessage(supabase: any, msg: any): Promise<number> {
   const instanceName = msg.instance_name || campaign?.instance_name || config.instance_name;
   const executionBatch = crypto.randomUUID();
 
-  // For AI messages, generate the text before enqueuing
   let content = msg.content as any;
   let messageType = msg.message_type;
   if (msg.message_type === "ai") {
@@ -178,7 +174,6 @@ async function enqueueMessage(supabase: any, msg: any): Promise<number> {
     }
   }
 
-  // Insert queue items
   const queueItems = allGroupIds.map((groupId: string, index: number) => ({
     user_id: msg.user_id,
     scheduled_message_id: msg.id,

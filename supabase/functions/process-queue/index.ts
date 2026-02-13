@@ -11,6 +11,25 @@ const MAX_ITEMS_PER_EXECUTION = 25;
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+async function checkRateLimit(supabase: any, userId: string): Promise<{ limited: boolean; max: number }> {
+  const { data: plan } = await supabase
+    .from("user_plans")
+    .select("max_messages_per_hour")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  const max = plan?.max_messages_per_hour ?? 100;
+
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  const { count } = await supabase
+    .from("message_logs")
+    .select("*", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .gte("created_at", oneHourAgo);
+
+  return { limited: (count || 0) >= max, max };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -21,7 +40,6 @@ Deno.serve(async (req) => {
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Read delay config from global_config
     const { data: globalCfg } = await supabase
       .from("global_config")
       .select("queue_delay_seconds")
@@ -33,12 +51,10 @@ Deno.serve(async (req) => {
     let errors = 0;
 
     for (let i = 0; i < MAX_ITEMS_PER_EXECUTION; i++) {
-      // Delay between sends (skip first)
       if (i > 0) {
         await delay(delayMs);
       }
 
-      // Atomically claim next item
       const { data: items, error: claimError } = await supabase.rpc("claim_next_queue_item");
 
       if (claimError) {
@@ -53,8 +69,34 @@ Deno.serve(async (req) => {
 
       const item = items[0];
 
+      // Rate limiting check
+      const { limited, max } = await checkRateLimit(supabase, item.user_id);
+      if (limited) {
+        const errorMsg = `Limite de ${max} mensagens por hora atingido.`;
+        await supabase.from("message_queue").update({
+          status: "error",
+          error_message: errorMsg,
+          completed_at: new Date().toISOString(),
+        }).eq("id", item.id);
+
+        await supabase.from("message_logs").insert({
+          user_id: item.user_id,
+          api_config_id: item.api_config_id,
+          scheduled_message_id: item.scheduled_message_id,
+          group_id: item.group_id,
+          message_type: item.message_type,
+          content: item.content,
+          status: "error",
+          error_message: errorMsg,
+          instance_name: item.instance_name,
+        });
+
+        errors++;
+        console.warn(`Queue item ${item.id}: rate limited for user ${item.user_id}. Continuing.`);
+        continue;
+      }
+
       try {
-        // Resolve API credentials from api_configs/global_config (not from queue item)
         let apiUrl = "";
         let apiKey = "";
         if (item.api_config_id) {
@@ -96,12 +138,10 @@ Deno.serve(async (req) => {
         const success = resp.ok;
 
         if (success) {
-          // Mark as sent
           await supabase.from("message_queue").update({
             status: "sent", completed_at: new Date().toISOString(),
           }).eq("id", item.id);
 
-          // Log to message_logs
           await supabase.from("message_logs").insert({
             user_id: item.user_id,
             api_config_id: item.api_config_id,
@@ -116,7 +156,6 @@ Deno.serve(async (req) => {
           processed++;
           console.log(`Queue item ${item.id}: group ${item.group_id} → OK`);
         } else {
-          // Mark as error, CONTINUE to next item
           await supabase.from("message_queue").update({
             status: "error",
             error_message: JSON.stringify(result),
@@ -137,10 +176,8 @@ Deno.serve(async (req) => {
 
           errors++;
           console.error(`Queue item ${item.id}: group ${item.group_id} → ERROR. Continuing.`);
-          // DO NOT break — continue to next item
         }
       } catch (e) {
-        // Exception: mark error, CONTINUE
         await supabase.from("message_queue").update({
           status: "error",
           error_message: e.message,
