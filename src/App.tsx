@@ -14,6 +14,7 @@ import Templates from "./pages/Templates";
 import Campaigns from "./pages/Campaigns";
 import HistoryPage from "./pages/HistoryPage";
 import SettingsPage from "./pages/SettingsPage";
+import BackupPage from "./pages/BackupPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -41,6 +42,7 @@ const App = () => (
               <Route path="/templates" element={<Templates />} />
               <Route path="/history" element={<HistoryPage />} />
               <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/backup" element={<BackupPage />} />
             </Route>
             <Route path="*" element={<NotFound />} />
           </Routes>
