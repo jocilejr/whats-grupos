@@ -70,7 +70,6 @@ const App = () => (
                   <Route path="/queue" element={<QueuePage />} />
                   <Route path="/settings" element={<SettingsPage />} />
                   <Route path="/backup" element={<BackupPage />} />
-                  {/* Admin routes */}
                   <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
                   <Route path="/admin/users" element={<AdminRoute><AdminUsers /></AdminRoute>} />
                   <Route path="/admin/config" element={<AdminRoute><AdminConfig /></AdminRoute>} />
