@@ -212,7 +212,7 @@ export function WhatsAppPreview(props: WhatsAppPreviewProps) {
         return (
           <Bubble>
             {detectedUrl && <LinkPreviewCard url={detectedUrl} />}
-            <span style={{ fontSize: '14.2px', color: '#e9edef', whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: '16px' }}>
+            <span style={{ fontSize: '14.2px', color: '#e9edef', whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: '8px' }}>
               {formatWhatsAppText(textContent || '')}
             </span>
             <TimeStamp />
@@ -242,7 +242,7 @@ export function WhatsAppPreview(props: WhatsAppPreviewProps) {
               <img src={mediaUrl} alt="" style={{ width: '100%', maxHeight: '200px', objectFit: 'cover', display: 'block' }} />
             </div>
             {caption && (
-              <span style={{ fontSize: '14.2px', color: '#e9edef', whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: '16px' }}>
+              <span style={{ fontSize: '14.2px', color: '#e9edef', whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: '8px' }}>
                 {formatWhatsAppText(caption)}
               </span>
             )}
@@ -259,8 +259,8 @@ export function WhatsAppPreview(props: WhatsAppPreviewProps) {
                 <Play style={{ width: '20px', height: '20px', color: 'white', fill: 'white', marginLeft: '2px' }} />
               </div>
             </div>
-            {caption && (
-              <span style={{ fontSize: '14.2px', color: '#e9edef', whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: '16px' }}>
+             {caption && (
+              <span style={{ fontSize: '14.2px', color: '#e9edef', whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: '8px' }}>
                 {formatWhatsAppText(caption)}
               </span>
             )}
@@ -281,7 +281,7 @@ export function WhatsAppPreview(props: WhatsAppPreviewProps) {
               </div>
             </div>
             {caption && (
-              <span style={{ fontSize: '14.2px', color: '#e9edef', whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: '16px' }}>
+              <span style={{ fontSize: '14.2px', color: '#e9edef', whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: '8px' }}>
                 {formatWhatsAppText(caption)}
               </span>
             )}
@@ -374,7 +374,7 @@ export function WhatsAppPreview(props: WhatsAppPreviewProps) {
         return (
           <Bubble>
             {listTitle && <p style={{ fontSize: '14.2px', color: '#e9edef', fontWeight: 500 }}>{listTitle}</p>}
-            {listDescription && <p style={{ fontSize: '14.2px', color: '#e9edef', marginTop: '2px', whiteSpace: 'pre-wrap', lineHeight: '16px' }}>{listDescription}</p>}
+            {listDescription && <p style={{ fontSize: '14.2px', color: '#e9edef', marginTop: '2px', whiteSpace: 'pre-wrap', lineHeight: '8px' }}>{listDescription}</p>}
             {listFooter && <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', marginTop: '6px' }}>{listFooter}</p>}
             <TimeStamp />
             <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', marginTop: '8px', paddingTop: '8px', textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}>
