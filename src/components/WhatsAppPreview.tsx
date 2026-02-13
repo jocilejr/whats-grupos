@@ -89,22 +89,31 @@ function LinkPreviewCard({ url }: { url: string }) {
   const domain = (() => {
     try { return new URL(url).hostname.replace('www.', ''); } catch { return url; }
   })();
+  const faviconUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=128`;
+  const screenshotUrl = `https://image.thum.io/get/width/600/crop/400/${url}`;
   return (
     <div style={{ borderRadius: '6px', overflow: 'hidden', marginBottom: '4px', border: '1px solid rgba(255,255,255,0.06)' }}>
-      <div style={{ height: '90px', background: 'linear-gradient(135deg, #1a2a3a 0%, #0d1b2a 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
-        <div style={{ position: 'absolute', inset: 0, opacity: 0.06, backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(255,255,255,0.1) 10px, rgba(255,255,255,0.1) 11px)' }} />
-        <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: 'rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1 }}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.4)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-          </svg>
-        </div>
+      <div style={{ height: '100px', background: '#0d1b2a', position: 'relative', overflow: 'hidden' }}>
+        <img
+          src={screenshotUrl}
+          alt=""
+          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', opacity: 0.85 }}
+          onError={(e) => { e.currentTarget.style.display = 'none'; }}
+        />
       </div>
-      <div style={{ background: 'rgba(255,255,255,0.04)', padding: '8px 10px' }}>
-        <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', marginBottom: '2px', textTransform: 'lowercase' }}>{domain}</p>
-        <p style={{ fontSize: '12.5px', color: '#e9edef', fontWeight: 500, lineHeight: '16px' }}>
-          {domain.charAt(0).toUpperCase() + domain.slice(1)}
-        </p>
+      <div style={{ background: 'rgba(255,255,255,0.04)', padding: '8px 10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <img
+          src={faviconUrl}
+          alt=""
+          style={{ width: '16px', height: '16px', borderRadius: '2px', flexShrink: 0 }}
+          onError={(e) => { e.currentTarget.style.display = 'none'; }}
+        />
+        <div style={{ minWidth: 0 }}>
+          <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', textTransform: 'lowercase', lineHeight: 1.2 }}>{domain}</p>
+          <p style={{ fontSize: '12.5px', color: '#e9edef', fontWeight: 500, lineHeight: '16px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {domain.charAt(0).toUpperCase() + domain.slice(1)}
+          </p>
+        </div>
       </div>
     </div>
   );
