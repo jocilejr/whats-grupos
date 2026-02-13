@@ -6,8 +6,8 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-// Process max 5 groups per invocation (~50s with 10s delay, well within timeout)
-const BATCH_SIZE = 5;
+// No batch size limit — duplicate check per group prevents re-sending
+const DELAY_BETWEEN_MESSAGES_MS = 10_000;
 const DELAY_BETWEEN_MESSAGES_MS = 10_000;
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -307,11 +307,7 @@ async function processMessage(
   // Fetch campaign
   let campaign: any = null;
   if (msg.campaign_id) {
-    const { data: c } = await supabase
-      .from("campaigns")
-      .select("*")
-      .eq("id", msg.campaign_id)
-      .maybeSingle();
+    const { data: c } = await supabase.from("campaigns").select("*").eq("id", msg.campaign_id).maybeSingle();
     campaign = c;
     if (campaign && !campaign.is_active) {
       await releaseLock(supabase, msg.id);
@@ -325,20 +321,14 @@ async function processMessage(
     return;
   }
 
-  // Get API config — fallback to campaign's api_config_id if message doesn't have one
   const effectiveApiConfigId = msg.api_config_id || campaign?.api_config_id;
   if (!effectiveApiConfigId) {
-    console.error(`No API config ID for message ${msg.id} (and no campaign fallback)`);
+    console.error(`No API config ID for message ${msg.id}`);
     await releaseLock(supabase, msg.id);
     return;
   }
 
-  const { data: config } = await supabase
-    .from("api_configs")
-    .select("*")
-    .eq("id", effectiveApiConfigId)
-    .maybeSingle();
-
+  const { data: config } = await supabase.from("api_configs").select("*").eq("id", effectiveApiConfigId).maybeSingle();
   if (!config) {
     console.error(`No API config for message ${msg.id}`);
     await releaseLock(supabase, msg.id);
@@ -361,27 +351,13 @@ async function processMessage(
     return;
   }
 
-  const remainingQuota = maxPerHour - (sentLastHour || 0);
-
-  // Determine the batch of groups to process
-  const startIndex = msg.sent_group_index || 0;
-  const batchGroups = allGroupIds.slice(startIndex, startIndex + BATCH_SIZE);
-  const nextIndex = startIndex + batchGroups.length;
-  const isLastBatch = nextIndex >= allGroupIds.length;
-
-  console.log(`Message ${msg.id}: processing groups ${startIndex}-${nextIndex - 1} of ${allGroupIds.length} (batch ${Math.floor(startIndex / BATCH_SIZE) + 1})`);
-
-  // Resolve API URL and key: if config has "global", fetch from global_config
+  // Resolve API URL/key from global_config if needed
   let apiUrl = config.api_url;
   let apiKey = config.api_key;
   if (!apiUrl || apiUrl === "global" || !apiKey || apiKey === "global") {
-    const { data: globalCfg } = await supabase
-      .from("global_config")
-      .select("evolution_api_url, evolution_api_key")
-      .limit(1)
-      .maybeSingle();
+    const { data: globalCfg } = await supabase.from("global_config").select("evolution_api_url, evolution_api_key").limit(1).maybeSingle();
     if (!globalCfg?.evolution_api_url) {
-      console.error(`No global Evolution API config found for message ${msg.id}`);
+      console.error(`No global Evolution API config for message ${msg.id}`);
       await releaseLock(supabase, msg.id);
       return;
     }
@@ -392,45 +368,56 @@ async function processMessage(
   const instanceName = msg.instance_name || campaign?.instance_name || config.instance_name;
   const content = msg.content as any;
 
-  let batchProcessed = 0;
-  let batchErrors = 0;
-  let sentInThisRun = 0;
+  // Use last_completed_at as reference: only check logs after last completion
+  const sinceTime = msg.last_completed_at || msg.last_run_at || msg.created_at;
 
-  for (const groupId of batchGroups) {
-    if (sentInThisRun >= remainingQuota) {
-      console.log(`Rate limit reached mid-batch for ${config.instance_name}. Stopping.`);
-      break;
+  console.log(`Message ${msg.id}: processing ${allGroupIds.length} groups with per-group duplicate check`);
+
+  let totalProcessed = 0;
+  let totalErrors = 0;
+
+  for (let i = 0; i < allGroupIds.length; i++) {
+    const groupId = allGroupIds[i];
+
+    // Per-group duplicate check: skip if already sent successfully since last completion
+    const { count: alreadySent } = await supabase
+      .from("message_logs")
+      .select("*", { count: "exact", head: true })
+      .eq("scheduled_message_id", msg.id)
+      .eq("group_id", groupId)
+      .eq("status", "sent")
+      .gte("created_at", sinceTime);
+
+    if ((alreadySent || 0) > 0) {
+      console.log(`Message ${msg.id}: group ${groupId} already sent, skipping`);
+      totalProcessed++;
+      continue; // Already sent — no delay needed
     }
-    try {
-      if (!isFirstSend) {
-        await delay(DELAY_BETWEEN_MESSAGES_MS);
-      }
-      isFirstSend = false;
 
-      // For AI messages, generate text first
+    // Delay between sends (skip first)
+    if (!isFirstSend) {
+      await delay(DELAY_BETWEEN_MESSAGES_MS);
+    }
+    isFirstSend = false;
+
+    try {
+      // AI message generation
       let aiGeneratedText: string | undefined;
       if (msg.message_type === "ai") {
         const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
         const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
         const aiResp = await fetch(`${supabaseUrl}/functions/v1/generate-ai-message`, {
           method: "POST",
-          headers: { 
-            Authorization: `Bearer ${supabaseKey}`,
-            "Content-Type": "application/json",
-          },
+          headers: { Authorization: `Bearer ${supabaseKey}`, "Content-Type": "application/json" },
           body: JSON.stringify({ prompt: content.prompt || content.text || "", user_id: msg.user_id }),
         });
         const aiResult = await aiResp.json();
-        if (!aiResp.ok || aiResult.error) {
-          throw new Error(`AI generation failed: ${aiResult.error || "unknown"}`);
-        }
+        if (!aiResp.ok || aiResult.error) throw new Error(`AI generation failed: ${aiResult.error || "unknown"}`);
         aiGeneratedText = aiResult.text;
       }
 
       const effectiveType = msg.message_type === "ai" ? "text" : msg.message_type;
-      const effectiveContent = msg.message_type === "ai" 
-        ? { ...content, text: aiGeneratedText } 
-        : content;
+      const effectiveContent = msg.message_type === "ai" ? { ...content, text: aiGeneratedText } : content;
 
       const { endpoint, body } = buildMessagePayload(effectiveType, apiUrl, instanceName, groupId, effectiveContent);
       if (content.mentionsEveryOne) body.mentionsEveryOne = true;
@@ -456,11 +443,13 @@ async function processMessage(
         instance_name: instanceName,
       });
 
-      if (success) { batchProcessed++; sentInThisRun++; }
-      else batchErrors++;
+      if (success) totalProcessed++;
+      else totalErrors++;
+
+      console.log(`Message ${msg.id}: group ${i + 1}/${allGroupIds.length} (${groupId}) → ${success ? "OK" : "ERROR"}`);
     } catch (e) {
       console.error(`Send error for group ${groupId}:`, e);
-      batchErrors++;
+      totalErrors++;
       await supabase.from("message_logs").insert({
         user_id: msg.user_id,
         api_config_id: msg.api_config_id,
@@ -475,39 +464,23 @@ async function processMessage(
     }
   }
 
-  onProgress(batchProcessed, batchErrors, isFirstSend);
+  onProgress(totalProcessed, totalErrors, isFirstSend);
 
-  if (isLastBatch) {
-    // All groups processed — update next_run_at and reset index
-    const now = new Date();
-    if (msg.schedule_type === "once") {
-      await supabase.from("scheduled_messages").update({
-        is_active: false,
-        last_run_at: now.toISOString(),
-        next_run_at: null,
-        sent_group_index: 0,
-        processing_started_at: null,
-        last_completed_at: now.toISOString(),
-      }).eq("id", msg.id);
-    } else {
-      const nextRunAt = calculateNextRunAt(msg, now);
-      await supabase.from("scheduled_messages").update({
-        last_run_at: now.toISOString(),
-        next_run_at: nextRunAt,
-        sent_group_index: 0,
-        processing_started_at: null,
-        last_completed_at: now.toISOString(),
-      }).eq("id", msg.id);
-    }
-    console.log(`Message ${msg.id}: ALL ${allGroupIds.length} groups completed.`);
-  } else {
-    // More groups remain — save progress and release lock for next invocation
+  // All groups processed — finalize
+  const now = new Date();
+  if (msg.schedule_type === "once") {
     await supabase.from("scheduled_messages").update({
-      sent_group_index: nextIndex,
-      processing_started_at: null, // Release lock so next cron picks it up
+      is_active: false, last_run_at: now.toISOString(), next_run_at: null,
+      sent_group_index: 0, processing_started_at: null, last_completed_at: now.toISOString(),
     }).eq("id", msg.id);
-    console.log(`Message ${msg.id}: batch done. ${allGroupIds.length - nextIndex} groups remaining (resuming at index ${nextIndex}).`);
+  } else {
+    const nextRunAt = calculateNextRunAt(msg, now);
+    await supabase.from("scheduled_messages").update({
+      last_run_at: now.toISOString(), next_run_at: nextRunAt,
+      sent_group_index: 0, processing_started_at: null, last_completed_at: now.toISOString(),
+    }).eq("id", msg.id);
   }
+  console.log(`Message ${msg.id}: ALL done. ${totalProcessed} sent, ${totalErrors} errors out of ${allGroupIds.length} groups`);
 }
 
 function calculateNextRunAt(msg: any, now: Date): string | null {
