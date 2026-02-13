@@ -22,6 +22,7 @@ import {
   Upload, CalendarIcon, BookTemplate, Mic, Sticker, MapPin,
   Contact, BarChart3, List, Plus, Trash2, AtSign, Link2, Sparkles,
 } from "lucide-react";
+import { WhatsAppPreview } from "@/components/WhatsAppPreview";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 
@@ -605,6 +606,32 @@ export function ScheduledMessageForm({
                   </div>
                 </div>
               )}
+
+              {/* WhatsApp Preview */}
+              <div className="space-y-2">
+                <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Preview</Label>
+                <WhatsAppPreview
+                  messageType={messageType}
+                  textContent={textContent}
+                  mediaUrl={mediaUrl}
+                  caption={caption}
+                  locName={locName}
+                  locAddress={locAddress}
+                  locLat={locLat}
+                  locLng={locLng}
+                  contactName={contactName}
+                  contactPhone={useInstancePhone && instanceNumber ? instanceNumber : contactPhone}
+                  pollName={pollName}
+                  pollOptions={pollOptions}
+                  listTitle={listTitle}
+                  listDescription={listDescription}
+                  listButtonText={listButtonText}
+                  listFooter={listFooter}
+                  listSections={listSections}
+                  mentionAll={mentionAll}
+                  aiPrompt={aiPrompt}
+                />
+              </div>
 
               {/* Global options */}
               <div className="border-t border-border/30 pt-4 space-y-2">
