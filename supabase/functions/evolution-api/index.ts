@@ -6,6 +6,25 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+function json(data: unknown, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
+async function getGlobalConfig(supabase: any) {
+  const { data, error } = await supabase
+    .from("global_config")
+    .select("*")
+    .limit(1)
+    .maybeSingle();
+  if (error || !data || !data.evolution_api_url) {
+    return null;
+  }
+  return data;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -13,46 +32,29 @@ Deno.serve(async (req) => {
 
   try {
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: "No authorization header" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    if (!authHeader) return json({ error: "No authorization header" }, 401);
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL");
-    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-    if (!supabaseUrl || !supabaseKey) {
-      return new Response(JSON.stringify({ error: "Server config error" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-    const supabase = createClient(supabaseUrl, supabaseKey, {
+    // User-scoped client for auth
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+    const userClient = createClient(supabaseUrl, anonKey, {
       global: { headers: { Authorization: authHeader } },
     });
+    const { data: { user }, error: userError } = await userClient.auth.getUser();
+    if (userError || !user) return json({ error: "Unauthorized" }, 401);
 
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
-    if (userError || !user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    // Service client for global config access
+    const supabase = createClient(supabaseUrl, supabaseKey);
 
     const url = new URL(req.url);
     const action = url.searchParams.get("action");
     const configId = url.searchParams.get("configId");
 
-    if (!configId) {
-      return new Response(JSON.stringify({ error: "configId is required" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    if (!configId) return json({ error: "configId is required" }, 400);
 
-    // Fetch the API config
+    // Verify user owns this config
     const { data: config, error: configError } = await supabase
       .from("api_configs")
       .select("*")
@@ -60,21 +62,34 @@ Deno.serve(async (req) => {
       .eq("user_id", user.id)
       .maybeSingle();
 
-    if (configError || !config) {
-      return new Response(JSON.stringify({ error: "API config not found" }), {
-        status: 404,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    if (configError || !config) return json({ error: "API config not found" }, 404);
 
-    const apiUrl = config.api_url.replace(/\/$/, "");
-    const apiKey = config.api_key;
+    // Get global Evolution API config
+    const globalConfig = await getGlobalConfig(supabase);
+    if (!globalConfig) return json({ error: "Evolution API not configured. Contact admin." }, 500);
+
+    const apiUrl = globalConfig.evolution_api_url.replace(/\/$/, "");
+    const apiKey = globalConfig.evolution_api_key;
     const instanceName = url.searchParams.get("instanceName") || config.instance_name;
     const headers = { apikey: apiKey };
 
     let result: any;
 
     switch (action) {
+      case "createInstance": {
+        const resp = await fetch(`${apiUrl}/instance/create`, {
+          method: "POST",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            instanceName: config.instance_name,
+            integration: "WHATSAPP-BAILEYS",
+            qrcode: true,
+          }),
+        });
+        result = await resp.json();
+        break;
+      }
+
       case "fetchInstances": {
         const resp = await fetch(`${apiUrl}/instance/fetchInstances`, { headers });
         result = await resp.json();
@@ -106,7 +121,7 @@ Deno.serve(async (req) => {
         try {
           const resp = await fetch(`${apiUrl}/instance/connectionState/${instanceName}`, { headers });
           result = await resp.json();
-        } catch (e) {
+        } catch (e: any) {
           result = { error: "Cannot connect to API", details: e.message };
         }
         break;
@@ -201,19 +216,11 @@ Deno.serve(async (req) => {
       }
 
       default:
-        return new Response(JSON.stringify({ error: "Invalid action" }), {
-          status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+        return json({ error: "Invalid action" }, 400);
     }
 
-    return new Response(JSON.stringify(result), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  } catch (error) {
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return json(result);
+  } catch (error: any) {
+    return json({ error: error.message }, 500);
   }
 });

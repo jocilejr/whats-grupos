@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
+import { useRole } from "@/hooks/useRole";
 import { useNavigate, useLocation } from "react-router-dom";
 import {
   LayoutDashboard,
@@ -11,6 +12,9 @@ import {
   LogOut,
   Clock,
   DatabaseBackup,
+  Shield,
+  Users,
+  Cog,
 } from "lucide-react";
 import logoImg from "@/assets/logo.png";
 import {
@@ -27,9 +31,8 @@ import {
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 
-const menuItems = [
+const userMenuItems = [
   { title: "Dashboard", icon: LayoutDashboard, path: "/" },
-  
   { title: "Enviar Mensagem", icon: Send, path: "/messages" },
   { title: "Campanhas", icon: Megaphone, path: "/campaigns" },
   { title: "Templates", icon: FileText, path: "/templates" },
@@ -38,8 +41,15 @@ const menuItems = [
   { title: "Configurações", icon: Settings, path: "/settings" },
 ];
 
+const adminMenuItems = [
+  { title: "Painel Admin", icon: Shield, path: "/admin" },
+  { title: "Usuários", icon: Users, path: "/admin/users" },
+  { title: "Config Global", icon: Cog, path: "/admin/config" },
+];
+
 export function AppSidebar() {
   const { user, signOut } = useAuth();
+  const { isAdmin } = useRole();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -66,11 +76,32 @@ export function AppSidebar() {
         </div>
       </SidebarHeader>
       <SidebarContent>
+        {isAdmin && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Administração</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {adminMenuItems.map((item) => (
+                  <SidebarMenuItem key={item.path}>
+                    <SidebarMenuButton
+                      isActive={location.pathname === item.path}
+                      onClick={() => navigate(item.path)}
+                      tooltip={item.title}
+                    >
+                      <item.icon className="h-4 w-4" />
+                      <span>{item.title}</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
         <SidebarGroup>
           <SidebarGroupLabel>Menu</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {menuItems.map((item) => (
+              {userMenuItems.map((item) => (
                 <SidebarMenuItem key={item.path}>
                   <SidebarMenuButton
                     isActive={location.pathname === item.path}
