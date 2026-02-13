@@ -239,7 +239,7 @@ export function WhatsAppPreview(props: WhatsAppPreviewProps) {
         return (
           <Bubble>
             <div style={{ borderRadius: '6px', overflow: 'hidden', marginBottom: caption ? '4px' : '0' }}>
-              <img src={mediaUrl} alt="" style={{ width: '100%', maxHeight: '200px', objectFit: 'cover', display: 'block' }} />
+              <img src={mediaUrl} alt="" style={{ width: '100%', height: 'auto', objectFit: 'contain', display: 'block' }} />
             </div>
             {caption && (
               <span style={{ fontSize: '14.2px', color: '#e9edef', whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: '8px' }}>
