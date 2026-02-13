@@ -6,8 +6,8 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-const DELAY_BETWEEN_MESSAGES_MS = 10_000;
-const MAX_ITEMS_PER_EXECUTION = 25; // Safety limit per invocation
+const DEFAULT_DELAY_MS = 10_000;
+const MAX_ITEMS_PER_EXECUTION = 25;
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -21,13 +21,21 @@ Deno.serve(async (req) => {
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
+    // Read delay config from global_config
+    const { data: globalCfg } = await supabase
+      .from("global_config")
+      .select("queue_delay_seconds")
+      .limit(1)
+      .maybeSingle();
+    const delayMs = ((globalCfg?.queue_delay_seconds) || 10) * 1000;
+
     let processed = 0;
     let errors = 0;
 
     for (let i = 0; i < MAX_ITEMS_PER_EXECUTION; i++) {
       // Delay between sends (skip first)
       if (i > 0) {
-        await delay(DELAY_BETWEEN_MESSAGES_MS);
+        await delay(delayMs);
       }
 
       // Atomically claim next item
