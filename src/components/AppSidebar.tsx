@@ -3,7 +3,6 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate, useLocation } from "react-router-dom";
 import {
   LayoutDashboard,
-  Activity,
   Send,
   Megaphone,
   FileText,
@@ -30,7 +29,7 @@ import { Button } from "@/components/ui/button";
 
 const menuItems = [
   { title: "Dashboard", icon: LayoutDashboard, path: "/" },
-  { title: "Status", icon: Activity, path: "/status" },
+  
   { title: "Enviar Mensagem", icon: Send, path: "/messages" },
   { title: "Campanhas", icon: Megaphone, path: "/campaigns" },
   { title: "Templates", icon: FileText, path: "/templates" },

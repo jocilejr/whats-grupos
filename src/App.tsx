@@ -8,7 +8,7 @@ import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { AppLayout } from "@/components/AppLayout";
 import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
-import StatusPage from "./pages/StatusPage";
+
 import Messages from "./pages/Messages";
 import Templates from "./pages/Templates";
 import Campaigns from "./pages/Campaigns";
@@ -36,7 +36,7 @@ const App = () => (
               }
             >
               <Route path="/" element={<Dashboard />} />
-              <Route path="/status" element={<StatusPage />} />
+              
               <Route path="/messages" element={<Messages />} />
               <Route path="/campaigns" element={<Campaigns />} />
               <Route path="/templates" element={<Templates />} />
