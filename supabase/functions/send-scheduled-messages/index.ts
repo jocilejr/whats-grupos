@@ -223,8 +223,24 @@ async function processMessage(
 
   console.log(`Message ${msg.id}: processing groups ${startIndex}-${nextIndex - 1} of ${allGroupIds.length} (batch ${Math.floor(startIndex / BATCH_SIZE) + 1})`);
 
-  const apiUrl = config.api_url.replace(/\/$/, "");
-  const apiKey = config.api_key;
+  // Resolve API URL and key: if config has "global", fetch from global_config
+  let apiUrl = config.api_url;
+  let apiKey = config.api_key;
+  if (!apiUrl || apiUrl === "global" || !apiKey || apiKey === "global") {
+    const { data: globalCfg } = await supabase
+      .from("global_config")
+      .select("evolution_api_url, evolution_api_key")
+      .limit(1)
+      .maybeSingle();
+    if (!globalCfg?.evolution_api_url) {
+      console.error(`No global Evolution API config found for message ${msg.id}`);
+      await releaseLock(supabase, msg.id);
+      return;
+    }
+    apiUrl = globalCfg.evolution_api_url;
+    apiKey = globalCfg.evolution_api_key;
+  }
+  apiUrl = apiUrl.replace(/\/$/, "");
   const instanceName = msg.instance_name || campaign?.instance_name || config.instance_name;
   const content = msg.content as any;
 
