@@ -85,7 +85,7 @@ export default function Campaigns() {
       <div className="relative flex items-center justify-between">
         <div className="flex items-center gap-4">
           <div className="absolute -top-4 -left-4 w-32 h-32 bg-primary/5 rounded-full blur-3xl" />
-          <div className="relative flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20 shadow-[0_0_25px_hsl(28_85%_56%/0.15)]">
+          <div className="relative flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20 shadow-[0_0_25px_hsl(210_75%_52%/0.15)]">
             <Megaphone className="h-7 w-7 text-primary" />
           </div>
           <div>
@@ -95,7 +95,7 @@ export default function Campaigns() {
         </div>
         <Button
           onClick={() => { setEditingCampaign(null); setDialogOpen(true); }}
-          className="gap-2 bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70 shadow-[0_4px_20px_hsl(28_85%_56%/0.3)] hover:shadow-[0_4px_30px_hsl(28_85%_56%/0.5)] transition-all"
+          className="gap-2 bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70 shadow-[0_4px_20px_hsl(210_75%_52%/0.3)] hover:shadow-[0_4px_30px_hsl(210_75%_52%/0.5)] transition-all"
         >
           <Plus className="h-4 w-4" />Nova Campanha
         </Button>
@@ -132,7 +132,7 @@ export default function Campaigns() {
                 key={c.id}
                 className={`relative overflow-hidden group transition-all duration-300 ${
                   active
-                    ? "border-primary/15 shadow-[0_0_20px_hsl(28_85%_56%/0.06)] hover:shadow-[0_0_35px_hsl(28_85%_56%/0.12)] hover:border-primary/25"
+                    ? "border-primary/15 shadow-[0_0_20px_hsl(210_75%_52%/0.06)] hover:shadow-[0_0_35px_hsl(210_75%_52%/0.12)] hover:border-primary/25"
                     : "border-border/30 opacity-60 hover:opacity-80"
                 }`}
               >
@@ -154,7 +154,7 @@ export default function Campaigns() {
                     <div className="flex items-center gap-3 flex-1 min-w-0">
                       <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl transition-all ${
                         active 
-                          ? "bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20 shadow-[0_0_15px_hsl(28_85%_56%/0.1)]" 
+                          ? "bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20 shadow-[0_0_15px_hsl(210_75%_52%/0.1)]" 
                           : "bg-muted border border-border/30"
                       }`}>
                         {active ? <Zap className="h-5 w-5 text-primary" /> : <ZapOff className="h-5 w-5 text-muted-foreground" />}

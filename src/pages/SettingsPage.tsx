@@ -156,7 +156,7 @@ export default function SettingsPage() {
       <div className="relative">
         <div className="absolute -top-4 -left-4 w-32 h-32 bg-primary/5 rounded-full blur-3xl" />
         <div className="relative flex items-center gap-4">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20 shadow-[0_0_25px_hsl(28_85%_56%/0.15)]">
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20 shadow-[0_0_25px_hsl(210_75%_52%/0.15)]">
             <Settings2 className="h-7 w-7 text-primary" />
           </div>
           <div>
@@ -199,7 +199,7 @@ export default function SettingsPage() {
                   className="bg-background/50 border-border/50"
                 />
               </div>
-              <Button type="submit" disabled={creatingInstance} className="gap-2 bg-gradient-to-r from-primary to-primary/80 shadow-[0_4px_15px_hsl(28_85%_56%/0.25)]">
+              <Button type="submit" disabled={creatingInstance} className="gap-2 bg-gradient-to-r from-primary to-primary/80 shadow-[0_4px_15px_hsl(210_75%_52%/0.25)]">
                 {creatingInstance ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
                 Criar
               </Button>
