@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -99,75 +100,96 @@ export default function AdminUsers() {
 
   return (
     <div className="space-y-6">
+      {/* Premium Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Gerenciar Usuários</h1>
-          <p className="text-muted-foreground">Crie e gerencie contas de usuários</p>
+        <div className="relative">
+          <div className="absolute -top-4 -left-4 w-32 h-32 bg-primary/5 rounded-full blur-3xl" />
+          <div className="relative flex items-center gap-4">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20 shadow-[0_0_25px_hsl(210_75%_52%/0.15)]">
+              <Users className="h-7 w-7 text-primary" />
+            </div>
+            <div>
+              <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text">Gerenciar Usuários</h1>
+              <p className="text-muted-foreground text-sm mt-0.5">Crie e gerencie contas de usuários</p>
+            </div>
+          </div>
         </div>
         <Button onClick={() => { resetForm(); setShowCreate(true); }}>
           <Plus className="h-4 w-4 mr-2" /> Novo Usuário
         </Button>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Users className="h-5 w-5" /> Usuários</CardTitle>
-        </CardHeader>
-        <CardContent>
+      <Card className="border-border/30">
+        <CardContent className="p-0">
           {isLoading ? (
-            <p className="text-muted-foreground">Carregando...</p>
+            <div className="p-6 space-y-3">
+              {[...Array(4)].map((_, i) => (
+                <Skeleton key={i} className="h-12 w-full" />
+              ))}
+            </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Nome</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Role</TableHead>
-                   <TableHead>Instâncias</TableHead>
-                   <TableHead>Msgs/h</TableHead>
-                   <TableHead>Campanhas</TableHead>
-                   <TableHead>I.A./mês</TableHead>
-                   <TableHead>Status</TableHead>
-                  <TableHead>Ações</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {(users ?? []).map((u: any) => (
-                  <TableRow key={u.user_id}>
-                    <TableCell>{u.display_name || "-"}</TableCell>
-                    <TableCell>{u.email}</TableCell>
-                    <TableCell>
-                      <Badge variant={u.role === "admin" ? "default" : "secondary"}>{u.role}</Badge>
-                    </TableCell>
-                    <TableCell>{u.plan?.max_instances ?? "-"}</TableCell>
-                    <TableCell>{u.plan?.max_messages_per_hour ?? "-"}</TableCell>
-                    <TableCell>{u.plan?.max_campaigns ?? "-"}</TableCell>
-                    <TableCell>{u.plan?.max_ai_requests_per_month ?? "-"}</TableCell>
-                    <TableCell>
-                      <Badge variant={u.plan?.is_active !== false ? "default" : "destructive"}>
-                        {u.plan?.is_active !== false ? "Ativo" : "Inativo"}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex gap-1">
-                        <Button variant="ghost" size="icon" onClick={() => openEdit(u)}>
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        {u.role !== "admin" && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => toggleUser.mutate({ user_id: u.user_id, is_active: u.plan?.is_active === false })}
-                          >
-                            {u.plan?.is_active !== false ? <UserX className="h-4 w-4 text-destructive" /> : <UserCheck className="h-4 w-4 text-primary" />}
-                          </Button>
-                        )}
-                      </div>
-                    </TableCell>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Nome</TableHead>
+                    <TableHead>Email</TableHead>
+                    <TableHead>Role</TableHead>
+                    <TableHead>Instâncias</TableHead>
+                    <TableHead>Msgs/h</TableHead>
+                    <TableHead>Campanhas</TableHead>
+                    <TableHead>I.A./mês</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Ações</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {(users ?? []).length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={9} className="text-center py-12">
+                        <Users className="h-10 w-10 mx-auto text-muted-foreground/30 mb-3" />
+                        <p className="text-muted-foreground">Nenhum usuário encontrado</p>
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    (users ?? []).map((u: any) => (
+                      <TableRow key={u.user_id}>
+                        <TableCell>{u.display_name || "-"}</TableCell>
+                        <TableCell>{u.email}</TableCell>
+                        <TableCell>
+                          <Badge variant={u.role === "admin" ? "default" : "secondary"}>{u.role}</Badge>
+                        </TableCell>
+                        <TableCell>{u.plan?.max_instances ?? "-"}</TableCell>
+                        <TableCell>{u.plan?.max_messages_per_hour ?? "-"}</TableCell>
+                        <TableCell>{u.plan?.max_campaigns ?? "-"}</TableCell>
+                        <TableCell>{u.plan?.max_ai_requests_per_month ?? "-"}</TableCell>
+                        <TableCell>
+                          <Badge variant={u.plan?.is_active !== false ? "default" : "destructive"}>
+                            {u.plan?.is_active !== false ? "Ativo" : "Inativo"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex gap-1">
+                            <Button variant="ghost" size="icon" onClick={() => openEdit(u)}>
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            {u.role !== "admin" && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => toggleUser.mutate({ user_id: u.user_id, is_active: u.plan?.is_active === false })}
+                              >
+                                {u.plan?.is_active !== false ? <UserX className="h-4 w-4 text-destructive" /> : <UserCheck className="h-4 w-4 text-primary" />}
+                              </Button>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
           )}
         </CardContent>
       </Card>
