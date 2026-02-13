@@ -60,9 +60,32 @@ export default function Auth() {
               {loading ? "Carregando..." : "Entrar"}
             </Button>
           </form>
-          <p className="mt-4 text-center text-sm text-muted-foreground">
-            Sua conta é criada pelo administrador do sistema.
-          </p>
+          <div className="mt-4 text-center space-y-2">
+            <button
+              type="button"
+              className="text-sm text-primary hover:underline"
+              onClick={async () => {
+                if (!email.trim()) {
+                  toast({ title: "Digite seu email primeiro", variant: "destructive" });
+                  return;
+                }
+                try {
+                  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+                    redirectTo: `${window.location.origin}/reset-password`,
+                  });
+                  if (error) throw error;
+                  toast({ title: "Email enviado!", description: "Verifique sua caixa de entrada para redefinir a senha." });
+                } catch (err: any) {
+                  toast({ title: "Erro", description: err.message, variant: "destructive" });
+                }
+              }}
+            >
+              Esqueci minha senha
+            </button>
+            <p className="text-sm text-muted-foreground">
+              Sua conta é criada pelo administrador do sistema.
+            </p>
+          </div>
         </CardContent>
       </Card>
     </div>

@@ -54,15 +54,41 @@ Deno.serve(async (req) => {
       const item = items[0];
 
       try {
+        // Resolve API credentials from api_configs/global_config (not from queue item)
+        let apiUrl = "";
+        let apiKey = "";
+        if (item.api_config_id) {
+          const { data: config } = await supabase
+            .from("api_configs")
+            .select("api_url, api_key")
+            .eq("id", item.api_config_id)
+            .maybeSingle();
+          if (config) {
+            apiUrl = config.api_url;
+            apiKey = config.api_key;
+          }
+        }
+        if (!apiUrl || apiUrl === "global" || !apiKey || apiKey === "global") {
+          const { data: gc } = await supabase
+            .from("global_config")
+            .select("evolution_api_url, evolution_api_key")
+            .limit(1)
+            .maybeSingle();
+          if (!gc?.evolution_api_url) throw new Error("No global API config found");
+          apiUrl = gc.evolution_api_url;
+          apiKey = gc.evolution_api_key;
+        }
+        apiUrl = apiUrl.replace(/\/$/, "");
+
         const content = item.content as any;
         const { endpoint, body } = buildMessagePayload(
-          item.message_type, item.api_url, item.instance_name, item.group_id, content
+          item.message_type, apiUrl, item.instance_name, item.group_id, content
         );
         if (content.mentionsEveryOne) body.mentionsEveryOne = true;
 
         const resp = await fetch(endpoint, {
           method: "POST",
-          headers: { apikey: item.api_key, "Content-Type": "application/json" },
+          headers: { apikey: apiKey, "Content-Type": "application/json" },
           body: JSON.stringify(body),
         });
 
