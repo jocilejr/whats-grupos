@@ -2,7 +2,6 @@ import { Suspense } from "react";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Outlet, useLocation } from "react-router-dom";
-import { Loader2 } from "lucide-react";
 
 const pageTitles: Record<string, string> = {
   "/": "Dashboard",
@@ -19,8 +18,26 @@ const pageTitles: Record<string, string> = {
 
 function ContentLoader() {
   return (
-    <div className="flex items-center justify-center py-20">
-      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+    <div className="flex items-center justify-center py-32">
+      <style>{`
+        @keyframes shimmer {
+          0% { background-position: -1000px 0; }
+          100% { background-position: 1000px 0; }
+        }
+        .shimmer-loader {
+          background: linear-gradient(90deg, hsl(var(--muted)) 25%, hsl(var(--accent)) 50%, hsl(var(--muted)) 75%);
+          background-size: 1000px 100%;
+          animation: shimmer 2.5s infinite;
+        }
+      `}</style>
+      <div className="space-y-4 w-full max-w-md">
+        <div className="h-12 shimmer-loader rounded-lg"></div>
+        <div className="h-4 shimmer-loader rounded-md w-3/4"></div>
+        <div className="space-y-3 pt-4">
+          <div className="h-3 shimmer-loader rounded-md w-full"></div>
+          <div className="h-3 shimmer-loader rounded-md w-5/6"></div>
+        </div>
+      </div>
     </div>
   );
 }
