@@ -12,7 +12,7 @@ import Dashboard from "./pages/Dashboard";
 import Messages from "./pages/Messages";
 import Templates from "./pages/Templates";
 import Campaigns from "./pages/Campaigns";
-import HistoryPage from "./pages/HistoryPage";
+
 import SettingsPage from "./pages/SettingsPage";
 import BackupPage from "./pages/BackupPage";
 import QueuePage from "./pages/QueuePage";
@@ -43,7 +43,7 @@ const App = () => (
               <Route path="/messages" element={<Messages />} />
               <Route path="/campaigns" element={<Campaigns />} />
               <Route path="/templates" element={<Templates />} />
-              <Route path="/history" element={<HistoryPage />} />
+              
               <Route path="/queue" element={<QueuePage />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/backup" element={<BackupPage />} />

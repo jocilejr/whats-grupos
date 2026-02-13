@@ -7,7 +7,7 @@ import {
   Send,
   Megaphone,
   FileText,
-  History,
+  
   Settings,
   LogOut,
   Clock,
@@ -37,7 +37,7 @@ const userMenuItems = [
   { title: "Enviar Mensagem", icon: Send, path: "/messages" },
   { title: "Campanhas", icon: Megaphone, path: "/campaigns" },
   { title: "Templates", icon: FileText, path: "/templates" },
-  { title: "Histórico", icon: History, path: "/history" },
+  
   { title: "Fila", icon: ListOrdered, path: "/queue" },
   { title: "Backup", icon: DatabaseBackup, path: "/backup" },
   { title: "Configurações", icon: Settings, path: "/settings" },
