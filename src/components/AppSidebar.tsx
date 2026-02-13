@@ -51,14 +51,8 @@ export function AppSidebar() {
 
   return (
     <Sidebar>
-      <SidebarHeader className="p-4">
-        <div className="flex items-center gap-3">
-          <img src={logoImg} alt="Simplificando Grupos" className="h-10 w-10 rounded-xl object-cover" />
-          <div>
-            <h2 className="text-sm font-semibold text-sidebar-foreground">Simplificando Grupos</h2>
-            <p className="text-xs text-sidebar-foreground/60">Automação WhatsApp</p>
-          </div>
-        </div>
+      <SidebarHeader className="p-4 flex justify-center">
+        <img src={logoImg} alt="Simplificando Grupos" className="h-12 w-auto" />
         <div className="flex items-center gap-2 mt-3 rounded-lg bg-sidebar-accent/50 px-3 py-2">
           <Clock className="h-3.5 w-3.5 text-sidebar-foreground/60" />
           <div className="flex flex-col">
