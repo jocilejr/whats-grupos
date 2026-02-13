@@ -224,14 +224,10 @@ export async function importBackup(backup: BackupFile, onProgress?: ProgressCall
   for (const campaign of backup.data.campaigns) {
     const clean = stripMeta(campaign);
     delete clean.api_config_id;
-    const newConfigId = configIdMap.get(campaign.api_config_id);
-    if (!newConfigId) {
-      console.warn("[backup-import] Skipping campaign, no matching api_config for:", campaign.api_config_id);
-      continue;
-    }
+    const newConfigId = campaign.api_config_id ? configIdMap.get(campaign.api_config_id) : null;
     const { data, error } = await supabase
       .from("campaigns")
-      .insert({ ...clean, user_id: user.id, api_config_id: newConfigId })
+      .insert({ ...clean, user_id: user.id, api_config_id: newConfigId || null })
       .select("id")
       .single();
     if (error) {
@@ -246,15 +242,14 @@ export async function importBackup(backup: BackupFile, onProgress?: ProgressCall
     const clean = stripMeta(msg);
     delete clean.api_config_id;
     delete clean.campaign_id;
-    const newConfigId = configIdMap.get(msg.api_config_id);
-    if (!newConfigId) continue;
+    const newConfigId = msg.api_config_id ? configIdMap.get(msg.api_config_id) : null;
     const newCampaignId = msg.campaign_id ? campaignIdMap.get(msg.campaign_id) : null;
     const content = replaceUrls(clean.content, urlMap);
     await supabase.from("scheduled_messages").insert({
       ...clean,
       content: content as Json,
       user_id: user.id,
-      api_config_id: newConfigId,
+      api_config_id: newConfigId || null,
       campaign_id: newCampaignId,
     });
   }
@@ -278,14 +273,13 @@ export async function importBackup(backup: BackupFile, onProgress?: ProgressCall
       const clean = stripMeta(log);
       delete clean.api_config_id;
       delete clean.scheduled_message_id;
-      const newConfigId = configIdMap.get(log.api_config_id);
-      if (!newConfigId) return null;
+      const newConfigId = log.api_config_id ? configIdMap.get(log.api_config_id) : null;
       const content = replaceUrls(clean.content, urlMap);
       return {
         ...clean,
         content: content as Json,
         user_id: user.id,
-        api_config_id: newConfigId,
+        api_config_id: newConfigId || null,
         scheduled_message_id: null,
       };
     })

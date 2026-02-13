@@ -88,7 +88,7 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
 
   const handleSave = async () => {
     if (!name.trim()) { toast({ title: "Nome obrigatório", variant: "destructive" }); return; }
-    if (!configId) { toast({ title: "Selecione uma instância", variant: "destructive" }); return; }
+    // configId is now optional — campaigns can exist without an instance
 
     setSaving(true);
     try {
@@ -96,7 +96,7 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
         const { error } = await supabase.from("campaigns").update({
           name: name.trim(),
           description: description.trim() || null,
-          api_config_id: configId,
+          api_config_id: configId || null,
           instance_name: evolutionInstance || null,
           group_ids: groupIds,
           is_active: isActive,
@@ -108,7 +108,7 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
           user_id: user!.id,
           name: name.trim(),
           description: description.trim() || null,
-          api_config_id: configId,
+          api_config_id: configId || null,
           instance_name: evolutionInstance || null,
           group_ids: groupIds,
           is_active: isActive,

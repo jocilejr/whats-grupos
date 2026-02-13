@@ -52,7 +52,7 @@ export type Database = {
       }
       campaigns: {
         Row: {
-          api_config_id: string
+          api_config_id: string | null
           created_at: string
           description: string | null
           group_ids: string[]
@@ -64,7 +64,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
-          api_config_id: string
+          api_config_id?: string | null
           created_at?: string
           description?: string | null
           group_ids?: string[]
@@ -76,7 +76,7 @@ export type Database = {
           user_id: string
         }
         Update: {
-          api_config_id?: string
+          api_config_id?: string | null
           created_at?: string
           description?: string | null
           group_ids?: string[]
@@ -99,7 +99,7 @@ export type Database = {
       }
       message_logs: {
         Row: {
-          api_config_id: string
+          api_config_id: string | null
           content: Json
           created_at: string
           error_message: string | null
@@ -114,7 +114,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
-          api_config_id: string
+          api_config_id?: string | null
           content?: Json
           created_at?: string
           error_message?: string | null
@@ -129,7 +129,7 @@ export type Database = {
           user_id: string
         }
         Update: {
-          api_config_id?: string
+          api_config_id?: string | null
           content?: Json
           created_at?: string
           error_message?: string | null
@@ -222,7 +222,7 @@ export type Database = {
       }
       scheduled_messages: {
         Row: {
-          api_config_id: string
+          api_config_id: string | null
           campaign_id: string | null
           content: Json
           created_at: string
@@ -243,7 +243,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
-          api_config_id: string
+          api_config_id?: string | null
           campaign_id?: string | null
           content?: Json
           created_at?: string
@@ -264,7 +264,7 @@ export type Database = {
           user_id: string
         }
         Update: {
-          api_config_id?: string
+          api_config_id?: string | null
           campaign_id?: string | null
           content?: Json
           created_at?: string
@@ -309,7 +309,7 @@ export type Database = {
       claim_due_messages: {
         Args: never
         Returns: {
-          api_config_id: string
+          api_config_id: string | null
           campaign_id: string | null
           content: Json
           created_at: string
