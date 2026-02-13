@@ -3,7 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
-import { Download, Upload, FileJson, AlertTriangle } from "lucide-react";
+import { Download, Upload, FileJson, AlertTriangle, DatabaseBackup } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -90,13 +90,22 @@ export default function BackupPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Backup & Restauração</h1>
-        <p className="text-muted-foreground">Exporte ou importe todos os dados do sistema</p>
+      {/* Premium Header */}
+      <div className="relative">
+        <div className="absolute -top-4 -left-4 w-32 h-32 bg-primary/5 rounded-full blur-3xl" />
+        <div className="relative flex items-center gap-4">
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20 shadow-[0_0_25px_hsl(210_75%_52%/0.15)]">
+            <DatabaseBackup className="h-7 w-7 text-primary" />
+          </div>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text">Backup & Restauração</h1>
+            <p className="text-muted-foreground text-sm mt-0.5">Exporte ou importe todos os dados do sistema</p>
+          </div>
+        </div>
       </div>
 
       {busy && (
-        <Card>
+        <Card className="border-border/30">
           <CardContent className="pt-6 space-y-3">
             <p className="text-sm font-medium">{step}</p>
             <Progress value={progress} className="h-2" />
@@ -106,10 +115,10 @@ export default function BackupPage() {
       )}
 
       <div className="grid gap-6 md:grid-cols-2">
-        <Card>
+        <Card className="border-border/30 hover:scale-[1.02] transition-all duration-300 hover:shadow-[0_0_20px_hsl(210_75%_52%/0.08)]">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Download className="h-5 w-5" />
+              <Download className="h-5 w-5 text-primary" />
               Exportar Backup
             </CardTitle>
             <CardDescription>
@@ -124,10 +133,10 @@ export default function BackupPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="border-border/30 hover:scale-[1.02] transition-all duration-300 hover:shadow-[0_0_20px_hsl(210_75%_52%/0.08)]">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Upload className="h-5 w-5" />
+              <Upload className="h-5 w-5 text-[hsl(28,85%,60%)]" />
               Restaurar Backup
             </CardTitle>
             <CardDescription>

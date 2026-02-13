@@ -6,9 +6,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { MessageSquare } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Navigate } from "react-router-dom";
+import logoImg from "@/assets/logo.png";
 
 export default function Auth() {
   const [email, setEmail] = useState("");
@@ -35,16 +35,23 @@ export default function Auth() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center space-y-2">
+    <div className="flex min-h-screen items-center justify-center bg-background p-4 relative overflow-hidden">
+      {/* Background glow effects */}
+      <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-primary/5 rounded-full blur-[120px]" />
+      <div className="absolute bottom-1/4 right-1/4 w-64 h-64 bg-[hsl(var(--accent-warm))]/5 rounded-full blur-[100px]" />
+
+      <Card className="w-full max-w-md relative border-border/50 shadow-[0_0_40px_hsl(210_75%_52%/0.08)]">
+        <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
+        <CardHeader className="text-center space-y-4 pb-2">
           <div className="flex justify-center">
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
-              <MessageSquare className="h-7 w-7" />
+            <div className="h-20 w-48 flex items-center justify-center">
+              <img src={logoImg} alt="Simplificando Grupos" className="h-full w-full object-contain" />
             </div>
           </div>
-          <CardTitle className="text-2xl">Entrar</CardTitle>
-          <CardDescription>Acesse o Simplificando Grupos</CardDescription>
+          <div>
+            <CardTitle className="text-2xl">Entrar</CardTitle>
+            <CardDescription className="mt-1">Acesse o painel de automação</CardDescription>
+          </div>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">

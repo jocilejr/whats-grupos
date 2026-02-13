@@ -5,8 +5,9 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Settings, Wifi, Loader2, Brain } from "lucide-react";
+import { Settings, Wifi, Loader2, Brain, Cog } from "lucide-react";
 
 export default function AdminConfig() {
   const { toast } = useToast();
@@ -93,18 +94,35 @@ export default function AdminConfig() {
     }
   };
 
-  if (isLoading) return <p className="text-muted-foreground p-6">Carregando...</p>;
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <Skeleton className="h-14 w-80" />
+        <Skeleton className="h-64 w-full" />
+        <Skeleton className="h-48 w-full" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Configuração Global</h1>
-        <p className="text-muted-foreground">Configure as integrações centrais do sistema</p>
+      {/* Premium Header */}
+      <div className="relative">
+        <div className="absolute -top-4 -left-4 w-32 h-32 bg-primary/5 rounded-full blur-3xl" />
+        <div className="relative flex items-center gap-4">
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20 shadow-[0_0_25px_hsl(210_75%_52%/0.15)]">
+            <Cog className="h-7 w-7 text-primary" />
+          </div>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text">Configuração Global</h1>
+            <p className="text-muted-foreground text-sm mt-0.5">Configure as integrações centrais do sistema</p>
+          </div>
+        </div>
       </div>
 
-      <Card>
+      <Card className="border-border/30">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Settings className="h-5 w-5" /> Evolution API</CardTitle>
+          <CardTitle className="flex items-center gap-2"><Settings className="h-5 w-5 text-primary" /> Evolution API</CardTitle>
           <CardDescription>Estas credenciais são usadas internamente para todas as instâncias dos usuários</CardDescription>
         </CardHeader>
         <CardContent>
@@ -130,9 +148,9 @@ export default function AdminConfig() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="border-border/30">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Brain className="h-5 w-5" /> OpenAI / Inteligência Artificial</CardTitle>
+          <CardTitle className="flex items-center gap-2"><Brain className="h-5 w-5 text-[hsl(262,60%,60%)]" /> OpenAI / Inteligência Artificial</CardTitle>
           <CardDescription>Chave usada para gerar mensagens por I.A. — apenas acessível pelo backend</CardDescription>
         </CardHeader>
         <CardContent>

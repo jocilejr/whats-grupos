@@ -7,7 +7,6 @@ import {
   Send,
   Megaphone,
   FileText,
-  
   Settings,
   LogOut,
   Clock,
@@ -31,13 +30,13 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 
 const userMenuItems = [
   { title: "Dashboard", icon: LayoutDashboard, path: "/" },
   { title: "Enviar Mensagem", icon: Send, path: "/messages" },
   { title: "Campanhas", icon: Megaphone, path: "/campaigns" },
   { title: "Templates", icon: FileText, path: "/templates" },
-  
   { title: "Fila", icon: ListOrdered, path: "/queue" },
   { title: "Backup", icon: DatabaseBackup, path: "/backup" },
   { title: "Configurações", icon: Settings, path: "/settings" },
@@ -48,6 +47,12 @@ const adminMenuItems = [
   { title: "Usuários", icon: Users, path: "/admin/users" },
   { title: "Config Global", icon: Cog, path: "/admin/config" },
 ];
+
+function getInitials(email?: string | null): string {
+  if (!email) return "?";
+  const name = email.split("@")[0];
+  return name.slice(0, 2).toUpperCase();
+}
 
 export function AppSidebar() {
   const { user, signOut } = useAuth();
@@ -120,8 +125,20 @@ export function AppSidebar() {
         </SidebarGroup>
       </SidebarContent>
       <SidebarFooter className="p-4">
-        <div className="flex items-center gap-2 text-xs text-sidebar-foreground/60 mb-2 truncate">
-          {user?.email}
+        <div className="flex items-center gap-3 mb-3">
+          <Avatar className="h-8 w-8 border border-sidebar-border">
+            <AvatarFallback className="bg-primary/20 text-primary text-xs font-semibold">
+              {getInitials(user?.email)}
+            </AvatarFallback>
+          </Avatar>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-medium text-sidebar-foreground truncate">
+              {user?.email?.split("@")[0] || "Usuário"}
+            </p>
+            <p className="text-[10px] text-sidebar-foreground/50 truncate">
+              {user?.email}
+            </p>
+          </div>
         </div>
         <Button
           variant="ghost"

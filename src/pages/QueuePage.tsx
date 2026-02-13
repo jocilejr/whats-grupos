@@ -2,15 +2,16 @@ import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { RefreshCw, Trash2, RotateCcw, Clock, Send, CheckCircle2, AlertCircle, Loader2, Settings2 } from "lucide-react";
+import { RefreshCw, Trash2, RotateCcw, Clock, Send, CheckCircle2, AlertCircle, Loader2, Settings2, ListOrdered } from "lucide-react";
 import { toast } from "sonner";
 
 type QueueItem = {
@@ -49,7 +50,6 @@ export default function QueuePage() {
   const [delaySeconds, setDelaySeconds] = useState<number>(10);
   const [delayInput, setDelayInput] = useState<string>("10");
 
-  // Fetch delay config
   const { data: globalConfig } = useQuery({
     queryKey: ["global-config-delay"],
     queryFn: async () => {
@@ -106,7 +106,6 @@ export default function QueuePage() {
     enabled: !!user,
   });
 
-  // Realtime subscription
   useEffect(() => {
     const channel = supabase
       .channel("queue-realtime")
@@ -175,12 +174,56 @@ export default function QueuePage() {
     }
   };
 
+  const summaryCards = [
+    {
+      title: "Pendentes",
+      value: counts.pending,
+      gradient: "from-primary/20 to-primary/5",
+      iconColor: "text-primary",
+      borderColor: "border-primary/20",
+      icon: Clock,
+    },
+    {
+      title: "Enviando",
+      value: counts.sending,
+      gradient: "from-[hsl(28_85%_56%/0.2)] to-[hsl(28_85%_56%/0.05)]",
+      iconColor: "text-[hsl(28,85%,60%)]",
+      borderColor: "border-[hsl(28_85%_56%/0.2)]",
+      icon: Send,
+    },
+    {
+      title: "Enviados",
+      value: counts.sent,
+      gradient: "from-[hsl(142_71%_45%/0.2)] to-[hsl(142_71%_45%/0.05)]",
+      iconColor: "text-[hsl(142,71%,45%)]",
+      borderColor: "border-[hsl(142_71%_45%/0.2)]",
+      icon: CheckCircle2,
+    },
+    {
+      title: "Erros",
+      value: counts.error,
+      gradient: "from-destructive/20 to-destructive/5",
+      iconColor: "text-destructive",
+      borderColor: "border-destructive/20",
+      icon: AlertCircle,
+    },
+  ];
+
   return (
     <div className="space-y-6">
+      {/* Premium Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Fila de Mensagens</h1>
-          <p className="text-muted-foreground">Acompanhe o envio em tempo real</p>
+        <div className="relative">
+          <div className="absolute -top-4 -left-4 w-32 h-32 bg-primary/5 rounded-full blur-3xl" />
+          <div className="relative flex items-center gap-4">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20 shadow-[0_0_25px_hsl(210_75%_52%/0.15)]">
+              <ListOrdered className="h-7 w-7 text-primary" />
+            </div>
+            <div>
+              <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text">Fila de Mensagens</h1>
+              <p className="text-muted-foreground text-sm mt-0.5">Acompanhe o envio em tempo real</p>
+            </div>
+          </div>
         </div>
         <div className="flex gap-2">
           <AlertDialog>
@@ -211,28 +254,29 @@ export default function QueuePage() {
         </div>
       </div>
 
-      {/* Summary cards */}
+      {/* Premium Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Pendentes</CardTitle></CardHeader>
-          <CardContent><div className="text-2xl font-bold">{counts.pending}</div></CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Enviando</CardTitle></CardHeader>
-          <CardContent><div className="text-2xl font-bold text-primary">{counts.sending}</div></CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Enviados</CardTitle></CardHeader>
-          <CardContent><div className="text-2xl font-bold text-primary">{counts.sent}</div></CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Erros</CardTitle></CardHeader>
-          <CardContent><div className="text-2xl font-bold text-destructive">{counts.error}</div></CardContent>
-        </Card>
+        {summaryCards.map((card) => (
+          <Card
+            key={card.title}
+            className={`relative overflow-hidden border ${card.borderColor} hover:scale-[1.02] transition-all duration-300`}
+          >
+            <div className={`absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r ${card.gradient}`} />
+            <CardContent className="pt-5 pb-4">
+              <div className="flex items-start justify-between mb-3">
+                <div className={`flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br ${card.gradient}`}>
+                  <card.icon className={`h-5 w-5 ${card.iconColor}`} />
+                </div>
+              </div>
+              <p className="text-3xl font-bold tracking-tighter">{card.value}</p>
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mt-1">{card.title}</p>
+            </CardContent>
+          </Card>
+        ))}
       </div>
 
       {/* Delay config */}
-      <Card>
+      <Card className="border-border/30">
         <CardContent className="pt-6">
           <div className="flex items-center gap-4">
             <Settings2 className="h-5 w-5 text-muted-foreground shrink-0" />
@@ -279,60 +323,73 @@ export default function QueuePage() {
       </div>
 
       {/* Queue table */}
-      <Card>
+      <Card className="border-border/30">
         <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Grupo</TableHead>
-                <TableHead>Tipo</TableHead>
-                <TableHead>Instância</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Criado em</TableHead>
-                <TableHead>Ações</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {isLoading ? (
-                <TableRow><TableCell colSpan={6} className="text-center py-8"><Loader2 className="h-6 w-6 animate-spin mx-auto" /></TableCell></TableRow>
-              ) : queueItems.length === 0 ? (
-                <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">Nenhum item na fila</TableCell></TableRow>
-              ) : (
-                queueItems.map((item) => {
-                  const cfg = statusConfig[item.status] || statusConfig.pending;
-                  const Icon = cfg.icon;
-                  return (
-                    <TableRow key={item.id}>
-                      <TableCell className="font-mono text-xs">{item.group_name || item.group_id}</TableCell>
-                      <TableCell><Badge variant="outline">{item.message_type}</Badge></TableCell>
-                      <TableCell className="text-xs">{item.instance_name}</TableCell>
-                      <TableCell>
-                        <Badge variant={cfg.variant} className="gap-1">
-                          <Icon className={`h-3 w-3 ${item.status === "sending" ? "animate-spin" : ""}`} />
-                          {cfg.label}
-                        </Badge>
-                        {item.error_message && (
-                          <p className="text-xs text-destructive mt-1 max-w-[200px] truncate" title={item.error_message}>
-                            {item.error_message}
-                          </p>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-xs">
-                        {new Date(item.created_at).toLocaleString("pt-BR")}
-                      </TableCell>
-                      <TableCell>
-                        {item.status === "error" && (
-                          <Button variant="ghost" size="sm" onClick={() => handleRetry(item)}>
-                            <RotateCcw className="h-4 w-4 mr-1" /> Reenviar
-                          </Button>
-                        )}
+          <div className="overflow-x-auto">
+            {isLoading ? (
+              <div className="p-6 space-y-3">
+                {[...Array(5)].map((_, i) => (
+                  <Skeleton key={i} className="h-12 w-full" />
+                ))}
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Grupo</TableHead>
+                    <TableHead>Tipo</TableHead>
+                    <TableHead>Instância</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Criado em</TableHead>
+                    <TableHead>Ações</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {queueItems.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center py-12">
+                        <ListOrdered className="h-10 w-10 mx-auto text-muted-foreground/30 mb-3" />
+                        <p className="text-muted-foreground">Nenhum item na fila</p>
                       </TableCell>
                     </TableRow>
-                  );
-                })
-              )}
-            </TableBody>
-          </Table>
+                  ) : (
+                    queueItems.map((item) => {
+                      const cfg = statusConfig[item.status] || statusConfig.pending;
+                      const Icon = cfg.icon;
+                      return (
+                        <TableRow key={item.id}>
+                          <TableCell className="font-mono text-xs">{item.group_name || item.group_id}</TableCell>
+                          <TableCell><Badge variant="outline">{item.message_type}</Badge></TableCell>
+                          <TableCell className="text-xs">{item.instance_name}</TableCell>
+                          <TableCell>
+                            <Badge variant={cfg.variant} className="gap-1">
+                              <Icon className={`h-3 w-3 ${item.status === "sending" ? "animate-spin" : ""}`} />
+                              {cfg.label}
+                            </Badge>
+                            {item.error_message && (
+                              <p className="text-xs text-destructive mt-1 max-w-[200px] truncate" title={item.error_message}>
+                                {item.error_message}
+                              </p>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            {new Date(item.created_at).toLocaleString("pt-BR")}
+                          </TableCell>
+                          <TableCell>
+                            {item.status === "error" && (
+                              <Button variant="ghost" size="sm" onClick={() => handleRetry(item)}>
+                                <RotateCcw className="h-4 w-4 mr-1" /> Reenviar
+                              </Button>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
+                  )}
+                </TableBody>
+              </Table>
+            )}
+          </div>
         </CardContent>
       </Card>
     </div>
