@@ -104,6 +104,7 @@ export function ScheduledMessageForm({
   const [runTime, setRunTime] = useState("08:00");
   const [weekDays, setWeekDays] = useState<number[]>([1]);
   const [monthDay, setMonthDay] = useState(1);
+  const [customDays, setCustomDays] = useState<number[]>([]);
 
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -136,6 +137,7 @@ export function ScheduledMessageForm({
         } else { setScheduledDate(undefined); setScheduledTime("08:00"); }
         setRunTime(c.runTime || "08:00");
         setWeekDays(c.weekDays || [1]); setMonthDay(c.monthDay || 1);
+        setCustomDays(c.customDays || []);
       } else {
         setMessageType("text"); setTextContent(""); setMentionAll(false); setLinkPreview(true); setMediaUrl(""); setCaption("");
         setLocName(""); setLocAddress(""); setLocLat(""); setLocLng("");
@@ -148,6 +150,7 @@ export function ScheduledMessageForm({
         setScheduleType(defaultScheduleType || "once");
         setScheduledDate(undefined); setScheduledTime("08:00");
         setRunTime("08:00"); setWeekDays([1]); setMonthDay(1);
+        setCustomDays([]);
       }
       setActiveTab("compose");
     }
@@ -205,6 +208,16 @@ export function ScheduledMessageForm({
       if (next <= now) next.setMonth(next.getMonth() + 1);
       return next.toISOString();
     }
+    if (scheduleType === "custom") {
+      const sorted = [...customDays].sort((a, b) => a - b);
+      for (const day of sorted) {
+        const candidate = new Date(now.getFullYear(), now.getMonth(), day, h, m, 0, 0);
+        if (candidate > now) return candidate.toISOString();
+      }
+      // Next month, first valid day
+      const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, sorted[0], h, m, 0, 0);
+      return nextMonth.toISOString();
+    }
     return null;
   };
 
@@ -233,6 +246,7 @@ export function ScheduledMessageForm({
       base.runTime = runTime;
       if (scheduleType === "weekly") base.weekDays = weekDays;
       if (scheduleType === "monthly") base.monthDay = monthDay;
+      if (scheduleType === "custom") base.customDays = customDays;
     }
     return base;
   };
@@ -255,6 +269,7 @@ export function ScheduledMessageForm({
     }
     if (scheduleType === "once" && !scheduledDate) { toast({ title: "Selecione a data", variant: "destructive" }); return false; }
     if (scheduleType === "weekly" && weekDays.length === 0) { toast({ title: "Selecione ao menos um dia", variant: "destructive" }); return false; }
+    if (scheduleType === "custom" && customDays.length === 0) { toast({ title: "Selecione ao menos um dia do mês", variant: "destructive" }); return false; }
     return true;
   };
 
@@ -621,6 +636,37 @@ export function ScheduledMessageForm({
                     <div className="space-y-1.5">
                       <Label className="text-xs text-muted-foreground">Horário</Label>
                       <Input type="time" value={runTime} onChange={(e) => setRunTime(e.target.value)} className="bg-background/50 border-border/50" />
+                    </div>
+                  </div>
+                )}
+                {scheduleType === "custom" && (
+                  <div className="space-y-3">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground">Horário</Label>
+                      <Input type="time" value={runTime} onChange={(e) => setRunTime(e.target.value)} className="bg-background/50 border-border/50 w-36" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground">Dias do mês</Label>
+                      <div className="grid grid-cols-7 gap-1.5">
+                        {Array.from({ length: 31 }, (_, i) => i + 1).map((day) => (
+                          <button
+                            key={day}
+                            type="button"
+                            onClick={() => setCustomDays(customDays.includes(day) ? customDays.filter(d => d !== day) : [...customDays, day].sort((a, b) => a - b))}
+                            className={cn(
+                              "h-8 rounded-md text-xs font-medium border transition-all",
+                              customDays.includes(day)
+                                ? "border-primary bg-primary/10 text-primary"
+                                : "border-border/40 text-muted-foreground hover:bg-secondary/50"
+                            )}
+                          >{day}</button>
+                        ))}
+                      </div>
+                      {customDays.length > 0 && (
+                        <p className="text-[11px] text-muted-foreground">
+                          Selecionados: {customDays.sort((a, b) => a - b).join(", ")}
+                        </p>
+                      )}
                     </div>
                   </div>
                 )}

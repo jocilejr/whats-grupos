@@ -11,7 +11,7 @@ import {
   FileText, Image, Video, File, Pencil, Trash2, Loader2,
   Clock, AlertCircle, Mic, Sticker, MapPin,
   Contact, BarChart3, List, AtSign, Link2, CalendarDays,
-  CalendarClock, Calendar, ChevronDown, ChevronUp,
+  CalendarClock, Calendar, ChevronDown, ChevronUp, Settings2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -238,6 +238,18 @@ export function CampaignMessageList({ campaignId, apiConfigId, instanceName, gro
                 </span>
               )}
 
+              {/* Custom: day pills */}
+              {msg.schedule_type === "custom" && c.customDays && (
+                <div className="hidden sm:flex items-center gap-0.5 shrink-0 flex-wrap max-w-[120px]">
+                  {(c.customDays as number[]).sort((a: number, b: number) => a - b).map((day: number) => (
+                    <span
+                      key={day}
+                      className="text-[9px] font-bold w-5 h-5 rounded flex items-center justify-center bg-primary/15 text-primary"
+                    >{day}</span>
+                  ))}
+                </div>
+              )}
+
               <ChevronDown className={cn(
                 "h-4 w-4 text-muted-foreground shrink-0 transition-transform",
                 expanded && "rotate-180"
@@ -382,8 +394,9 @@ export function CampaignMessageList({ campaignId, apiConfigId, instanceName, gro
                       {msg.schedule_type === "daily" && <CalendarClock className="h-5 w-5 text-primary" />}
                       {msg.schedule_type === "weekly" && <CalendarDays className="h-5 w-5 text-primary" />}
                       {msg.schedule_type === "monthly" && <Calendar className="h-5 w-5 text-primary" />}
+                      {msg.schedule_type === "custom" && <Settings2 className="h-5 w-5 text-primary" />}
                       <span className="text-sm font-semibold text-foreground">
-                        {msg.schedule_type === "once" ? "Envio único" : msg.schedule_type === "daily" ? "Diário" : msg.schedule_type === "weekly" ? "Semanal" : "Mensal"}
+                        {msg.schedule_type === "once" ? "Envio único" : msg.schedule_type === "daily" ? "Diário" : msg.schedule_type === "weekly" ? "Semanal" : msg.schedule_type === "monthly" ? "Mensal" : "Personalizado"}
                       </span>
                     </div>
 
@@ -421,6 +434,20 @@ export function CampaignMessageList({ campaignId, apiConfigId, instanceName, gro
                       <div>
                         <p className="text-[10px] text-muted-foreground mb-1">Dia do mês</p>
                         <p className="text-sm font-medium">Dia {c.monthDay || 1}</p>
+                      </div>
+                    )}
+
+                    {msg.schedule_type === "custom" && c.customDays && (
+                      <div>
+                        <p className="text-[10px] text-muted-foreground mb-1.5">Dias do mês</p>
+                        <div className="flex flex-wrap gap-1">
+                          {(c.customDays as number[]).sort((a: number, b: number) => a - b).map((day: number) => (
+                            <div
+                              key={day}
+                              className="text-center text-xs font-bold w-8 h-8 rounded-lg flex items-center justify-center bg-primary/15 text-primary"
+                            >{day}</div>
+                          ))}
+                        </div>
                       </div>
                     )}
 
