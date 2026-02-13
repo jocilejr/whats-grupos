@@ -275,116 +275,84 @@ export default function Messages() {
   const handleSend = useCallback(async () => {
     if (!validate() || !user) return;
     setSending(true);
-    abortRef.current = false;
 
-    const statuses: SendStatus[] = selectedGroupIds.map((gid) => ({
-      groupId: gid,
-      groupName: groupsMap[gid] || gid,
-      status: "pending",
-    }));
-    setSendStatuses(statuses);
+    try {
+      // Resolve API URL/key
+      const config = apiConfigs?.find((c) => c.id === selectedConfigId);
+      if (!config) throw new Error("Instância não encontrada");
 
-    const { data: { session } } = await supabase.auth.getSession();
-    const action = getAction();
-    let successCount = 0;
-    let errorCount = 0;
+      let apiUrl = config.api_url;
+      let apiKey = config.api_key;
+      if (!apiUrl || apiUrl === "global" || !apiKey || apiKey === "global") {
+        const { data: globalCfg } = await supabase
+          .from("global_config")
+          .select("evolution_api_url, evolution_api_key")
+          .limit(1)
+          .maybeSingle();
+        if (!globalCfg?.evolution_api_url) throw new Error("Configuração global não encontrada");
+        apiUrl = globalCfg.evolution_api_url;
+        apiKey = globalCfg.evolution_api_key;
+      }
+      apiUrl = apiUrl.replace(/\/$/, "");
 
-    for (let i = 0; i < statuses.length; i++) {
-      if (abortRef.current) break;
-
-      setSendStatuses((prev) =>
-        prev.map((s, idx) => (idx === i ? { ...s, status: "sending" } : s))
-      );
-
-      try {
-        // For AI messages, generate text for each group
-        let generatedText: string | undefined;
-        if (messageType === "ai") {
-          const aiResp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-ai-message`, {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${session?.access_token}`,
-              apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ prompt: aiPrompt }),
-          });
-          const aiResult = await aiResp.json();
-          if (!aiResp.ok || aiResult.error) throw new Error(aiResult.error || "Erro ao gerar texto com I.A.");
-          generatedText = aiResult.text;
-        }
-
-        const payload = buildPayload(statuses[i].groupId, generatedText);
-        const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/evolution-api?action=${action}&configId=${selectedConfigId}&instanceName=${encodeURIComponent(selectedInstanceName)}`;
-        const resp = await fetch(url, {
+      // For AI messages, generate the text before enqueuing
+      let content = buildLogContent();
+      let effectiveType = messageType;
+      if (messageType === "ai") {
+        const { data: { session } } = await supabase.auth.getSession();
+        const aiResp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-ai-message`, {
           method: "POST",
           headers: {
             Authorization: `Bearer ${session?.access_token}`,
             apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify(payload),
+          body: JSON.stringify({ prompt: aiPrompt }),
         });
-        const result = await resp.json();
-
-        if (!resp.ok || result.error) {
-          throw new Error(result.error || result.message || "Erro no envio");
-        }
-
-        const logContent = buildLogContent(generatedText);
-        setSendStatuses((prev) =>
-          prev.map((s, idx) => (idx === i ? { ...s, status: "sent" } : s))
-        );
-        successCount++;
-
-        await supabase.from("message_logs").insert({
-          user_id: user.id,
-          api_config_id: selectedConfigId,
-          instance_name: selectedInstanceName,
-          group_id: statuses[i].groupId,
-          group_name: statuses[i].groupName,
-          message_type: messageType,
-          content: logContent,
-          status: "sent",
-          sent_at: new Date().toISOString(),
-        });
-      } catch (err: any) {
-        setSendStatuses((prev) =>
-          prev.map((s, idx) => (idx === i ? { ...s, status: "error", error: err.message } : s))
-        );
-        errorCount++;
-
-        const logContent = buildLogContent();
-        await supabase.from("message_logs").insert({
-          user_id: user.id,
-          api_config_id: selectedConfigId,
-          instance_name: selectedInstanceName,
-          group_id: statuses[i].groupId,
-          group_name: statuses[i].groupName,
-          message_type: messageType,
-          content: logContent,
-          status: "error",
-          error_message: err.message,
-        });
+        const aiResult = await aiResp.json();
+        if (!aiResp.ok || aiResult.error) throw new Error(aiResult.error || "Erro ao gerar texto com I.A.");
+        content = { ...content, text: aiResult.text };
+        effectiveType = "text";
       }
 
-      // 10s delay between groups (except last)
-      if (i < statuses.length - 1 && !abortRef.current) {
-        await delay(10000);
-      }
-    }
+      const executionBatch = crypto.randomUUID();
+      const queueItems = selectedGroupIds.map((groupId, index) => ({
+        user_id: user.id,
+        group_id: groupId,
+        group_name: groupsMap[groupId] || null,
+        instance_name: selectedInstanceName,
+        message_type: effectiveType,
+        content: content,
+        api_config_id: selectedConfigId,
+        api_url: apiUrl,
+        api_key: apiKey,
+        status: "pending",
+        priority: index,
+        execution_batch: executionBatch,
+      }));
 
-    setSending(false);
-    if (errorCount === 0) {
-      toast({ title: "Todas as mensagens enviadas!", description: `${successCount} grupo(s) com sucesso` });
-    } else {
+      const { error } = await supabase.from("message_queue").insert(queueItems);
+      if (error) throw error;
+
       toast({
-        title: "Envio concluído com erros",
-        description: `${successCount} sucesso, ${errorCount} erro(s)`,
-        variant: "destructive",
+        title: "Mensagens adicionadas à fila!",
+        description: `${selectedGroupIds.length} grupo(s) enfileirados para envio`,
       });
+
+      // Show statuses as all pending (queue will handle)
+      setSendStatuses(
+        selectedGroupIds.map((gid) => ({
+          groupId: gid,
+          groupName: groupsMap[gid] || gid,
+          status: "pending" as const,
+        }))
+      );
+    } catch (err: any) {
+      toast({ title: "Erro", description: err.message, variant: "destructive" });
+    } finally {
+      setSending(false);
     }
-  }, [selectedGroupIds, selectedConfigId, selectedInstanceName, messageType, textContent, aiPrompt, mediaUrl, caption, locLat, locLng, locName, locAddress, contactName, contactPhone, pollName, pollOptions, pollSelectable, listTitle, listDescription, listButtonText, listFooter, listSections, mentionAll, linkPreview, user, groupsMap]);
+  }, [selectedGroupIds, selectedConfigId, selectedInstanceName, messageType, textContent, aiPrompt, mediaUrl, caption, locLat, locLng, locName, locAddress, contactName, contactPhone, pollName, pollOptions, pollSelectable, listTitle, listDescription, listButtonText, listFooter, listSections, mentionAll, linkPreview, user, groupsMap, apiConfigs]);
 
   const completedCount = sendStatuses.filter((s) => s.status === "sent" || s.status === "error").length;
   const progressPercent = sendStatuses.length > 0 ? (completedCount / sendStatuses.length) * 100 : 0;
