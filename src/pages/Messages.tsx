@@ -471,7 +471,7 @@ export default function Messages() {
             <div className="space-y-3">
               <div className="space-y-2">
                 <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Mensagem</Label>
-                <Textarea value={textContent} onChange={(e) => setTextContent(e.target.value)} rows={4} placeholder="Digite sua mensagem..." className="bg-background/50 border-border/50 resize-none" disabled={sending} />
+                <Textarea value={textContent} onChange={(e) => setTextContent(e.target.value)} placeholder="Digite sua mensagem..." className="bg-background/50 border-border/50 resize-none min-h-[60px]" style={{ fieldSizing: 'content' } as any} disabled={sending} />
                 <p className="text-[11px] text-muted-foreground">{textContent.length} caracteres</p>
               </div>
               <div className="flex items-center justify-between rounded-lg border border-border/40 bg-background/30 px-3 py-2.5">
@@ -492,7 +492,7 @@ export default function Messages() {
             <div className="space-y-3">
               <div className="space-y-2">
                 <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Prompt para I.A.</Label>
-                <Textarea value={aiPrompt} onChange={(e) => setAiPrompt(e.target.value)} rows={4} placeholder="Ex: Escreva uma mensagem motivacional para o grupo de vendas..." className="bg-background/50 border-border/50 resize-none" disabled={sending} />
+                <Textarea value={aiPrompt} onChange={(e) => setAiPrompt(e.target.value)} placeholder="Ex: Escreva uma mensagem motivacional para o grupo de vendas..." className="bg-background/50 border-border/50 resize-none min-h-[60px]" style={{ fieldSizing: 'content' } as any} disabled={sending} />
                 <p className="text-[11px] text-muted-foreground">
                   <Sparkles className="h-3 w-3 inline mr-1" />
                   A I.A. gerará um texto diferente para cada grupo no momento do envio.
@@ -526,7 +526,7 @@ export default function Messages() {
               {(messageType === "image" || messageType === "video" || messageType === "document") && (
                 <div className="space-y-2">
                   <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Legenda (opcional)</Label>
-                  <Textarea value={caption} onChange={(e) => setCaption(e.target.value)} placeholder="Legenda..." className="bg-background/50 border-border/50 min-h-[80px] resize-y" disabled={sending} />
+                  <Textarea value={caption} onChange={(e) => setCaption(e.target.value)} placeholder="Legenda..." className="bg-background/50 border-border/50 resize-none min-h-[60px]" style={{ fieldSizing: 'content' } as any} disabled={sending} />
                 </div>
               )}
             </div>
@@ -653,7 +653,7 @@ export default function Messages() {
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground">Descrição *</Label>
-                <Textarea value={listDescription} onChange={(e) => setListDescription(e.target.value)} rows={2} placeholder="Descrição da lista" className="bg-background/50 border-border/50 resize-none" disabled={sending} />
+                <Textarea value={listDescription} onChange={(e) => setListDescription(e.target.value)} placeholder="Descrição da lista" className="bg-background/50 border-border/50 resize-none min-h-[40px]" style={{ fieldSizing: 'content' } as any} disabled={sending} />
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground">Rodapé</Label>
