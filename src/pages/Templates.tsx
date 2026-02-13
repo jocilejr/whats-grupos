@@ -67,7 +67,7 @@ export default function Templates() {
       <div className="relative flex items-center justify-between">
         <div className="flex items-center gap-4">
           <div className="absolute -top-4 -left-4 w-32 h-32 bg-primary/5 rounded-full blur-3xl" />
-          <div className="relative flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20 shadow-[0_0_25px_hsl(28_85%_56%/0.15)]">
+          <div className="relative flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20 shadow-[0_0_25px_hsl(210_75%_52%/0.15)]">
             <FileText className="h-7 w-7 text-primary" />
           </div>
           <div>
@@ -75,7 +75,7 @@ export default function Templates() {
             <p className="text-muted-foreground text-sm mt-0.5">Modelos de mensagens reutilizáveis</p>
           </div>
         </div>
-        <Button className="gap-2 bg-gradient-to-r from-primary to-primary/80 shadow-[0_4px_20px_hsl(28_85%_56%/0.3)]" onClick={() => { setEditTemplate(null); setFormOpen(true); }}>
+        <Button className="gap-2 bg-gradient-to-r from-primary to-primary/80 shadow-[0_4px_20px_hsl(210_75%_52%/0.3)]" onClick={() => { setEditTemplate(null); setFormOpen(true); }}>
           <Plus className="h-4 w-4" />Novo Template
         </Button>
       </div>

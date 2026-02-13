@@ -48,34 +48,34 @@ export default function Dashboard() {
       gradient: "from-primary/20 to-primary/5",
       iconColor: "text-primary",
       borderColor: "border-primary/20",
-      glowColor: "shadow-[0_0_30px_hsl(28_85%_56%/0.08)]",
+      glowColor: "shadow-[0_0_30px_hsl(210_75%_52%/0.08)]",
     },
     {
       title: "Agendamentos Ativos",
       value: stats?.activeSchedules ?? 0,
       icon: CalendarClock,
-      gradient: "from-[hsl(210_75%_52%/0.2)] to-[hsl(210_75%_52%/0.05)]",
-      iconColor: "text-[hsl(210,75%,62%)]",
-      borderColor: "border-[hsl(210_75%_52%/0.2)]",
-      glowColor: "shadow-[0_0_30px_hsl(210_75%_52%/0.08)]",
+      gradient: "from-primary/15 to-primary/5",
+      iconColor: "text-primary/80",
+      borderColor: "border-primary/15",
+      glowColor: "shadow-[0_0_30px_hsl(210_75%_52%/0.06)]",
     },
     {
       title: "Campanhas",
       value: stats?.totalCampaigns ?? 0,
       icon: Megaphone,
-      gradient: "from-[hsl(210_75%_42%/0.2)] to-[hsl(210_75%_42%/0.05)]",
-      iconColor: "text-[hsl(210,75%,58%)]",
-      borderColor: "border-[hsl(210_75%_42%/0.2)]",
-      glowColor: "shadow-[0_0_30px_hsl(210_75%_42%/0.08)]",
+      gradient: "from-[hsl(28_85%_56%/0.2)] to-[hsl(28_85%_56%/0.05)]",
+      iconColor: "text-[hsl(28,85%,60%)]",
+      borderColor: "border-[hsl(28_85%_56%/0.2)]",
+      glowColor: "shadow-[0_0_30px_hsl(28_85%_56%/0.08)]",
     },
     {
       title: "Instâncias Ativas",
       value: stats?.activeConfigs ?? 0,
       icon: Wifi,
-      gradient: "from-[hsl(210_75%_62%/0.2)] to-[hsl(210_75%_62%/0.05)]",
-      iconColor: "text-[hsl(210,75%,68%)]",
-      borderColor: "border-[hsl(210_75%_62%/0.2)]",
-      glowColor: "shadow-[0_0_30px_hsl(210_75%_62%/0.08)]",
+      gradient: "from-primary/15 to-primary/5",
+      iconColor: "text-primary/80",
+      borderColor: "border-primary/15",
+      glowColor: "shadow-[0_0_30px_hsl(210_75%_52%/0.06)]",
     },
   ];
 
@@ -85,7 +85,7 @@ export default function Dashboard() {
       <div className="relative">
         <div className="absolute -top-4 -left-4 w-32 h-32 bg-primary/5 rounded-full blur-3xl" />
         <div className="relative flex items-center gap-4">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20 shadow-[0_0_25px_hsl(28_85%_56%/0.15)]">
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20 shadow-[0_0_25px_hsl(210_75%_52%/0.15)]">
             <Activity className="h-7 w-7 text-primary" />
           </div>
           <div>
