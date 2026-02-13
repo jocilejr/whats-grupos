@@ -45,7 +45,7 @@ function Bubble({ children, noBubble = false }: { children: React.ReactNode; noB
           backgroundColor: '#005c4b',
           borderRadius: '7.5px',
           borderTopRightRadius: 0,
-          maxWidth: '85%',
+          maxWidth: '95%',
           padding: '6px 7px 8px 9px',
           position: 'relative',
           boxShadow: '0 1px 0.5px rgba(0,0,0,0.13)',
