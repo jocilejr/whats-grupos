@@ -15,6 +15,7 @@ import Campaigns from "./pages/Campaigns";
 import HistoryPage from "./pages/HistoryPage";
 import SettingsPage from "./pages/SettingsPage";
 import BackupPage from "./pages/BackupPage";
+import QueuePage from "./pages/QueuePage";
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import AdminUsers from "./pages/admin/AdminUsers";
 import AdminConfig from "./pages/admin/AdminConfig";
@@ -43,6 +44,7 @@ const App = () => (
               <Route path="/campaigns" element={<Campaigns />} />
               <Route path="/templates" element={<Templates />} />
               <Route path="/history" element={<HistoryPage />} />
+              <Route path="/queue" element={<QueuePage />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/backup" element={<BackupPage />} />
               {/* Admin routes */}
