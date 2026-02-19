@@ -132,6 +132,7 @@ Deno.serve(async (req) => {
           method: "POST",
           headers: { apikey: apiKey, "Content-Type": "application/json" },
           body: JSON.stringify(body),
+          signal: AbortSignal.timeout(25000),
         });
 
         const result = await resp.json();
@@ -178,9 +179,13 @@ Deno.serve(async (req) => {
           console.error(`Queue item ${item.id}: group ${item.group_id} → ERROR. Continuing.`);
         }
       } catch (e) {
+        const isTimeout = e.name === "TimeoutError" || e.name === "AbortError";
+        const errorMsg = isTimeout
+          ? "Timeout: Evolution API não respondeu em 25s"
+          : e.message;
         await supabase.from("message_queue").update({
           status: "error",
-          error_message: e.message,
+          error_message: errorMsg,
           completed_at: new Date().toISOString(),
         }).eq("id", item.id);
 
@@ -192,12 +197,12 @@ Deno.serve(async (req) => {
           message_type: item.message_type,
           content: item.content,
           status: "error",
-          error_message: e.message,
+          error_message: errorMsg,
           instance_name: item.instance_name,
         });
 
         errors++;
-        console.error(`Queue item ${item.id}: exception for group ${item.group_id}: ${e.message}. Continuing.`);
+        console.error(`Queue item ${item.id}: exception for group ${item.group_id}: ${errorMsg}. Continuing.`);
       }
     }
 
