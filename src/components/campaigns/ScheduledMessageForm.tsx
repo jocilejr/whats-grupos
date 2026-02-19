@@ -154,7 +154,11 @@ export function ScheduledMessageForm({
         setScheduleType(message.schedule_type || defaultScheduleType || "once");
         if (message.scheduled_at) {
           const d = new Date(message.scheduled_at);
-          setScheduledDate(d); setScheduledTime(format(d, "HH:mm"));
+          setScheduledDate(d);
+          // Display time as BRT (UTC-3)
+          const brtH = (d.getUTCHours() - 3 + 24) % 24;
+          const brtM = d.getUTCMinutes();
+          setScheduledTime(`${String(brtH).padStart(2, '0')}:${String(brtM).padStart(2, '0')}`);
         } else { setScheduledDate(undefined); setScheduledTime("08:00"); }
         setRunTime(c.runTime || "08:00");
         setWeekDays(c.weekDays || [1]); setMonthDay(c.monthDay || 1);
@@ -202,41 +206,49 @@ export function ScheduledMessageForm({
     toast({ title: "Template aplicado", description: template.name });
   };
 
+  // BRT = UTC-3, so to convert BRT time to UTC we add 3 hours
+  const BRT_OFFSET = 3;
+
   const computeNextRunAt = () => {
     if (scheduleType === "once") {
       if (!scheduledDate) return null;
       const [h, m] = scheduledTime.split(":").map(Number);
-      const d = new Date(scheduledDate); d.setHours(h, m, 0, 0);
+      const d = new Date(scheduledDate);
+      d.setUTCHours(h + BRT_OFFSET, m, 0, 0);
       return d.toISOString();
     }
     const now = new Date();
     const [h, m] = runTime.split(":").map(Number);
     if (scheduleType === "daily") {
-      const next = new Date(now); next.setHours(h, m, 0, 0);
-      if (next <= now) next.setDate(next.getDate() + 1);
+      const next = new Date(now);
+      next.setUTCHours(h + BRT_OFFSET, m, 0, 0);
+      if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
       return next.toISOString();
     }
     if (scheduleType === "weekly") {
       for (let i = 0; i < 7; i++) {
-        const c = new Date(now); c.setDate(c.getDate() + i); c.setHours(h, m, 0, 0);
-        if (weekDays.includes(c.getDay()) && c > now) return c.toISOString();
+        const c = new Date(now);
+        c.setUTCDate(c.getUTCDate() + i);
+        c.setUTCHours(h + BRT_OFFSET, m, 0, 0);
+        if (weekDays.includes(c.getUTCDay()) && c > now) return c.toISOString();
       }
-      const f = new Date(now); f.setDate(f.getDate() + 7); f.setHours(h, m, 0, 0);
+      const f = new Date(now);
+      f.setUTCDate(f.getUTCDate() + 7);
+      f.setUTCHours(h + BRT_OFFSET, m, 0, 0);
       return f.toISOString();
     }
     if (scheduleType === "monthly") {
-      const next = new Date(now.getFullYear(), now.getMonth(), monthDay, h, m, 0);
-      if (next <= now) next.setMonth(next.getMonth() + 1);
+      const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), monthDay, h + BRT_OFFSET, m, 0));
+      if (next <= now) next.setUTCMonth(next.getUTCMonth() + 1);
       return next.toISOString();
     }
     if (scheduleType === "custom") {
       const sorted = [...customDays].sort((a, b) => a - b);
       for (const day of sorted) {
-        const candidate = new Date(now.getFullYear(), now.getMonth(), day, h, m, 0, 0);
+        const candidate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), day, h + BRT_OFFSET, m, 0, 0));
         if (candidate > now) return candidate.toISOString();
       }
-      // Next month, first valid day
-      const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, sorted[0], h, m, 0, 0);
+      const nextMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, sorted[0], h + BRT_OFFSET, m, 0, 0));
       return nextMonth.toISOString();
     }
     return null;
@@ -303,7 +315,7 @@ export function ScheduledMessageForm({
       const content = buildContent();
       const nextRunAt = computeNextRunAt();
       const scheduledAtValue = scheduleType === "once" && scheduledDate
-        ? (() => { const [h, m] = scheduledTime.split(":").map(Number); const d = new Date(scheduledDate); d.setHours(h, m, 0, 0); return d.toISOString(); })()
+        ? (() => { const [h, m] = scheduledTime.split(":").map(Number); const d = new Date(scheduledDate); d.setUTCHours(h + BRT_OFFSET, m, 0, 0); return d.toISOString(); })()
         : null;
 
       const payload = {

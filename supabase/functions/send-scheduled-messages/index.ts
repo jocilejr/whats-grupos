@@ -203,17 +203,20 @@ async function enqueueMessage(supabase: any, msg: any): Promise<number> {
 function calculateNextRunAt(msg: any, now: Date): string | null {
   const content_ = msg.content as any;
 
-  // Extract hours/minutes from the existing next_run_at (already in correct UTC)
-  // This preserves the timezone offset the frontend originally calculated
+  // BRT = UTC-3. The runTime stored in content is in BRT.
+  // Convert BRT time to UTC by adding 3 hours.
+  const BRT_OFFSET = 3;
+
+  // Prefer extracting hours from the existing next_run_at (already in UTC)
   let h_: number, m_: number;
   if (msg.next_run_at) {
     const prevRun = new Date(msg.next_run_at);
     h_ = prevRun.getUTCHours();
     m_ = prevRun.getUTCMinutes();
   } else {
-    // Fallback: use runTime as UTC (shouldn't normally happen)
+    // Fallback: convert runTime (BRT) to UTC
     const parts = (content_.runTime || "08:00").split(":").map(Number);
-    h_ = parts[0];
+    h_ = parts[0] + BRT_OFFSET;
     m_ = parts[1];
   }
 
