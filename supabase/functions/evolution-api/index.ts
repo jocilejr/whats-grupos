@@ -125,14 +125,22 @@ Deno.serve(async (req) => {
       }
 
       case "connectInstance": {
-        const resp = await fetch(`${apiUrl}/instance/connect/${instanceName}`, { headers });
-        result = await resp.json();
+        const connectUrl = `${apiUrl}/instance/connect/${instanceName}`;
+        console.log(`[connectInstance] URL: ${connectUrl}, apikey: ${apiKey?.substring(0, 8)}...`);
+        const resp = await fetch(connectUrl, { headers });
+        const rawText = await resp.text();
+        console.log(`[connectInstance] Status: ${resp.status}, Response: ${rawText}`);
+        try { result = JSON.parse(rawText); } catch { result = { raw: rawText }; }
         break;
       }
 
       case "connectionState": {
-        const resp = await fetch(`${apiUrl}/instance/connectionState/${instanceName}`, { headers });
-        result = await resp.json();
+        const stateUrl = `${apiUrl}/instance/connectionState/${instanceName}`;
+        console.log(`[connectionState] URL: ${stateUrl}`);
+        const resp = await fetch(stateUrl, { headers });
+        const rawText = await resp.text();
+        console.log(`[connectionState] Status: ${resp.status}, Response: ${rawText}`);
+        try { result = JSON.parse(rawText); } catch { result = { raw: rawText }; }
         break;
       }
 
