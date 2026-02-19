@@ -143,24 +143,24 @@ export default function SettingsPage() {
 
   const showQrCode = async (configId: string, name: string) => {
     try {
+      toast({ title: "Reconectando instância...", description: "Aguarde, reiniciando e gerando QR Code." });
       const result = await callEvolutionApi("connectInstance", configId);
       console.log("connectInstance response:", JSON.stringify(result));
-      
-      // If count === 0, the instance is already connected - no QR needed
-      if (result?.count === 0 || (typeof result?.count === "number" && result.count === 0)) {
-        toast({ title: "Instância já conectada!", description: "Não é necessário escanear o QR Code." });
-        // Refresh connection state
-        const stateResult = await callEvolutionApi("connectionState", configId);
-        setConnectionStates((prev) => ({ ...prev, [configId]: stateResult }));
-        return;
-      }
       
       const qr = result?.base64 || result?.qrcode?.base64 || result?.qrcode || result?.code;
       if (qr && typeof qr === "string" && qr.length > 50) {
         const src = qr.startsWith("data:") ? qr : `data:image/png;base64,${qr}`;
         setQrCodeData({ name, qrcode: src });
       } else {
-        toast({ title: "QR Code não disponível", description: "Tente desconectar e reconectar a instância na Evolution API.", variant: "destructive" });
+        // Check current state
+        const stateResult = await callEvolutionApi("connectionState", configId);
+        setConnectionStates((prev) => ({ ...prev, [configId]: stateResult }));
+        const state = stateResult?.instance?.state || stateResult?.state;
+        if (state === "open") {
+          toast({ title: "Instância conectada!", description: "A instância já está ativa, não precisa de QR Code." });
+        } else {
+          toast({ title: "QR Code não gerado", description: `Estado atual: ${state || "desconhecido"}. Tente novamente em alguns segundos.`, variant: "destructive" });
+        }
       }
     } catch (e: any) {
       toast({ title: "Erro", description: e.message, variant: "destructive" });
