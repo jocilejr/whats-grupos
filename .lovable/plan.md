@@ -1,69 +1,45 @@
 
+# Correção: Edge Function `evolution-api` não deployada
 
-## Landing Page -- Simplificando Grupos
+## Problema Identificado
 
-### Resumo
+A edge function `evolution-api` existe no código (`supabase/functions/evolution-api/index.ts`), mas **nao esta registrada** no arquivo de configuracao `config.toml`. Isso significa que ela nao esta sendo deployada, e todas as chamadas do frontend (pagina de Settings, teste de conexao, QR Code, etc.) falham com erro.
 
-Criar uma landing page de vendas em `/landing`, acessivel publicamente (sem login), com design dark moderno inspirado no site de referencia (joinzapp.io), usando a identidade visual ja existente do projeto.
+O request de rede confirma: ao chamar `connectionState` pela pagina de Settings, o resultado e `Failed to fetch`.
 
-### Estrutura da Pagina
+## Causa dos Erros
 
-A pagina tera as seguintes secoes, de cima para baixo:
+1. **Erro na pagina de Settings**: A edge function `evolution-api` nao existe no deploy, entao qualquer chamada retorna 404/falha
+2. **Erro "Connection Closed" na fila**: A `process-queue` chama a Evolution API diretamente (sem passar pela edge function), e a API retorna erro 500. Isso e um problema temporario da instancia WhatsApp no lado da Evolution API. Apos corrigir o deploy, voce podera reprocessar as mensagens com erro.
 
-1. **Navbar** -- Logo + botao "Entrar" (link para /auth) + botao CTA
-2. **Hero** -- Headline forte + subtitulo + botao CTA + imagem/mockup do dashboard
-3. **Problema / Dor** -- Secao curta descrevendo a dor de quem gerencia muitos grupos manualmente
-4. **Funcionalidades** -- Grid com os principais recursos do sistema:
-   - Disparo em massa para infinitos grupos
-   - Agendamento automatico (diario, semanal, mensal)
-   - Mensagens com IA integrada
-   - Campanhas organizadas
-   - Dashboard com metricas em tempo real
-   - Suporte a texto, imagem, video, audio, documentos
-   - Fila inteligente com delay anti-ban
-   - Backup e restauracao
-5. **Planos e Precos** -- 3 cards lado a lado:
-   - **Basico** -- R$ 97/mes -- 1 numero, infinitos grupos e disparos
-   - **Profissional** -- R$ 197/mes -- 3 numeros, infinitos grupos e disparos
-   - **Empresarial** -- R$ 247/mes -- 5 numeros, infinitos grupos e disparos
-6. **FAQ** -- Accordion com perguntas frequentes
-7. **CTA Final** -- Secao de fechamento com botao grande
-8. **Footer** -- Minimalista
+## Plano de Correcao
 
-### Copy Proposta
+### Passo 1: Registrar a edge function no config.toml
+Adicionar a entrada `[functions.evolution-api]` com `verify_jwt = false` no `supabase/config.toml` para que a funcao seja deployada automaticamente.
 
-**Hero:**
-- Titulo: "Automatize seus Grupos de WhatsApp e Escale seus Resultados"
-- Subtitulo: "Envie mensagens em massa para todos os seus grupos no piloto automatico. Agende, personalize com IA e acompanhe tudo em tempo real."
+### Passo 2: Adicionar funcao `admin-api` ao config.toml
+Verificar se `admin-api` tambem precisa ser registrada (ela existe no codigo mas tambem nao esta no config.toml).
 
-**Funcionalidades (destaques):**
-- "Disparo Ilimitado" -- Envie para centenas de grupos com um clique
-- "Agendamento Inteligente" -- Programe envios diarios, semanais ou mensais
-- "IA Integrada" -- Gere mensagens persuasivas automaticamente
-- "Campanhas Organizadas" -- Gerencie tudo com campanhas estruturadas
-- "Dashboard Completo" -- Acompanhe entregas, erros e taxa de sucesso
-- "Multimidia" -- Texto, imagem, video, audio, documentos e enquetes
-- "Anti-Ban" -- Fila com delay inteligente para proteger seu numero
-- "Backup Seguro" -- Exporte e restaure seus dados a qualquer momento
+### Passo 3: Reprocessar mensagens com erro
+Apos o deploy, atualizar as mensagens com status `error` na fila para `pending`, permitindo que sejam reenviadas automaticamente.
 
-**Planos:**
-- Todos incluem: grupos ilimitados, disparos ilimitados, agendamentos, IA, dashboard, suporte
-- Diferenca entre planos: quantidade de numeros conectados
+## Detalhes Tecnicos
 
-### Detalhes Tecnicos
+Arquivo modificado: `supabase/config.toml`
 
-**Arquivos a criar:**
-- `src/pages/LandingPage.tsx` -- Componente principal da landing page com todas as secoes
+Adicionar:
+```toml
+[functions.evolution-api]
+verify_jwt = false
 
-**Arquivos a modificar:**
-- `src/App.tsx` -- Adicionar rota `/landing` publica (fora do ProtectedRoute)
+[functions.admin-api]
+verify_jwt = false
+```
 
-**Abordagem:**
-- Pagina totalmente standalone, sem dependencia do layout do app (AppLayout/Sidebar)
-- Usa os mesmos design tokens (CSS variables) do projeto para consistencia
-- Botoes CTA apontam para um link externo (placeholder `#` ate voce fornecer o link real do WhatsApp/checkout)
-- Responsiva (mobile-first)
-- Animacoes sutis com CSS (gradients, hover effects) sem bibliotecas extras
-- Usa componentes UI existentes (Button, Card, Accordion, Badge)
-- Logo importada de `src/assets/logo.png`
-
+SQL para reprocessar mensagens com erro:
+```sql
+UPDATE message_queue 
+SET status = 'pending', error_message = NULL, started_at = NULL, completed_at = NULL 
+WHERE status = 'error' 
+AND created_at > now() - interval '1 day';
+```
