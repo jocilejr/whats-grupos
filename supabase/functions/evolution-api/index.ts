@@ -120,28 +120,32 @@ Deno.serve(async (req) => {
 
       case "fetchInstances": {
         const resp = await fetch(`${apiUrl}/instance/fetchInstances`, { headers });
-        result = await resp.json();
+        const rawText = await resp.text();
+        console.log(`[fetchInstances] Status: ${resp.status}, Response: ${rawText.substring(0, 500)}`);
+        try { result = JSON.parse(rawText); } catch { result = { raw: rawText }; }
         break;
       }
 
       case "connectInstance": {
-        // First try restart to ensure instance is ready
-        const restartUrl = `${apiUrl}/instance/restart/${instanceName}`;
-        console.log(`[connectInstance] Restarting first: ${restartUrl}`);
+        // Step 1: Logout first to clear stale session (workaround for Evolution API v2 QR bug)
+        const logoutUrl = `${apiUrl}/instance/logout/${instanceName}`;
+        console.log(`[connectInstance] Step 1 - Logout: ${logoutUrl}`);
         try {
-          const restartResp = await fetch(restartUrl, { method: "PUT", headers });
-          console.log(`[connectInstance] Restart status: ${restartResp.status}`);
-          // Wait a moment for restart to take effect
-          await new Promise(r => setTimeout(r, 2000));
+          const logoutResp = await fetch(logoutUrl, { method: "DELETE", headers });
+          const logoutText = await logoutResp.text();
+          console.log(`[connectInstance] Logout status: ${logoutResp.status}, Response: ${logoutText}`);
+          // Wait for logout to take effect
+          await new Promise(r => setTimeout(r, 3000));
         } catch (e: any) {
-          console.log(`[connectInstance] Restart failed (non-critical): ${e.message}`);
+          console.log(`[connectInstance] Logout failed (non-critical): ${e.message}`);
         }
-        
+
+        // Step 2: Connect to generate new QR code
         const connectUrl = `${apiUrl}/instance/connect/${instanceName}`;
-        console.log(`[connectInstance] Connecting: ${connectUrl}`);
+        console.log(`[connectInstance] Step 2 - Connect: ${connectUrl}`);
         const resp = await fetch(connectUrl, { headers });
         const rawText = await resp.text();
-        console.log(`[connectInstance] Status: ${resp.status}, Response: ${rawText}`);
+        console.log(`[connectInstance] Connect status: ${resp.status}, Response: ${rawText.substring(0, 500)}`);
         try { result = JSON.parse(rawText); } catch { result = { raw: rawText }; }
         break;
       }
