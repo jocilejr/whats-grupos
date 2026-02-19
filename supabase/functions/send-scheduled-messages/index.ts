@@ -126,19 +126,21 @@ async function enqueueMessage(supabase: any, msg: any): Promise<number> {
   if (!allGroupIds?.length) return 0;
 
   const effectiveApiConfigId = msg.api_config_id || campaign?.api_config_id;
-  if (!effectiveApiConfigId) {
-    console.error(`No API config ID for message ${msg.id}`);
-    return 0;
+
+  let apiUrl: string | null = null;
+  let apiKey: string | null = null;
+  let configInstanceName: string | null = null;
+
+  if (effectiveApiConfigId) {
+    const { data: config } = await supabase.from("api_configs").select("*").eq("id", effectiveApiConfigId).maybeSingle();
+    if (config) {
+      apiUrl = config.api_url;
+      apiKey = config.api_key;
+      configInstanceName = config.instance_name;
+    }
   }
 
-  const { data: config } = await supabase.from("api_configs").select("*").eq("id", effectiveApiConfigId).maybeSingle();
-  if (!config) {
-    console.error(`No API config for message ${msg.id}`);
-    return 0;
-  }
-
-  let apiUrl = config.api_url;
-  let apiKey = config.api_key;
+  // Fallback to global config if no api_config or if values are "global"
   if (!apiUrl || apiUrl === "global" || !apiKey || apiKey === "global") {
     const { data: globalCfg } = await supabase.from("global_config").select("evolution_api_url, evolution_api_key").limit(1).maybeSingle();
     if (!globalCfg?.evolution_api_url) {
@@ -148,9 +150,9 @@ async function enqueueMessage(supabase: any, msg: any): Promise<number> {
     apiUrl = globalCfg.evolution_api_url;
     apiKey = globalCfg.evolution_api_key;
   }
-  apiUrl = apiUrl.replace(/\/$/, "");
+  apiUrl = apiUrl!.replace(/\/$/, "");
 
-  const instanceName = msg.instance_name || campaign?.instance_name || config.instance_name;
+  const instanceName = msg.instance_name || campaign?.instance_name || configInstanceName;
   const executionBatch = crypto.randomUUID();
 
   let content = msg.content as any;
@@ -182,7 +184,7 @@ async function enqueueMessage(supabase: any, msg: any): Promise<number> {
     instance_name: instanceName,
     message_type: messageType,
     content: content,
-    api_config_id: effectiveApiConfigId,
+    api_config_id: effectiveApiConfigId || null,
     api_url: "resolved-at-runtime",
     api_key: "resolved-at-runtime",
     status: "pending",
