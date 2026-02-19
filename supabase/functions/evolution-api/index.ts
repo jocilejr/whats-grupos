@@ -127,26 +127,48 @@ Deno.serve(async (req) => {
       }
 
       case "connectInstance": {
-        // Step 1: Logout first to clear stale session (workaround for Evolution API v2 QR bug)
-        const logoutUrl = `${apiUrl}/instance/logout/${instanceName}`;
-        console.log(`[connectInstance] Step 1 - Logout: ${logoutUrl}`);
-        try {
-          const logoutResp = await fetch(logoutUrl, { method: "DELETE", headers });
-          const logoutText = await logoutResp.text();
-          console.log(`[connectInstance] Logout status: ${logoutResp.status}, Response: ${logoutText}`);
-          // Wait for logout to take effect
-          await new Promise(r => setTimeout(r, 3000));
-        } catch (e: any) {
-          console.log(`[connectInstance] Logout failed (non-critical): ${e.message}`);
-        }
-
-        // Step 2: Connect to generate new QR code
         const connectUrl = `${apiUrl}/instance/connect/${instanceName}`;
-        console.log(`[connectInstance] Step 2 - Connect: ${connectUrl}`);
+        console.log(`[connectInstance] URL: ${connectUrl}`);
         const resp = await fetch(connectUrl, { headers });
         const rawText = await resp.text();
-        console.log(`[connectInstance] Connect status: ${resp.status}, Response: ${rawText.substring(0, 500)}`);
+        console.log(`[connectInstance] Status: ${resp.status}, Response: ${rawText.substring(0, 500)}`);
         try { result = JSON.parse(rawText); } catch { result = { raw: rawText }; }
+        break;
+      }
+
+      case "reconnectInstance": {
+        // Workaround for Evolution API v2 QR bug: delete + recreate instance
+        console.log(`[reconnectInstance] Deleting instance: ${instanceName}`);
+        const delResp = await fetch(`${apiUrl}/instance/delete/${instanceName}`, {
+          method: "DELETE", headers,
+        });
+        console.log(`[reconnectInstance] Delete status: ${delResp.status}`);
+        
+        await new Promise(r => setTimeout(r, 2000));
+        
+        console.log(`[reconnectInstance] Recreating instance: ${instanceName}`);
+        const createResp = await fetch(`${apiUrl}/instance/create`, {
+          method: "POST",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            instanceName,
+            integration: "WHATSAPP-BAILEYS",
+            qrcode: true,
+          }),
+        });
+        const createResult = await createResp.json();
+        console.log(`[reconnectInstance] Create status: ${createResp.status}, has qrcode: ${!!createResult?.qrcode}`);
+        
+        if (createResult?.qrcode) {
+          result = createResult;
+        } else {
+          // Try connect after create
+          await new Promise(r => setTimeout(r, 2000));
+          const connResp = await fetch(`${apiUrl}/instance/connect/${instanceName}`, { headers });
+          const connText = await connResp.text();
+          console.log(`[reconnectInstance] Connect status: ${connResp.status}, Response: ${connText.substring(0, 500)}`);
+          try { result = JSON.parse(connText); } catch { result = { raw: connText }; }
+        }
         break;
       }
 

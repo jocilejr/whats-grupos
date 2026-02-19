@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { Plus, Trash2, Wifi, Loader2, CheckCircle2, XCircle, QrCode, Settings2, Smartphone } from "lucide-react";
+import { Plus, Trash2, Wifi, Loader2, CheckCircle2, XCircle, QrCode, Settings2, Smartphone, RefreshCw } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -143,7 +143,6 @@ export default function SettingsPage() {
 
   const showQrCode = async (configId: string, name: string) => {
     try {
-      toast({ title: "Reconectando instância...", description: "Aguarde, reiniciando e gerando QR Code." });
       const result = await callEvolutionApi("connectInstance", configId);
       console.log("connectInstance response:", JSON.stringify(result));
       
@@ -152,15 +151,37 @@ export default function SettingsPage() {
         const src = qr.startsWith("data:") ? qr : `data:image/png;base64,${qr}`;
         setQrCodeData({ name, qrcode: src });
       } else {
-        // Check current state
         const stateResult = await callEvolutionApi("connectionState", configId);
         setConnectionStates((prev) => ({ ...prev, [configId]: stateResult }));
         const state = stateResult?.instance?.state || stateResult?.state;
         if (state === "open") {
-          toast({ title: "Instância conectada!", description: "A instância já está ativa, não precisa de QR Code." });
+          toast({ title: "Instância conectada!", description: "Já está ativa, não precisa de QR Code." });
         } else {
-          toast({ title: "QR Code não gerado", description: `Estado atual: ${state || "desconhecido"}. Tente novamente em alguns segundos.`, variant: "destructive" });
+          toast({ 
+            title: "QR Code não gerado", 
+            description: "Use o botão 'Reconectar' para recriar a instância e gerar um novo QR Code.", 
+            variant: "destructive" 
+          });
         }
+      }
+    } catch (e: any) {
+      toast({ title: "Erro", description: e.message, variant: "destructive" });
+    }
+  };
+
+  const reconnectInstance = async (configId: string, name: string) => {
+    try {
+      toast({ title: "Reconectando...", description: "Recriando instância e gerando QR Code. Aguarde..." });
+      const result = await callEvolutionApi("reconnectInstance", configId);
+      console.log("reconnectInstance response:", JSON.stringify(result));
+      
+      const qr = result?.qrcode?.base64 || result?.base64 || result?.qrcode || result?.code;
+      if (qr && typeof qr === "string" && qr.length > 50) {
+        const src = qr.startsWith("data:") ? qr : `data:image/png;base64,${qr}`;
+        setQrCodeData({ name, qrcode: src });
+        toast({ title: "QR Code gerado!", description: "Escaneie com o WhatsApp." });
+      } else {
+        toast({ title: "Erro ao reconectar", description: "Tente novamente em alguns segundos.", variant: "destructive" });
       }
     } catch (e: any) {
       toast({ title: "Erro", description: e.message, variant: "destructive" });
@@ -289,6 +310,14 @@ export default function SettingsPage() {
                   <div className="flex items-center gap-1.5">
                     <Button variant="outline" size="sm" onClick={() => showQrCode(config.id, config.instance_name)} className="gap-1.5 text-xs border-border/40">
                       <QrCode className="h-3.5 w-3.5" /> QR Code
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => reconnectInstance(config.id, config.instance_name)} 
+                      className="gap-1.5 text-xs border-border/40 text-accent-foreground hover:text-accent-foreground/80"
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" /> Reconectar
                     </Button>
                     <Button
                       variant="outline"
