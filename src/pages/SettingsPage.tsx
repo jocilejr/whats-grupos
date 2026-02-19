@@ -90,9 +90,11 @@ export default function SettingsPage() {
       setNewInstanceName("");
       toast({ title: "Instância criada!" });
 
-      const qr = await callEvolutionApi("connectInstance", newConfig.id);
-      if (qr?.base64) {
-        setQrCodeData({ name: newInstanceName, qrcode: qr.base64 });
+      const qrResult = await callEvolutionApi("connectInstance", newConfig.id);
+      const qrCode = qrResult?.base64 || qrResult?.qrcode?.base64 || qrResult?.qrcode || qrResult?.code;
+      if (qrCode && typeof qrCode === "string" && qrCode.length > 50) {
+        const src = qrCode.startsWith("data:") ? qrCode : `data:image/png;base64,${qrCode}`;
+        setQrCodeData({ name: newInstanceName, qrcode: src });
       }
     } catch (e: any) {
       toast({ title: "Erro", description: e.message, variant: "destructive" });
@@ -138,10 +140,13 @@ export default function SettingsPage() {
   const showQrCode = async (configId: string, name: string) => {
     try {
       const result = await callEvolutionApi("connectInstance", configId);
-      if (result?.base64) {
-        setQrCodeData({ name, qrcode: result.base64 });
+      console.log("connectInstance response:", JSON.stringify(result));
+      const qr = result?.base64 || result?.qrcode?.base64 || result?.qrcode || result?.code;
+      if (qr && typeof qr === "string" && qr.length > 50) {
+        const src = qr.startsWith("data:") ? qr : `data:image/png;base64,${qr}`;
+        setQrCodeData({ name, qrcode: src });
       } else {
-        toast({ title: "QR Code não disponível", description: "A instância pode já estar conectada.", variant: "destructive" });
+        toast({ title: "QR Code não disponível", description: "A instância pode já estar conectada ou o QR expirou. Tente reconectar.", variant: "destructive" });
       }
     } catch (e: any) {
       toast({ title: "Erro", description: e.message, variant: "destructive" });
