@@ -125,8 +125,20 @@ Deno.serve(async (req) => {
       }
 
       case "connectInstance": {
+        // First try restart to ensure instance is ready
+        const restartUrl = `${apiUrl}/instance/restart/${instanceName}`;
+        console.log(`[connectInstance] Restarting first: ${restartUrl}`);
+        try {
+          const restartResp = await fetch(restartUrl, { method: "PUT", headers });
+          console.log(`[connectInstance] Restart status: ${restartResp.status}`);
+          // Wait a moment for restart to take effect
+          await new Promise(r => setTimeout(r, 2000));
+        } catch (e: any) {
+          console.log(`[connectInstance] Restart failed (non-critical): ${e.message}`);
+        }
+        
         const connectUrl = `${apiUrl}/instance/connect/${instanceName}`;
-        console.log(`[connectInstance] URL: ${connectUrl}, apikey: ${apiKey?.substring(0, 8)}...`);
+        console.log(`[connectInstance] Connecting: ${connectUrl}`);
         const resp = await fetch(connectUrl, { headers });
         const rawText = await resp.text();
         console.log(`[connectInstance] Status: ${resp.status}, Response: ${rawText}`);
