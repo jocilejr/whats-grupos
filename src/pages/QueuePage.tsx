@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
@@ -49,6 +50,13 @@ export default function QueuePage() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [delaySeconds, setDelaySeconds] = useState<number>(10);
   const [delayInput, setDelayInput] = useState<string>("10");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkRetrying, setBulkRetrying] = useState(false);
+
+  // Clear selection when filter changes
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [statusFilter]);
 
   const { data: globalConfig } = useQuery({
     queryKey: ["global-config-delay"],
@@ -124,6 +132,26 @@ export default function QueuePage() {
     error: queueItems.filter((i) => i.status === "error").length,
   };
 
+  const errorItems = queueItems.filter((i) => i.status === "error");
+  const allErrorsSelected = errorItems.length > 0 && errorItems.every((i) => selectedIds.has(i.id));
+
+  const toggleSelectAll = () => {
+    if (allErrorsSelected) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(errorItems.map((i) => i.id)));
+    }
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
   const handleRetry = async (item: QueueItem) => {
     const { error } = await supabase.from("message_queue").insert({
       user_id: item.user_id,
@@ -146,6 +174,36 @@ export default function QueuePage() {
     } else {
       toast.success("Item adicionado à fila novamente");
     }
+  };
+
+  const handleBulkRetry = async () => {
+    setBulkRetrying(true);
+    const itemsToRetry = queueItems.filter((i) => selectedIds.has(i.id));
+    const inserts = itemsToRetry.map((item) => ({
+      user_id: item.user_id,
+      scheduled_message_id: item.scheduled_message_id,
+      campaign_id: item.campaign_id,
+      group_id: item.group_id,
+      group_name: item.group_name,
+      instance_name: item.instance_name,
+      message_type: item.message_type,
+      content: item.content,
+      api_config_id: item.api_config_id,
+      api_url: "resolved-at-runtime",
+      api_key: "resolved-at-runtime",
+      status: "pending" as const,
+      priority: 0,
+      execution_batch: item.execution_batch,
+    }));
+
+    const { error } = await supabase.from("message_queue").insert(inserts);
+    if (error) {
+      toast.error("Erro ao reenviar itens em massa");
+    } else {
+      toast.success(`${inserts.length} itens adicionados à fila novamente`);
+      setSelectedIds(new Set());
+    }
+    setBulkRetrying(false);
   };
 
   const handleClearSent = async () => {
@@ -225,7 +283,19 @@ export default function QueuePage() {
             </div>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap justify-end">
+          {selectedIds.size > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleBulkRetry}
+              disabled={bulkRetrying}
+              className="border-primary/30 text-primary hover:bg-primary/10"
+            >
+              {bulkRetrying ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RotateCcw className="h-4 w-4 mr-2" />}
+              Reenviar {selectedIds.size} selecionados
+            </Button>
+          )}
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button variant="destructive" size="sm">
@@ -336,6 +406,15 @@ export default function QueuePage() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-10">
+                      {errorItems.length > 0 && (
+                        <Checkbox
+                          checked={allErrorsSelected}
+                          onCheckedChange={toggleSelectAll}
+                          aria-label="Selecionar todos os erros"
+                        />
+                      )}
+                    </TableHead>
                     <TableHead>Grupo</TableHead>
                     <TableHead>Tipo</TableHead>
                     <TableHead>Instância</TableHead>
@@ -347,7 +426,7 @@ export default function QueuePage() {
                 <TableBody>
                   {queueItems.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={6} className="text-center py-12">
+                      <TableCell colSpan={7} className="text-center py-12">
                         <ListOrdered className="h-10 w-10 mx-auto text-muted-foreground/30 mb-3" />
                         <p className="text-muted-foreground">Nenhum item na fila</p>
                       </TableCell>
@@ -357,7 +436,16 @@ export default function QueuePage() {
                       const cfg = statusConfig[item.status] || statusConfig.pending;
                       const Icon = cfg.icon;
                       return (
-                        <TableRow key={item.id}>
+                        <TableRow key={item.id} data-state={selectedIds.has(item.id) ? "selected" : undefined}>
+                          <TableCell>
+                            {item.status === "error" ? (
+                              <Checkbox
+                                checked={selectedIds.has(item.id)}
+                                onCheckedChange={() => toggleSelect(item.id)}
+                                aria-label={`Selecionar ${item.group_name || item.group_id}`}
+                              />
+                            ) : null}
+                          </TableCell>
                           <TableCell className="font-mono text-xs">{item.group_name || item.group_id}</TableCell>
                           <TableCell><Badge variant="outline">{item.message_type}</Badge></TableCell>
                           <TableCell className="text-xs">{item.instance_name}</TableCell>
