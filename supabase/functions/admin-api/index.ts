@@ -1,26 +1,20 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
-const ALLOWED_ORIGINS = (Deno.env.get("ALLOWED_ORIGINS") || "*").split(",").map(s => s.trim());
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+};
 
-function getCorsHeaders(req: Request) {
-  const origin = req.headers.get("Origin") || "";
-  const allowed = ALLOWED_ORIGINS.includes("*") || ALLOWED_ORIGINS.includes(origin);
-  return {
-    "Access-Control-Allow-Origin": allowed ? origin : ALLOWED_ORIGINS[0],
-    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  };
-}
-
-function json(data: unknown, status = 200, req?: Request) {
-  const headers = req ? getCorsHeaders(req) : { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type" };
+function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { ...headers, "Content-Type": "application/json" },
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: getCorsHeaders(req) });
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -53,7 +47,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    if (!isAuthorized) return json({ error: "Unauthorized" }, 401, req);
+    if (!isAuthorized) return json({ error: "Unauthorized" }, 401);
 
     const url = new URL(req.url);
     const action = url.searchParams.get("action");
@@ -63,7 +57,7 @@ Deno.serve(async (req) => {
         const body = await req.json();
         const { email, password, display_name, max_instances, max_messages_per_hour, max_campaigns, max_ai_requests_per_month } = body;
 
-        if (!email || !password) return json({ error: "email and password required" }, 400, req);
+        if (!email || !password) return json({ error: "email and password required" }, 400);
 
         const { data: newUser, error: createErr } = await supabase.auth.admin.createUser({
           email,
@@ -71,7 +65,7 @@ Deno.serve(async (req) => {
           email_confirm: true,
           user_metadata: { display_name: display_name || email.split("@")[0] },
         });
-        if (createErr) return json({ error: createErr.message }, 400, req);
+        if (createErr) return json({ error: createErr.message }, 400);
 
         const userId = newUser.user.id;
 
@@ -85,13 +79,13 @@ Deno.serve(async (req) => {
           max_ai_requests_per_month: max_ai_requests_per_month ?? 50,
         });
 
-        return json({ success: true, user_id: userId, email }, 200, req);
+        return json({ success: true, user_id: userId, email });
       }
 
       case "updatePlan": {
         const body = await req.json();
         const { user_id, max_instances, max_messages_per_hour, max_campaigns, max_ai_requests_per_month, is_active } = body;
-        if (!user_id) return json({ error: "user_id required" }, 400, req);
+        if (!user_id) return json({ error: "user_id required" }, 400);
 
         const updates: Record<string, unknown> = {};
         if (max_instances !== undefined) updates.max_instances = max_instances;
@@ -101,9 +95,9 @@ Deno.serve(async (req) => {
         if (is_active !== undefined) updates.is_active = is_active;
 
         const { error } = await supabase.from("user_plans").update(updates).eq("user_id", user_id);
-        if (error) return json({ error: error.message }, 400, req);
+        if (error) return json({ error: error.message }, 400);
 
-        return json({ success: true }, 200, req);
+        return json({ success: true });
       }
 
       case "listUsers": {
@@ -117,23 +111,23 @@ Deno.serve(async (req) => {
           role: (roles ?? []).find((r: any) => r.user_id === p.user_id)?.role ?? "user",
         }));
 
-        return json(users, 200, req);
+        return json(users);
       }
 
       case "deleteUser": {
         const body = await req.json();
         const { user_id } = body;
-        if (!user_id) return json({ error: "user_id required" }, 400, req);
+        if (!user_id) return json({ error: "user_id required" }, 400);
 
         await supabase.from("user_plans").update({ is_active: false }).eq("user_id", user_id);
 
-        return json({ success: true }, 200, req);
+        return json({ success: true });
       }
 
       default:
-        return json({ error: "Invalid action" }, 400, req);
+        return json({ error: "Invalid action" }, 400);
     }
   } catch (error: any) {
-    return json({ error: error.message }, 500, req);
+    return json({ error: error.message }, 500);
   }
 });
