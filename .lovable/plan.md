@@ -1,45 +1,70 @@
 
-# Correção: Edge Function `evolution-api` não deployada
+
+# Correcao do Envio de Mensagens + Selecao em Massa
 
 ## Problema Identificado
 
-A edge function `evolution-api` existe no código (`supabase/functions/evolution-api/index.ts`), mas **nao esta registrada** no arquivo de configuracao `config.toml`. Isso significa que ela nao esta sendo deployada, e todas as chamadas do frontend (pagina de Settings, teste de conexao, QR Code, etc.) falham com erro.
+Existem **6 mensagens presas no status "sending"** que nunca completam. O que acontece:
 
-O request de rede confirma: ao chamar `connectionState` pela pagina de Settings, o resultado e `Failed to fetch`.
+1. A funcao `process-queue` roda a cada minuto e reclama um item da fila (status "pending" -> "sending")
+2. Ao fazer o `fetch` para a Evolution API, a chamada **trava indefinidamente** (a API nao responde)
+3. A edge function atinge o timeout de 60s e encerra sem atualizar o status do item
+4. O item fica preso como "sending" para sempre
+5. Novas execucoes da fila encontram "No more pending items" porque os itens pendentes ja foram reclamados e travados
 
-## Causa dos Erros
+A funcao `reset_stuck_queue_items` so reseta itens com mais de 5 minutos, mas o problema se repete ciclicamente.
 
-1. **Erro na pagina de Settings**: A edge function `evolution-api` nao existe no deploy, entao qualquer chamada retorna 404/falha
-2. **Erro "Connection Closed" na fila**: A `process-queue` chama a Evolution API diretamente (sem passar pela edge function), e a API retorna erro 500. Isso e um problema temporario da instancia WhatsApp no lado da Evolution API. Apos corrigir o deploy, voce podera reprocessar as mensagens com erro.
+## Solucao
 
-## Plano de Correcao
+### Passo 1: Adicionar timeout no fetch da Evolution API (process-queue)
 
-### Passo 1: Registrar a edge function no config.toml
-Adicionar a entrada `[functions.evolution-api]` com `verify_jwt = false` no `supabase/config.toml` para que a funcao seja deployada automaticamente.
+Adicionar um `AbortController` com timeout de **25 segundos** em todas as chamadas `fetch` dentro da funcao `process-queue`. Se a API nao responder em 25s, o item sera marcado como "error" com mensagem clara, em vez de ficar preso.
 
-### Passo 2: Adicionar funcao `admin-api` ao config.toml
-Verificar se `admin-api` tambem precisa ser registrada (ela existe no codigo mas tambem nao esta no config.toml).
+```text
+Antes:  fetch(endpoint, { method: "POST", headers, body })
+Depois: fetch(endpoint, { method: "POST", headers, body, signal: AbortSignal.timeout(25000) })
+```
 
-### Passo 3: Reprocessar mensagens com erro
-Apos o deploy, atualizar as mensagens com status `error` na fila para `pending`, permitindo que sejam reenviadas automaticamente.
+### Passo 2: Resetar itens travados agora
+
+Executar SQL para desbloquear os 6 itens presos em "sending":
+
+```sql
+UPDATE message_queue 
+SET status = 'pending', started_at = NULL 
+WHERE status = 'sending' 
+AND started_at < now() - interval '2 minutes';
+```
+
+### Passo 3: Selecao em massa na pagina de Fila
+
+Adicionar ao `QueuePage.tsx`:
+
+- **Checkbox em cada linha com erro** para selecionar individualmente
+- **Checkbox "Selecionar todos"** no header que seleciona/deseleciona todos os itens com erro visiveis
+- **Botao "Reenviar X selecionados"** que aparece quando ha itens selecionados
+- A funcao `handleBulkRetry` insere novos registros na `message_queue` com status "pending" para cada item selecionado
+- Selecao limpa automaticamente apos reenvio ou mudanca de filtro
 
 ## Detalhes Tecnicos
 
-Arquivo modificado: `supabase/config.toml`
+### Arquivo: `supabase/functions/process-queue/index.ts`
 
-Adicionar:
-```toml
-[functions.evolution-api]
-verify_jwt = false
+Modificacoes:
+- Adicionar `AbortSignal.timeout(25000)` ao `fetch` dentro de `buildMessagePayload` area
+- No bloco `catch`, tratar `AbortError` / `TimeoutError` com mensagem especifica
 
-[functions.admin-api]
-verify_jwt = false
-```
+### Arquivo: `src/pages/QueuePage.tsx`
 
-SQL para reprocessar mensagens com erro:
-```sql
-UPDATE message_queue 
-SET status = 'pending', error_message = NULL, started_at = NULL, completed_at = NULL 
-WHERE status = 'error' 
-AND created_at > now() - interval '1 day';
-```
+Modificacoes:
+- Novo estado: `selectedIds: Set<string>`
+- Nova coluna de checkbox na tabela (visivel apenas para itens com status "error")
+- Checkbox "selecionar todos os erros" no header
+- Botao de acao em massa ao lado dos botoes existentes
+- Funcao `handleBulkRetry` com a mesma logica do `handleRetry` mas em lote
+- Limpeza automatica da selecao ao mudar filtro
+
+### Migracao SQL
+
+Reset dos itens travados em "sending".
+
