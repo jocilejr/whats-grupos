@@ -337,6 +337,14 @@ if ! grep -q "127.0.0.1:8000:8000" docker-compose.yml; then
   sed -i '/kong:/,/^  [a-z]/{/ports:/a\      - "127.0.0.1:8000:8000"' docker-compose.yml 2>/dev/null || true
 fi
 
+# Desabilitar servico analytics (opcional, causa falhas frequentes)
+log_info "Desabilitando servico analytics (opcional, evita falhas)..."
+sed -i '/^  analytics:/,/^  [a-z]/{/^  [a-z]/!s/^/#/}' docker-compose.yml 2>/dev/null || true
+sed -i 's/^  analytics:/#  analytics:/' docker-compose.yml 2>/dev/null || true
+sed -i '/- analytics/d' docker-compose.yml 2>/dev/null || true
+sed -i '/condition: service_healthy/{N;/analytics/d}' docker-compose.yml 2>/dev/null || true
+log_success "Servico analytics desabilitado."
+
 # Subir containers
 log_info "Subindo containers do Supabase (pode demorar alguns minutos)..."
 docker compose pull -q 2>/dev/null || log_warn "Falha ao baixar imagens (usando cache)."
