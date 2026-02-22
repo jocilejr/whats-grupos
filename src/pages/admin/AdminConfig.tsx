@@ -90,10 +90,21 @@ export default function AdminConfig() {
   const testBaileys = async () => {
     setTestingBaileys(true);
     try {
-      const resp = await fetch(`${baileysUrl}/health`);
-      if (!resp.ok) throw new Error("Servidor Baileys não respondeu");
-      const data = await resp.json();
-      toast({ title: "Baileys OK!", description: `Servidor ativo. ${data.sessions || 0} sessão(ões) ativa(s).` });
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const session = (await supabase.auth.getSession()).data.session;
+      if (!session) throw new Error("Não autenticado");
+
+      const resp = await fetch(`${supabaseUrl}/functions/v1/evolution-api?action=healthCheck`, {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          "Content-Type": "application/json",
+        },
+      });
+      const result = await resp.json();
+      if (!resp.ok || result.status === "error") {
+        throw new Error(result.error || "Servidor Baileys não respondeu");
+      }
+      toast({ title: "Baileys OK!", description: `Servidor ativo. ${result.sessions || 0} sessão(ões) ativa(s).` });
     } catch (e: any) {
       toast({ title: "Erro de conexão", description: e.message, variant: "destructive" });
     } finally {
