@@ -2,8 +2,6 @@
 # Cria usuario administrador via Supabase Auth API (Kong)
 # Uso: ./create-admin.sh <service_role_key> <anon_key> <email> <password> <db_password> <db_port>
 
-set -euo pipefail
-
 SERVICE_ROLE_KEY="$1"
 ANON_KEY="$2"
 ADMIN_EMAIL="$3"
@@ -46,7 +44,7 @@ log_success "API Auth pronta."
 # ---- Criar usuario via GoTrue Admin API ----
 log_info "Criando usuario admin: ${ADMIN_EMAIL}"
 
-RESPONSE=$(curl -s -X POST "${KONG_URL}/auth/v1/admin/users" \
+RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "${KONG_URL}/auth/v1/admin/users" \
   -H "Authorization: Bearer ${SERVICE_ROLE_KEY}" \
   -H "apikey: ${ANON_KEY}" \
   -H "Content-Type: application/json" \
@@ -56,39 +54,64 @@ RESPONSE=$(curl -s -X POST "${KONG_URL}/auth/v1/admin/users" \
     \"email_confirm\": true
   }")
 
+HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+BODY=$(echo "$RESPONSE" | sed '$d')
+
+log_info "[DEBUG] HTTP ${HTTP_CODE} - Body: ${BODY}"
+
 # Extrair user_id da resposta
-USER_ID=$(echo "$RESPONSE" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+USER_ID=$(echo "$BODY" | grep -oP '"id"\s*:\s*"\K[^"]+' | head -1 || true)
 
 if [ -z "$USER_ID" ]; then
   # Verificar se usuario ja existe
-  if echo "$RESPONSE" | grep -qi "already.*registered\|already.*exists\|duplicate"; then
+  if echo "$BODY" | grep -qi "already.*registered\|already.*exists\|duplicate"; then
     log_info "Usuario ja existe. Buscando ID..."
-    
+
     LIST_RESPONSE=$(curl -s "${KONG_URL}/auth/v1/admin/users" \
       -H "Authorization: Bearer ${SERVICE_ROLE_KEY}" \
-      -H "apikey: ${ANON_KEY}")
-    
-    USER_ID=$(echo "$LIST_RESPONSE" | grep -o "\"id\":\"[^\"]*\",\"aud\":\"authenticated\",\"role\":\"authenticated\",\"email\":\"${ADMIN_EMAIL}\"" | grep -o '"id":"[^"]*"' | cut -d'"' -f4 || true)
-    
-    if [ -z "$USER_ID" ]; then
-      # Fallback: buscar via psql
-      if [ -n "$DB_PASSWORD" ]; then
-        USER_ID=$(cd "${SUPABASE_DIR}" && docker compose exec -T db \
-          psql -U postgres -d postgres -t -A \
-          -c "SELECT id FROM auth.users WHERE email = '${ADMIN_EMAIL}' LIMIT 1;" 2>/dev/null | tr -d '[:space:]')
-      fi
-    fi
-    
-    if [ -z "$USER_ID" ]; then
-      die "Usuario existe mas nao foi possivel obter o ID. Resposta: ${RESPONSE}"
-    fi
-    log_success "Usuario encontrado: ${USER_ID}"
-  else
-    die "Falha ao criar usuario. Resposta: ${RESPONSE}"
+      -H "apikey: ${ANON_KEY}" || true)
+
+    USER_ID=$(echo "$LIST_RESPONSE" | grep -oP '"id"\s*:\s*"\K[^"]+' | head -1 || true)
   fi
-else
-  log_success "Usuario criado: ${USER_ID}"
 fi
+
+# Fallback: criar usuario direto via psql
+if [ -z "$USER_ID" ]; then
+  log_info "API nao retornou user_id. Tentando criar via SQL direto..."
+
+  USER_ID=$(cd "${SUPABASE_DIR}" && docker compose exec -T db \
+    psql -U postgres -d postgres -t -A -c "
+      INSERT INTO auth.users (
+        id, instance_id, email, encrypted_password,
+        email_confirmed_at, aud, role, raw_user_meta_data,
+        created_at, updated_at
+      ) VALUES (
+        gen_random_uuid(), '00000000-0000-0000-0000-000000000000',
+        '${ADMIN_EMAIL}',
+        crypt('${ADMIN_PASSWORD}', gen_salt('bf')),
+        now(), 'authenticated', 'authenticated',
+        '{\"display_name\": \"Administrador\"}'::jsonb,
+        now(), now()
+      )
+      ON CONFLICT (email) DO UPDATE SET email = EXCLUDED.email
+      RETURNING id;
+    " 2>&1 | tr -d '[:space:]')
+
+  if [ -z "$USER_ID" ]; then
+    # Ultima tentativa: buscar ID de usuario existente via psql
+    USER_ID=$(cd "${SUPABASE_DIR}" && docker compose exec -T db \
+      psql -U postgres -d postgres -t -A \
+      -c "SELECT id FROM auth.users WHERE email = '${ADMIN_EMAIL}' LIMIT 1;" 2>/dev/null | tr -d '[:space:]')
+  fi
+
+  if [ -z "$USER_ID" ]; then
+    die "Falha ao criar usuario. HTTP ${HTTP_CODE} - Resposta API: ${BODY}"
+  fi
+
+  log_success "Usuario criado/encontrado via SQL: ${USER_ID}"
+fi
+
+log_success "User ID: ${USER_ID}"
 
 # ---- Inserir role admin e plano via psql ----
 log_info "Configurando role admin e plano..."
