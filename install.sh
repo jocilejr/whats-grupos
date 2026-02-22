@@ -342,7 +342,13 @@ log_info "Desabilitando servico analytics (opcional, evita falhas)..."
 sed -i '/^  analytics:/,/^  [a-z]/{/^  [a-z]/!s/^/#/}' docker-compose.yml 2>/dev/null || true
 sed -i 's/^  analytics:/#  analytics:/' docker-compose.yml 2>/dev/null || true
 sed -i '/- analytics/d' docker-compose.yml 2>/dev/null || true
-sed -i '/condition: service_healthy/{N;/analytics/d}' docker-compose.yml 2>/dev/null || true
+
+# Remover depends_on analytics no formato mapa (analytics: + condition:)
+sed -i '/^      analytics:/{N;d}' docker-compose.yml 2>/dev/null || true
+sed -i '/^        analytics:/{N;d}' docker-compose.yml 2>/dev/null || true
+
+# Remover blocos depends_on que ficaram vazios
+sed -i -E '/^\s+depends_on:\s*$/{N;/^\s+depends_on:\s*\n\s*[a-z]/!d}' docker-compose.yml 2>/dev/null || true
 log_success "Servico analytics desabilitado."
 
 # Subir containers
