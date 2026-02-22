@@ -1,48 +1,49 @@
 
-# Corrigir install.sh para Ignorar supabase-analytics
+
+# Corrigir remoção do analytics no install.sh
 
 ## Problema
-O container `supabase-analytics` falha ao iniciar (depende de configuracoes especificas do Logflare), travando toda a instalacao na linha `docker compose up -d` que retorna erro fatal.
+Os comandos `sed` atuais falham em remover referências ao `analytics` no formato expandido de `depends_on` usado pelo Supabase:
 
-## Solucao
-Antes de subir os containers, o script vai automaticamente:
-1. Comentar o servico `analytics` inteiro no `docker-compose.yml` do Supabase
-2. Remover qualquer `depends_on` referenciando `analytics` nos outros servicos
-3. Subir os containers normalmente sem o analytics
-
-Isso garante que a instalacao nunca mais trave por causa desse servico opcional.
-
-## Detalhes Tecnicos
-
-### Arquivo modificado: `install.sh`
-
-Antes da linha `docker compose up -d` (linha 343), adicionar comandos `sed` que:
-
-```text
-# 1. Comentar o bloco do servico analytics no docker-compose.yml
-sed -i '/^  analytics:/,/^  [a-z]/{/^  [a-z]/!s/^/#/}' docker-compose.yml
-sed -i 's/^  analytics:/#  analytics:/' docker-compose.yml
-
-# 2. Remover depends_on analytics de outros servicos
-sed -i '/- analytics/d' docker-compose.yml
-sed -i '/condition: service_healthy/{ N; /analytics/d }' docker-compose.yml
+```yaml
+depends_on:
+  analytics:
+    condition: service_healthy
 ```
 
-Tambem adicionar um log informativo:
-```text
-log_info "Desabilitando servico analytics (opcional, evita falhas)..."
-```
+O `sed` atual remove apenas linhas com `- analytics` (formato lista), mas não o formato mapa com sub-chaves indentadas.
 
-### Comandos para reinstalar do zero na VPS
+## Solução
 
-Antes de rodar o instalador atualizado:
+Substituir os comandos `sed` por uma abordagem mais robusta que:
+
+1. Comenta o bloco inteiro do serviço `analytics`
+2. Remove referências ao `analytics` em `depends_on` tanto no formato lista (`- analytics`) quanto no formato mapa (`analytics:` + `condition:`)
+3. Remove blocos `depends_on:` que ficaram vazios após a remoção
+
+### Arquivo: `install.sh` (linhas 340-345)
+
+Substituir os comandos `sed` existentes por:
+
 ```bash
-cd /opt/supabase-docker/docker && docker compose down -v 2>/dev/null || true
-docker rm -f baileys-server 2>/dev/null || true
-docker volume rm baileys-data 2>/dev/null || true
-rm -rf /opt/supabase-docker
+log_info "Desabilitando servico analytics (opcional, evita falhas)..."
 
-cd /opt/whats-grupos
-git pull origin main
-sudo ./install.sh
+# 1. Comentar o bloco do servico analytics
+sed -i '/^  analytics:/,/^  [a-z]/{/^  [a-z]/!s/^/#/}' docker-compose.yml 2>/dev/null || true
+sed -i 's/^  analytics:/#  analytics:/' docker-compose.yml 2>/dev/null || true
+
+# 2. Remover depends_on analytics no formato lista (- analytics)
+sed -i '/- analytics/d' docker-compose.yml 2>/dev/null || true
+
+# 3. Remover depends_on analytics no formato mapa (analytics: + condition:)
+sed -i '/^      analytics:/{N;d}' docker-compose.yml 2>/dev/null || true
+sed -i '/^        analytics:/{N;d}' docker-compose.yml 2>/dev/null || true
+
+# 4. Remover blocos depends_on que ficaram vazios
+sed -i -E '/^\s+depends_on:\s*$/{N;/^\s+depends_on:\s*\n\s*[a-z]/!d}' docker-compose.yml 2>/dev/null || true
+
+log_success "Servico analytics desabilitado."
 ```
+
+A mudança principal é o passo 3: remove a linha `analytics:` junto com a linha seguinte (`condition: service_healthy`), cobrindo diferentes níveis de indentação (6 e 8 espaços). O passo 4 limpa blocos `depends_on:` que ficaram sem nenhum serviço listado.
+
