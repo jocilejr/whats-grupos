@@ -347,13 +347,24 @@ sed -i '/- analytics/d' docker-compose.yml 2>/dev/null || true
 sed -i '/^      analytics:/{N;d}' docker-compose.yml 2>/dev/null || true
 sed -i '/^        analytics:/{N;d}' docker-compose.yml 2>/dev/null || true
 
-# Remover blocos depends_on que ficaram vazios (depends_on: seguido de linha nao-indentada ou outra chave)
-# Loop porque o sed single-pass pode nao pegar todos
-for _i in 1 2 3; do
-  sed -i -E '/^\s+depends_on:\s*$/{N;/^\s+depends_on:\s*\n\s+(condition:|[a-zA-Z_]+:\s*$)/!d}' docker-compose.yml 2>/dev/null || true
-done
-# Fallback: remover qualquer depends_on: que ficou sozinho antes de environment:/ports:/volumes:/restart:/healthcheck:
-sed -i '/^\s*depends_on:\s*$/{N;/\n\s*(environment|ports|volumes|restart|healthcheck|image|container_name|command):/{ s/\s*depends_on:\s*\n/\n/; }}' docker-compose.yml 2>/dev/null || true
+# Remover blocos depends_on que ficaram vazios usando Python3
+python3 -c "
+import re
+with open('docker-compose.yml') as f:
+    lines = f.readlines()
+result = []
+i = 0
+while i < len(lines):
+    if re.match(r'^(\s+)depends_on:\s*$', lines[i]):
+        indent = len(re.match(r'^(\s+)', lines[i]).group(1))
+        if i + 1 >= len(lines) or not re.match(r'^\s{' + str(indent + 1) + r',}', lines[i + 1]):
+            i += 1
+            continue
+    result.append(lines[i])
+    i += 1
+with open('docker-compose.yml', 'w') as f:
+    f.writelines(result)
+"
 log_success "Servico analytics desabilitado."
 
 # Subir containers
