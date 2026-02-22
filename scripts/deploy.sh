@@ -21,10 +21,21 @@ SUPABASE_DIR="/opt/supabase-docker"
 FUNCTIONS_DIR="${SUPABASE_DIR}/docker/volumes/functions"
 
 if [ -d "$FUNCTIONS_DIR" ]; then
-  cp -r supabase/functions/evolution-api "$FUNCTIONS_DIR/" 2>/dev/null || true
-  cp -r supabase/functions/send-scheduled-messages "$FUNCTIONS_DIR/" 2>/dev/null || true
+  for FUNC in evolution-api send-scheduled-messages admin-api backup-export generate-ai-message process-queue; do
+    cp -r "supabase/functions/${FUNC}" "$FUNCTIONS_DIR/" 2>/dev/null || true
+  done
   cd "${SUPABASE_DIR}/docker" && docker compose restart functions 2>/dev/null || true
   cd "$PROJECT_DIR"
+fi
+
+echo "[INFO] Atualizando Baileys Server..."
+if [ -d "${PROJECT_DIR}/baileys-server" ]; then
+  docker build -t baileys-server "${PROJECT_DIR}/baileys-server" 2>/dev/null && \
+    docker rm -f baileys-server 2>/dev/null && \
+    docker run -d --name baileys-server --restart unless-stopped \
+      -p 127.0.0.1:3100:3100 -v baileys-data:/data baileys-server 2>/dev/null && \
+    echo "[OK] Baileys Server atualizado." || \
+    echo "[AVISO] Falha ao atualizar Baileys Server."
 fi
 
 echo "[INFO] Redeployando frontend no Swarm..."

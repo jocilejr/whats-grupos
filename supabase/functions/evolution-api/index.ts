@@ -19,10 +19,24 @@ async function getGlobalConfig(supabase: any) {
     .select("*")
     .limit(1)
     .maybeSingle();
-  if (error || !data || !data.evolution_api_url) {
-    return null;
-  }
+  if (error || !data) return null;
   return data;
+}
+
+function getProviderConfig(globalConfig: any) {
+  const provider = globalConfig.whatsapp_provider || "evolution";
+  if (provider === "baileys") {
+    return {
+      provider: "baileys",
+      apiUrl: (globalConfig.baileys_api_url || "http://localhost:3100").replace(/\/$/, ""),
+      headers: { "Content-Type": "application/json" } as Record<string, string>,
+    };
+  }
+  return {
+    provider: "evolution",
+    apiUrl: (globalConfig.evolution_api_url || "").replace(/\/$/, ""),
+    headers: { apikey: globalConfig.evolution_api_key } as Record<string, string>,
+  };
 }
 
 const SEND_ACTIONS = new Set([
@@ -94,12 +108,12 @@ Deno.serve(async (req) => {
     }
 
     const globalConfig = await getGlobalConfig(supabase);
-    if (!globalConfig) return json({ error: "Evolution API not configured. Contact admin." }, 500);
+    if (!globalConfig) return json({ error: "WhatsApp provider not configured. Contact admin." }, 500);
 
-    const apiUrl = globalConfig.evolution_api_url.replace(/\/$/, "");
-    const apiKey = globalConfig.evolution_api_key;
+    const { provider, apiUrl, headers } = getProviderConfig(globalConfig);
+    if (!apiUrl) return json({ error: `${provider} API URL not configured. Contact admin.` }, 500);
+
     const instanceName = url.searchParams.get("instanceName") || config.instance_name;
-    const headers = { apikey: apiKey };
 
     let result: any;
 
@@ -121,14 +135,14 @@ Deno.serve(async (req) => {
       case "fetchInstances": {
         const resp = await fetch(`${apiUrl}/instance/fetchInstances`, { headers });
         const rawText = await resp.text();
-        console.log(`[fetchInstances] Status: ${resp.status}, Response: ${rawText.substring(0, 500)}`);
+        console.log(`[fetchInstances] Provider: ${provider}, Status: ${resp.status}, Response: ${rawText.substring(0, 500)}`);
         try { result = JSON.parse(rawText); } catch { result = { raw: rawText }; }
         break;
       }
 
       case "connectInstance": {
         const connectUrl = `${apiUrl}/instance/connect/${instanceName}`;
-        console.log(`[connectInstance] URL: ${connectUrl}`);
+        console.log(`[connectInstance] Provider: ${provider}, URL: ${connectUrl}`);
         const resp = await fetch(connectUrl, { headers });
         const rawText = await resp.text();
         console.log(`[connectInstance] Status: ${resp.status}, Response: ${rawText.substring(0, 500)}`);
@@ -137,8 +151,7 @@ Deno.serve(async (req) => {
       }
 
       case "reconnectInstance": {
-        // Workaround for Evolution API v2 QR bug: delete + recreate instance
-        console.log(`[reconnectInstance] Deleting instance: ${instanceName}`);
+        console.log(`[reconnectInstance] Provider: ${provider}, Deleting instance: ${instanceName}`);
         const delResp = await fetch(`${apiUrl}/instance/delete/${instanceName}`, {
           method: "DELETE", headers,
         });
@@ -162,7 +175,6 @@ Deno.serve(async (req) => {
         if (createResult?.qrcode) {
           result = createResult;
         } else {
-          // Try connect after create
           await new Promise(r => setTimeout(r, 2000));
           const connResp = await fetch(`${apiUrl}/instance/connect/${instanceName}`, { headers });
           const connText = await connResp.text();
@@ -174,7 +186,7 @@ Deno.serve(async (req) => {
 
       case "connectionState": {
         const stateUrl = `${apiUrl}/instance/connectionState/${instanceName}`;
-        console.log(`[connectionState] URL: ${stateUrl}`);
+        console.log(`[connectionState] Provider: ${provider}, URL: ${stateUrl}`);
         const resp = await fetch(stateUrl, { headers });
         const rawText = await resp.text();
         console.log(`[connectionState] Status: ${resp.status}, Response: ${rawText}`);
@@ -183,9 +195,8 @@ Deno.serve(async (req) => {
       }
 
       case "fetchGroups": {
-        // Try fetchAllGroups first, then retry once on 500
         const groupsUrl = `${apiUrl}/group/fetchAllGroups/${instanceName}?getParticipants=false`;
-        console.log(`[fetchGroups] URL: ${groupsUrl}`);
+        console.log(`[fetchGroups] Provider: ${provider}, URL: ${groupsUrl}`);
         let resp = await fetch(groupsUrl, { headers });
         
         if (resp.status === 500) {
@@ -197,8 +208,7 @@ Deno.serve(async (req) => {
         const rawText = await resp.text();
         console.log(`[fetchGroups] Status: ${resp.status}, Response length: ${rawText.length}, Preview: ${rawText.substring(0, 500)}`);
         
-        if (resp.status === 500) {
-          // Try alternative: restart instance and retry
+        if (resp.status === 500 && provider === "evolution") {
           console.log(`[fetchGroups] Still 500, trying instance restart...`);
           await fetch(`${apiUrl}/instance/restart/${instanceName}`, { method: "PUT", headers });
           await new Promise(r => setTimeout(r, 3000));
