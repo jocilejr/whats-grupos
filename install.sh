@@ -435,6 +435,42 @@ log_success "Edge Functions deployadas."
 # 8/9 - Criar conta administrador
 # ============================================================
 
+# ============================================================
+# 7.5/10 - Instalar Baileys Server (backup WhatsApp)
+# ============================================================
+
+log_step "7.5/10 - Instalando Baileys Server (provedor WhatsApp local)"
+
+if [ -d "${PROJECT_DIR}/baileys-server" ]; then
+  log_info "Buildando imagem do Baileys Server..."
+  docker build -t baileys-server "${PROJECT_DIR}/baileys-server" || log_warn "Falha ao buildar Baileys Server."
+
+  # Parar container existente se houver
+  docker rm -f baileys-server 2>/dev/null || true
+
+  log_info "Iniciando Baileys Server na porta 3100..."
+  docker run -d \
+    --name baileys-server \
+    --restart unless-stopped \
+    -p 127.0.0.1:3100:3100 \
+    -v baileys-data:/data \
+    baileys-server || log_warn "Falha ao iniciar Baileys Server."
+
+  # Verificar se esta rodando
+  sleep 3
+  if docker ps -q -f name=baileys-server | grep -q .; then
+    log_success "Baileys Server rodando na porta 3100."
+  else
+    log_warn "Baileys Server nao iniciou. Verifique: docker logs baileys-server"
+  fi
+else
+  log_warn "Diretorio baileys-server/ nao encontrado. Pulando instalacao do Baileys."
+fi
+
+# ============================================================
+# 8/9 - Criar conta administrador
+# ============================================================
+
 log_step "8/9 - Criando conta administrador"
 
 # Aguardar todos os servicos ficarem prontos

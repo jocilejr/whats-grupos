@@ -99,6 +99,7 @@ export type Database = {
       }
       global_config: {
         Row: {
+          baileys_api_url: string
           created_at: string
           evolution_api_key: string
           evolution_api_url: string
@@ -106,8 +107,10 @@ export type Database = {
           openai_api_key: string
           queue_delay_seconds: number
           updated_at: string
+          whatsapp_provider: string
         }
         Insert: {
+          baileys_api_url?: string
           created_at?: string
           evolution_api_key?: string
           evolution_api_url?: string
@@ -115,8 +118,10 @@ export type Database = {
           openai_api_key?: string
           queue_delay_seconds?: number
           updated_at?: string
+          whatsapp_provider?: string
         }
         Update: {
+          baileys_api_url?: string
           created_at?: string
           evolution_api_key?: string
           evolution_api_url?: string
@@ -124,6 +129,7 @@ export type Database = {
           openai_api_key?: string
           queue_delay_seconds?: number
           updated_at?: string
+          whatsapp_provider?: string
         }
         Relationships: []
       }

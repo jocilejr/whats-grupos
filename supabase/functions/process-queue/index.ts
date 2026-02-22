@@ -6,7 +6,6 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-const DEFAULT_DELAY_MS = 10_000;
 const MAX_ITEMS_PER_EXECUTION = 25;
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -30,6 +29,22 @@ async function checkRateLimit(supabase: any, userId: string): Promise<{ limited:
   return { limited: (count || 0) >= max, max };
 }
 
+function getProviderConfig(globalConfig: any) {
+  const provider = globalConfig?.whatsapp_provider || "evolution";
+  if (provider === "baileys") {
+    return {
+      provider: "baileys",
+      apiUrl: (globalConfig.baileys_api_url || "http://localhost:3100").replace(/\/$/, ""),
+      apiKey: "",
+    };
+  }
+  return {
+    provider: "evolution",
+    apiUrl: (globalConfig?.evolution_api_url || "").replace(/\/$/, ""),
+    apiKey: globalConfig?.evolution_api_key || "",
+  };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -42,7 +57,7 @@ Deno.serve(async (req) => {
 
     const { data: globalCfg } = await supabase
       .from("global_config")
-      .select("queue_delay_seconds")
+      .select("*")
       .limit(1)
       .maybeSingle();
     const delayMs = ((globalCfg?.queue_delay_seconds) || 10) * 1000;
@@ -97,8 +112,11 @@ Deno.serve(async (req) => {
       }
 
       try {
+        // Determine API URL and key - check user config first, then global
         let apiUrl = "";
         let apiKey = "";
+        let provider = "evolution";
+
         if (item.api_config_id) {
           const { data: config } = await supabase
             .from("api_configs")
@@ -110,17 +128,15 @@ Deno.serve(async (req) => {
             apiKey = config.api_key;
           }
         }
+
+        // Fall back to global config (with provider routing)
         if (!apiUrl || apiUrl === "global" || !apiKey || apiKey === "global") {
-          const { data: gc } = await supabase
-            .from("global_config")
-            .select("evolution_api_url, evolution_api_key")
-            .limit(1)
-            .maybeSingle();
-          if (!gc?.evolution_api_url) throw new Error("No global API config found");
-          apiUrl = gc.evolution_api_url;
-          apiKey = gc.evolution_api_key;
+          const providerCfg = getProviderConfig(globalCfg);
+          if (!providerCfg.apiUrl) throw new Error("No API config found");
+          apiUrl = providerCfg.apiUrl;
+          apiKey = providerCfg.apiKey;
+          provider = providerCfg.provider;
         }
-        apiUrl = apiUrl.replace(/\/$/, "");
 
         const content = item.content as any;
         const { endpoint, body } = buildMessagePayload(
@@ -128,9 +144,15 @@ Deno.serve(async (req) => {
         );
         if (content.mentionsEveryOne) body.mentionsEveryOne = true;
 
+        // Build headers based on provider
+        const fetchHeaders: Record<string, string> = { "Content-Type": "application/json" };
+        if (provider === "evolution" && apiKey) {
+          fetchHeaders.apikey = apiKey;
+        }
+
         const resp = await fetch(endpoint, {
           method: "POST",
-          headers: { apikey: apiKey, "Content-Type": "application/json" },
+          headers: fetchHeaders,
           body: JSON.stringify(body),
           signal: AbortSignal.timeout(25000),
         });
@@ -155,7 +177,7 @@ Deno.serve(async (req) => {
           });
 
           processed++;
-          console.log(`Queue item ${item.id}: group ${item.group_id} → OK`);
+          console.log(`Queue item ${item.id}: group ${item.group_id} → OK (${provider})`);
         } else {
           await supabase.from("message_queue").update({
             status: "error",
@@ -176,12 +198,12 @@ Deno.serve(async (req) => {
           });
 
           errors++;
-          console.error(`Queue item ${item.id}: group ${item.group_id} → ERROR. Continuing.`);
+          console.error(`Queue item ${item.id}: group ${item.group_id} → ERROR (${provider}). Continuing.`);
         }
       } catch (e) {
         const isTimeout = e.name === "TimeoutError" || e.name === "AbortError";
         const errorMsg = isTimeout
-          ? "Timeout: Evolution API não respondeu em 25s"
+          ? "Timeout: API não respondeu em 25s"
           : e.message;
         await supabase.from("message_queue").update({
           status: "error",
