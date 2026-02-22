@@ -183,11 +183,12 @@ Deno.serve(async (req) => {
       }
 
       case "fetchGroups": {
-        const resp = await fetch(
-          `${apiUrl}/group/fetchAllGroups/${instanceName}?getParticipants=false`,
-          { headers }
-        );
-        result = await resp.json();
+        const groupsUrl = `${apiUrl}/group/fetchAllGroups/${instanceName}?getParticipants=false`;
+        console.log(`[fetchGroups] URL: ${groupsUrl}`);
+        const resp = await fetch(groupsUrl, { headers });
+        const rawText = await resp.text();
+        console.log(`[fetchGroups] Status: ${resp.status}, Response length: ${rawText.length}, Preview: ${rawText.substring(0, 500)}`);
+        try { result = JSON.parse(rawText); } catch { result = { raw: rawText }; }
         break;
       }
 
