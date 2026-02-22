@@ -88,6 +88,21 @@ Deno.serve(async (req) => {
     const action = url.searchParams.get("action");
     const configId = url.searchParams.get("configId");
 
+    // Health check doesn't require configId - it's an infrastructure test
+    if (action === "healthCheck") {
+      const globalConfig = await getGlobalConfig(supabase);
+      if (!globalConfig) return json({ error: "WhatsApp provider not configured. Contact admin." }, 500);
+      const { apiUrl } = getProviderConfig(globalConfig);
+      if (!apiUrl) return json({ error: "API URL not configured." }, 500);
+      try {
+        const resp = await fetch(`${apiUrl}/health`);
+        const data = await resp.json();
+        return json({ status: "ok", ...data });
+      } catch (e: any) {
+        return json({ status: "error", error: e.message }, 500);
+      }
+    }
+
     if (!configId) return json({ error: "configId is required" }, 400);
 
     const { data: config, error: configError } = await supabase
