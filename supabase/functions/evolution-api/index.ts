@@ -183,12 +183,32 @@ Deno.serve(async (req) => {
       }
 
       case "fetchGroups": {
+        // Try fetchAllGroups first, then retry once on 500
         const groupsUrl = `${apiUrl}/group/fetchAllGroups/${instanceName}?getParticipants=false`;
         console.log(`[fetchGroups] URL: ${groupsUrl}`);
-        const resp = await fetch(groupsUrl, { headers });
+        let resp = await fetch(groupsUrl, { headers });
+        
+        if (resp.status === 500) {
+          console.log(`[fetchGroups] Got 500, retrying after 2s...`);
+          await new Promise(r => setTimeout(r, 2000));
+          resp = await fetch(groupsUrl, { headers });
+        }
+        
         const rawText = await resp.text();
         console.log(`[fetchGroups] Status: ${resp.status}, Response length: ${rawText.length}, Preview: ${rawText.substring(0, 500)}`);
-        try { result = JSON.parse(rawText); } catch { result = { raw: rawText }; }
+        
+        if (resp.status === 500) {
+          // Try alternative: restart instance and retry
+          console.log(`[fetchGroups] Still 500, trying instance restart...`);
+          await fetch(`${apiUrl}/instance/restart/${instanceName}`, { method: "PUT", headers });
+          await new Promise(r => setTimeout(r, 3000));
+          const retryResp = await fetch(groupsUrl, { headers });
+          const retryText = await retryResp.text();
+          console.log(`[fetchGroups] After restart - Status: ${retryResp.status}, Preview: ${retryText.substring(0, 500)}`);
+          try { result = JSON.parse(retryText); } catch { result = []; }
+        } else {
+          try { result = JSON.parse(rawText); } catch { result = { raw: rawText }; }
+        }
         break;
       }
 
