@@ -1,34 +1,37 @@
 
 
-# Correção das Políticas RLS (RESTRICTIVE -> PERMISSIVE)
+# Correção das Políticas RLS: RESTRICTIVE para PERMISSIVE
 
-## Problema Identificado
+## Problema
 
-Todas as políticas RLS do projeto estão criadas como **RESTRICTIVE** (`Permissive: No`). No PostgreSQL, quando existem apenas políticas restritivas e nenhuma permissiva, **todo acesso é negado**. Por isso o `useRole()` não consegue ler a tabela `user_roles` e o sistema trata o admin como usuário comum.
+Todas as políticas RLS do banco estão criadas como **RESTRICTIVE**. No PostgreSQL, quando existem apenas políticas restritivas sem nenhuma permissiva, **todo acesso é negado**. Por isso o `useRole()` não consegue ler `user_roles` e o menu de admin não aparece.
 
 ## Solução
 
-Recriar as políticas RLS como **PERMISSIVE** (padrão do PostgreSQL) nas seguintes tabelas:
+Recriar todas as políticas RLS como **PERMISSIVE** (comportamento padrão do PostgreSQL). Isso será feito via uma migração SQL no Lovable Cloud.
 
-1. **user_roles** - "Users can read own role" e "Admins can manage all roles"
-2. **user_plans** - "Users can read own plan" e "Admins can manage all plans"
-3. **profiles** - todas as 3 políticas (insert, update, select)
-4. **api_configs** - "Users manage own api_configs"
-5. **campaigns** - "Users manage own campaigns"
-6. **message_logs** - "Users manage own logs"
-7. **message_queue** - "Users manage own queue items"
-8. **message_templates** - "Users manage own templates"
-9. **scheduled_messages** - "Users manage own schedules"
-10. **global_config** - "Admins can manage global config"
+Após aplicar aqui, fornecerei o SQL completo para executar na VPS também.
 
-## Detalhes Técnicos
+## Tabelas afetadas
 
-Uma migração SQL será executada para:
+1. **user_roles** - 2 policies (read own role + admins manage)
+2. **user_plans** - 2 policies (read own plan + admins manage)
+3. **profiles** - 3 policies (insert, update, select own)
+4. **global_config** - 1 policy (admins manage)
+5. **api_configs** - 1 policy (users manage own)
+6. **campaigns** - 1 policy (users manage own)
+7. **message_logs** - 1 policy (users manage own)
+8. **message_queue** - 1 policy (users manage own)
+9. **message_templates** - 1 policy (users manage own)
+10. **scheduled_messages** - 1 policy (users manage own)
 
-1. Dropar todas as políticas restritivas existentes
-2. Recriá-las como permissivas (que é o comportamento padrão do `CREATE POLICY`)
+## Detalhes Tecnicos
 
-Exemplo para `user_roles`:
+Uma unica migracao SQL que:
+1. Remove (DROP) cada politica restritiva existente
+2. Recria a mesma politica sem a clausula `AS RESTRICTIVE`, tornando-a permissiva (padrao)
+
+Exemplo:
 ```text
 DROP POLICY "Users can read own role" ON public.user_roles;
 CREATE POLICY "Users can read own role"
@@ -37,13 +40,11 @@ CREATE POLICY "Users can read own role"
   USING (auth.uid() = user_id);
 ```
 
-Isso será repetido para todas as 10 tabelas listadas.
-
-**Importante para o VPS:** Após aplicar a migração no Lovable Cloud, o mesmo SQL precisa ser executado no banco do VPS para corrigir o problema lá também. Fornecerei o comando completo para execução via `docker exec`.
+Apos aplicar no Lovable Cloud, fornecerei o comando completo para rodar na VPS via `docker exec`.
 
 ## Impacto
 
-- Zero mudanças no código frontend
-- Apenas migração SQL de políticas RLS
-- Após aplicação, o hook `useRole()` conseguirá ler o role "admin" corretamente e o menu de administração aparecerá
+- Nenhuma mudanca no codigo frontend
+- Apenas migracao SQL
+- Apos aplicacao, o hook `useRole()` conseguira ler o role "admin" e o menu aparecera
 
