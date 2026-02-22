@@ -33,6 +33,7 @@ if [ -d "${PROJECT_DIR}/baileys-server" ]; then
   docker build -t baileys-server "${PROJECT_DIR}/baileys-server" 2>/dev/null && \
     docker rm -f baileys-server 2>/dev/null && \
     docker run -d --name baileys-server --restart unless-stopped \
+      --network supabase_default \
       -p 127.0.0.1:3100:3100 -v baileys-data:/data baileys-server 2>/dev/null && \
     echo "[OK] Baileys Server atualizado." || \
     echo "[AVISO] Falha ao atualizar Baileys Server."

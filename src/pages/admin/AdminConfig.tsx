@@ -31,7 +31,7 @@ export default function AdminConfig() {
   const [apiKey, setApiKey] = useState("");
   const [openaiKey, setOpenaiKey] = useState("");
   const [provider, setProvider] = useState<string>("evolution");
-  const [baileysUrl, setBaileysUrl] = useState("http://localhost:3100");
+  
   const [testing, setTesting] = useState(false);
   const [testingBaileys, setTestingBaileys] = useState(false);
   const [testingOpenai, setTestingOpenai] = useState(false);
@@ -43,7 +43,7 @@ export default function AdminConfig() {
     setApiKey(config.evolution_api_key || "");
     setOpenaiKey((config as any).openai_api_key || "");
     setProvider((config as any).whatsapp_provider || "evolution");
-    setBaileysUrl((config as any).baileys_api_url || "http://localhost:3100");
+    
   }
 
   const save = useMutation({
@@ -53,7 +53,7 @@ export default function AdminConfig() {
         evolution_api_key: apiKey,
         openai_api_key: openaiKey,
         whatsapp_provider: provider,
-        baileys_api_url: baileysUrl.replace(/\/$/, ""),
+        
       };
       if (!config?.id) {
         const { error } = await supabase.from("global_config").insert(payload);
@@ -200,17 +200,13 @@ export default function AdminConfig() {
             <TabsContent value="baileys">
               <form onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="space-y-4">
                 <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-sm text-muted-foreground">
-                  O Baileys roda diretamente na VPS como um servidor local. Não requer conta externa nem API Key.
-                </div>
-                <div className="space-y-2">
-                  <Label>URL do Servidor Baileys</Label>
-                  <Input value={baileysUrl} onChange={(e) => setBaileysUrl(e.target.value)} placeholder="http://localhost:3100" />
+                  O Baileys roda diretamente na VPS como um container Docker. A conexão é detectada automaticamente — não é necessário configurar URL.
                 </div>
                 <div className="flex gap-2">
                   <Button type="submit" disabled={save.isPending}>
                     {save.isPending ? "Salvando..." : "Salvar Configuração"}
                   </Button>
-                  <Button type="button" variant="outline" onClick={testBaileys} disabled={testingBaileys || !baileysUrl}>
+                  <Button type="button" variant="outline" onClick={testBaileys} disabled={testingBaileys}>
                     {testingBaileys ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Server className="h-4 w-4 mr-2" />}
                     Testar Conexão
                   </Button>
