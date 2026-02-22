@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePlan } from "@/hooks/useRole";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -49,6 +49,37 @@ export default function SettingsPage() {
 
   const [testingId, setTestingId] = useState<string | null>(null);
   const [connectionStates, setConnectionStates] = useState<Record<string, any>>({});
+  const mountedRef = useRef(true);
+
+  const pollAllStatuses = useCallback(async (configList: typeof configs) => {
+    if (!configList?.length) return;
+    const results: Record<string, any> = {};
+    await Promise.all(
+      configList.map(async (config) => {
+        try {
+          const result = await callEvolutionApi("connectionState", config.id);
+          results[config.id] = result;
+        } catch {
+          // silently ignore polling errors
+        }
+      })
+    );
+    if (mountedRef.current) {
+      setConnectionStates((prev) => ({ ...prev, ...results }));
+    }
+  }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!configs?.length) return;
+    pollAllStatuses(configs);
+    const interval = setInterval(() => pollAllStatuses(configs), 15000);
+    return () => clearInterval(interval);
+  }, [configs, pollAllStatuses]);
 
   const callEvolutionApi = async (action: string, configId: string, body?: any) => {
     const { data: { session } } = await supabase.auth.getSession();
