@@ -28,7 +28,7 @@ function getProviderConfig(globalConfig: any) {
   if (provider === "baileys") {
     return {
       provider: "baileys",
-      apiUrl: (globalConfig.baileys_api_url || "http://localhost:3100").replace(/\/$/, ""),
+      apiUrl: "http://baileys-server:3100",
       headers: { "Content-Type": "application/json" } as Record<string, string>,
     };
   }
