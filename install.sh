@@ -347,8 +347,13 @@ sed -i '/- analytics/d' docker-compose.yml 2>/dev/null || true
 sed -i '/^      analytics:/{N;d}' docker-compose.yml 2>/dev/null || true
 sed -i '/^        analytics:/{N;d}' docker-compose.yml 2>/dev/null || true
 
-# Remover blocos depends_on que ficaram vazios
-sed -i -E '/^\s+depends_on:\s*$/{N;/^\s+depends_on:\s*\n\s*[a-z]/!d}' docker-compose.yml 2>/dev/null || true
+# Remover blocos depends_on que ficaram vazios (depends_on: seguido de linha nao-indentada ou outra chave)
+# Loop porque o sed single-pass pode nao pegar todos
+for _i in 1 2 3; do
+  sed -i -E '/^\s+depends_on:\s*$/{N;/^\s+depends_on:\s*\n\s+(condition:|[a-zA-Z_]+:\s*$)/!d}' docker-compose.yml 2>/dev/null || true
+done
+# Fallback: remover qualquer depends_on: que ficou sozinho antes de environment:/ports:/volumes:/restart:/healthcheck:
+sed -i '/^\s*depends_on:\s*$/{N;/\n\s*(environment|ports|volumes|restart|healthcheck|image|container_name|command):/{ s/\s*depends_on:\s*\n/\n/; }}' docker-compose.yml 2>/dev/null || true
 log_success "Servico analytics desabilitado."
 
 # Subir containers
