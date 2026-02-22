@@ -52,13 +52,12 @@ CERT_RESOLVER="letsencryptresolver"
 if command -v docker &>/dev/null; then
   SWARM_STATE=$(docker info --format '{{.Swarm.LocalNodeState}}' 2>/dev/null || echo "inactive")
   if [ "$SWARM_STATE" = "active" ]; then
-    # Procurar servico Traefik
     TRAEFIK_SERVICE=$(docker service ls --format '{{.Name}}' 2>/dev/null | grep -i traefik | head -1 || true)
     if [ -n "$TRAEFIK_SERVICE" ]; then
       USE_TRAEFIK=true
       log_info "Traefik detectado no Docker Swarm (servico: ${TRAEFIK_SERVICE})"
 
-      # ---- Detectar rede do Traefik ----
+      # Detectar rede do Traefik
       TRAEFIK_NETWORK=$(docker service inspect "$TRAEFIK_SERVICE" --format '{{range .Spec.TaskTemplate.Networks}}{{.Target}} {{end}}' 2>/dev/null | xargs || true)
       if [ -n "$TRAEFIK_NETWORK" ]; then
         TRAEFIK_NETWORK=$(docker network inspect "$TRAEFIK_NETWORK" --format '{{.Name}}' 2>/dev/null || echo "$TRAEFIK_NETWORK")
@@ -71,8 +70,7 @@ if command -v docker &>/dev/null; then
       fi
       log_info "Rede do Traefik: ${TRAEFIK_NETWORK}"
 
-      # ---- Detectar certresolver e file provider ----
-      # Tentar via YAML config dentro do container
+      # Detectar certresolver e file provider
       TRAEFIK_CONTAINER=$(docker ps -q -f name=traefik | head -1 || true)
       TRAEFIK_CONFIG=""
       if [ -n "$TRAEFIK_CONTAINER" ]; then
@@ -81,22 +79,18 @@ if command -v docker &>/dev/null; then
       fi
 
       if [ -n "$TRAEFIK_CONFIG" ]; then
-        # Config via YAML
         DETECTED_RESOLVER=$(echo "$TRAEFIK_CONFIG" | grep -A1 "certificatesResolvers" | grep -oP '^\s+\K\w+' | head -1 || true)
         if [ -n "$DETECTED_RESOLVER" ]; then
           CERT_RESOLVER="$DETECTED_RESOLVER"
         fi
         TRAEFIK_DYNAMIC_DIR=$(echo "$TRAEFIK_CONFIG" | grep -A5 "file:" | grep "directory:" | sed 's/.*directory:\s*//' | tr -d '"' | tr -d "'" | xargs || true)
       else
-        # Config via CLI args (docker service inspect)
         SERVICE_ARGS=$(docker service inspect "$TRAEFIK_SERVICE" --format '{{range .Spec.TaskTemplate.ContainerSpec.Args}}{{.}} {{end}}' 2>/dev/null || true)
         if [ -n "$SERVICE_ARGS" ]; then
-          # Detectar certresolver: --certificatesresolvers.<name>.acme...
           DETECTED_RESOLVER=$(echo "$SERVICE_ARGS" | grep -oP 'certificatesresolvers\.\K[^.]+' | head -1 || true)
           if [ -n "$DETECTED_RESOLVER" ]; then
             CERT_RESOLVER="$DETECTED_RESOLVER"
           fi
-          # Detectar file provider directory: --providers.file.directory=<path>
           DETECTED_DIR=$(echo "$SERVICE_ARGS" | grep -oP 'providers\.file\.directory=\K[^\s]+' || true)
           if [ -n "$DETECTED_DIR" ]; then
             TRAEFIK_DYNAMIC_DIR="$DETECTED_DIR"
@@ -132,7 +126,7 @@ if [ -z "$DOMAIN" ]; then
   die "Dominio e obrigatorio."
 fi
 
-# Limpar protocolo, www e barra final do dominio
+# Limpar protocolo, www e barra final
 DOMAIN=$(echo "$DOMAIN" | sed -e 's|^https\?://||' -e 's|/$||' -e 's|^www\.||' | xargs)
 
 if [[ ! "$DOMAIN" =~ \. ]]; then
@@ -154,12 +148,34 @@ if [ -z "$DB_PASSWORD" ]; then
   log_info "Senha do banco gerada automaticamente."
 fi
 
+# ---- Admin credentials ----
+echo ""
+echo -e "${CYAN}Configuracao da conta administrador:${NC}"
+read -p "Email do administrador: " ADMIN_EMAIL
+if [ -z "$ADMIN_EMAIL" ]; then
+  die "Email do administrador e obrigatorio."
+fi
+if [[ ! "$ADMIN_EMAIL" =~ ^[^@]+@[^@]+\.[^@]+$ ]]; then
+  die "Email invalido: '${ADMIN_EMAIL}'"
+fi
+
+while true; do
+  read -sp "Senha do administrador (minimo 6 caracteres): " ADMIN_PASSWORD
+  echo ""
+  if [ ${#ADMIN_PASSWORD} -lt 6 ]; then
+    log_warn "Senha deve ter no minimo 6 caracteres. Tente novamente."
+  else
+    break
+  fi
+done
+
 API_DOMAIN="api.${DOMAIN}"
 SUPABASE_DIR="/opt/supabase-docker"
 
 echo ""
 log_info "Dominio frontend: ${DOMAIN}"
 log_info "Dominio API:      ${API_DOMAIN}"
+log_info "Admin email:      ${ADMIN_EMAIL}"
 if [ "$USE_TRAEFIK" = true ]; then
   log_info "Proxy reverso:    Traefik (Docker Swarm)"
 else
@@ -173,10 +189,10 @@ if [[ ! "$CONFIRM" =~ ^[sS]$ ]]; then
 fi
 
 # ============================================================
-# 1. Instalar dependencias do sistema
+# 1/9 - Instalar dependencias do sistema
 # ============================================================
 
-log_step "1/8 - Instalando dependencias do sistema"
+log_step "1/9 - Instalando dependencias do sistema"
 
 apt-get update -qq
 apt-get install -y -qq curl git apt-transport-https ca-certificates gnupg lsb-release jq
@@ -230,16 +246,15 @@ fi
 log_success "Todas as dependencias instaladas."
 
 # ============================================================
-# 2. Configurar Supabase Self-Hosted
+# 2/9 - Configurar Supabase Self-Hosted
 # ============================================================
 
-log_step "2/8 - Configurando Supabase Self-Hosted"
+log_step "2/9 - Configurando Supabase Self-Hosted"
 
 # Gerar chaves JWT
 log_info "Gerando chaves JWT..."
 JWT_SECRET=$(openssl rand -base64 32)
 
-# Gerar ANON_KEY e SERVICE_ROLE_KEY usando Node.js
 chmod +x "${PROJECT_DIR}/scripts/generate-keys.sh"
 KEYS_OUTPUT=$(bash "${PROJECT_DIR}/scripts/generate-keys.sh" "$JWT_SECRET")
 ANON_KEY=$(echo "$KEYS_OUTPUT" | grep "ANON_KEY=" | cut -d'=' -f2-)
@@ -263,7 +278,7 @@ fi
 
 cd "${SUPABASE_DIR}/docker"
 
-# Verificar se porta 5432 esta em uso e escolher alternativa
+# Verificar se porta 5432 esta em uso
 DB_PORT=5432
 if ss -tlnp | grep -q ":${DB_PORT} "; then
   log_warn "Porta ${DB_PORT} em uso. Procurando porta alternativa..."
@@ -311,10 +326,16 @@ if [ "$DB_PORT" -ne 5432 ]; then
   fi
 fi
 
-# Comentar porta externa do Kong (sera acessado apenas internamente)
-log_info "Configurando Kong para acesso apenas interno..."
+# Expor Kong apenas no localhost (necessario para criar admin e cron)
+log_info "Configurando Kong para acesso interno (127.0.0.1:8000)..."
 sed -i -E 's/^(\s*-\s*"?\$\{KONG_HTTP_PORT\}:8000"?)$/# \1/' docker-compose.yml 2>/dev/null || true
 sed -i -E 's/^(\s*-\s*"8000:8000")$/# \1/' docker-compose.yml 2>/dev/null || true
+
+# Adicionar porta 8000 exposta no localhost no servico kong
+# Procurar a secao ports do kong e adicionar 127.0.0.1:8000:8000
+if ! grep -q "127.0.0.1:8000:8000" docker-compose.yml; then
+  sed -i '/kong:/,/^  [a-z]/{/ports:/a\      - "127.0.0.1:8000:8000"' docker-compose.yml 2>/dev/null || true
+fi
 
 # Subir containers
 log_info "Subindo containers do Supabase (pode demorar alguns minutos)..."
@@ -339,10 +360,21 @@ fi
 log_success "Supabase rodando."
 
 # ============================================================
-# 3. Executar migracoes do banco
+# 3/9 - Corrigir senhas internas do PostgreSQL
 # ============================================================
 
-log_step "3/8 - Executando migracoes do banco"
+log_step "3/9 - Sincronizando senhas do PostgreSQL"
+
+chmod +x "${PROJECT_DIR}/scripts/fix-pg-passwords.sh"
+bash "${PROJECT_DIR}/scripts/fix-pg-passwords.sh" "${DB_PASSWORD}" || die "Falha ao sincronizar senhas do PostgreSQL."
+
+log_success "Senhas do PostgreSQL sincronizadas."
+
+# ============================================================
+# 4/9 - Executar migracoes do banco
+# ============================================================
+
+log_step "4/9 - Executando migracoes do banco"
 
 chmod +x "${PROJECT_DIR}/scripts/run-migrations.sh"
 bash "${PROJECT_DIR}/scripts/run-migrations.sh" "${PROJECT_DIR}/supabase/migrations" "${DB_PASSWORD}" "${DB_PORT}" || die "Falha ao executar migracoes."
@@ -350,10 +382,10 @@ bash "${PROJECT_DIR}/scripts/run-migrations.sh" "${PROJECT_DIR}/supabase/migrati
 log_success "Migracoes executadas."
 
 # ============================================================
-# 4. Habilitar extensoes pg_cron e pg_net
+# 5/9 - Habilitar extensoes pg_cron e pg_net
 # ============================================================
 
-log_step "4/8 - Habilitando extensoes do banco"
+log_step "5/9 - Habilitando extensoes do banco"
 
 cd "${SUPABASE_DIR}/docker"
 
@@ -363,10 +395,10 @@ docker compose exec -T db psql -U postgres -d postgres -c "CREATE EXTENSION IF N
 log_success "Extensoes do banco configuradas."
 
 # ============================================================
-# 5. Configurar cron job
+# 6/9 - Configurar cron job
 # ============================================================
 
-log_step "5/8 - Configurando cron job para mensagens agendadas"
+log_step "6/9 - Configurando cron job para mensagens agendadas"
 
 chmod +x "${PROJECT_DIR}/scripts/setup-cron.sh"
 bash "${PROJECT_DIR}/scripts/setup-cron.sh" "${SUPABASE_DIR}" "${API_DOMAIN}" "${ANON_KEY}" "${DB_PASSWORD}" || die "Falha ao configurar cron job."
@@ -374,23 +406,25 @@ bash "${PROJECT_DIR}/scripts/setup-cron.sh" "${SUPABASE_DIR}" "${API_DOMAIN}" "$
 log_success "Cron job configurado."
 
 # ============================================================
-# 6. Deploy das Edge Functions
+# 7/9 - Deploy das Edge Functions (TODAS)
 # ============================================================
 
-log_step "6/8 - Fazendo deploy das Edge Functions"
+log_step "7/9 - Fazendo deploy das Edge Functions"
 
 FUNCTIONS_DIR="${SUPABASE_DIR}/docker/volumes/functions"
 mkdir -p "$FUNCTIONS_DIR"
 
-if [ -d "${PROJECT_DIR}/supabase/functions/evolution-api" ]; then
-  cp -r "${PROJECT_DIR}/supabase/functions/evolution-api" "$FUNCTIONS_DIR/"
-  log_success "Edge function 'evolution-api' copiada."
-fi
+# Lista de todas as edge functions do projeto
+EDGE_FUNCTIONS="evolution-api send-scheduled-messages admin-api backup-export generate-ai-message process-queue"
 
-if [ -d "${PROJECT_DIR}/supabase/functions/send-scheduled-messages" ]; then
-  cp -r "${PROJECT_DIR}/supabase/functions/send-scheduled-messages" "$FUNCTIONS_DIR/"
-  log_success "Edge function 'send-scheduled-messages' copiada."
-fi
+for FUNC_NAME in $EDGE_FUNCTIONS; do
+  if [ -d "${PROJECT_DIR}/supabase/functions/${FUNC_NAME}" ]; then
+    cp -r "${PROJECT_DIR}/supabase/functions/${FUNC_NAME}" "$FUNCTIONS_DIR/"
+    log_success "Edge function '${FUNC_NAME}' copiada."
+  else
+    log_warn "Edge function '${FUNC_NAME}' nao encontrada em supabase/functions/."
+  fi
+done
 
 cd "${SUPABASE_DIR}/docker"
 docker compose restart functions 2>/dev/null || log_warn "Container 'functions' nao encontrado."
@@ -398,10 +432,32 @@ docker compose restart functions 2>/dev/null || log_warn "Container 'functions' 
 log_success "Edge Functions deployadas."
 
 # ============================================================
-# 7. Buildar o frontend
+# 8/9 - Criar conta administrador
 # ============================================================
 
-log_step "7/8 - Buildando o frontend"
+log_step "8/9 - Criando conta administrador"
+
+# Aguardar todos os servicos ficarem prontos
+log_info "Aguardando servicos ficarem prontos..."
+sleep 10
+
+chmod +x "${PROJECT_DIR}/scripts/create-admin.sh"
+bash "${PROJECT_DIR}/scripts/create-admin.sh" \
+  "${SERVICE_ROLE_KEY}" \
+  "${ANON_KEY}" \
+  "${ADMIN_EMAIL}" \
+  "${ADMIN_PASSWORD}" \
+  "${DB_PASSWORD}" \
+  "${DB_PORT}" \
+  || die "Falha ao criar conta administrador."
+
+log_success "Conta administrador criada."
+
+# ============================================================
+# 9/9 - Buildar frontend + proxy reverso
+# ============================================================
+
+log_step "9/9 - Buildando frontend e configurando proxy"
 
 cd "$PROJECT_DIR"
 
@@ -419,13 +475,9 @@ npm run build || die "Falha ao buildar o frontend."
 
 log_success "Frontend buildado em dist/."
 
-# ============================================================
-# 8. Configurar proxy reverso (Traefik ou Nginx)
-# ============================================================
+# ---- Configurar proxy reverso ----
 
 if [ "$USE_TRAEFIK" = true ]; then
-
-  log_step "8/8 - Configurando roteamento via Traefik"
 
   # Desabilitar Nginx do host se estiver rodando
   if systemctl is-active nginx &>/dev/null; then
@@ -435,8 +487,7 @@ if [ "$USE_TRAEFIK" = true ]; then
     log_success "Nginx do host desabilitado."
   fi
 
-  # ---- Configurar rota da API (Supabase Kong) via Traefik ----
-  # Gerar arquivo com placeholders substituidos
+  # Configurar rota da API via Traefik
   TEMP_API_YML=$(mktemp)
   sed "s|{{API_DOMAIN}}|${API_DOMAIN}|g; s|{{CERT_RESOLVER}}|${CERT_RESOLVER}|g; s|{{FRONTEND_DOMAIN}}|${DOMAIN}|g" \
     "${PROJECT_DIR}/traefik/supabase-api.yml" \
@@ -444,10 +495,7 @@ if [ "$USE_TRAEFIK" = true ]; then
 
   API_ROUTE_OK=false
 
-  # Metodo 1: Se detectamos o diretorio no host, copiar direto
   if [ -n "$TRAEFIK_DYNAMIC_DIR" ]; then
-    # Verificar se existe como diretorio no host (mapeado via bind mount)
-    # Encontrar o mount point no host
     TRAEFIK_CONTAINER=$(docker ps -q -f name=traefik | head -1 || true)
     if [ -n "$TRAEFIK_CONTAINER" ]; then
       HOST_DYNAMIC_DIR=$(docker inspect "$TRAEFIK_CONTAINER" --format '{{range .Mounts}}{{if eq .Destination "'"$TRAEFIK_DYNAMIC_DIR"'"}}{{.Source}}{{end}}{{end}}' 2>/dev/null || true)
@@ -459,7 +507,6 @@ if [ "$USE_TRAEFIK" = true ]; then
     fi
   fi
 
-  # Metodo 2: Copiar via docker cp para dentro do container
   if [ "$API_ROUTE_OK" = false ]; then
     TRAEFIK_CONTAINER=$(docker ps -q -f name=traefik | head -1 || true)
     if [ -n "$TRAEFIK_CONTAINER" ]; then
@@ -480,7 +527,7 @@ if [ "$USE_TRAEFIK" = true ]; then
     log_warn "Copie manualmente: docker cp traefik/supabase-api.yml <container>:/etc/traefik/dynamic/"
   fi
 
-  # ---- Deploy do frontend como stack no Swarm ----
+  # Deploy do frontend como stack no Swarm
   log_info "Deployando frontend no Docker Swarm..."
   export FRONTEND_DOMAIN="$DOMAIN"
   export CERT_RESOLVER="$CERT_RESOLVER"
@@ -488,7 +535,6 @@ if [ "$USE_TRAEFIK" = true ]; then
 
   cd "$PROJECT_DIR"
 
-  # Remover stack anterior se existir
   docker stack rm whats-frontend 2>/dev/null || true
   sleep 3
 
@@ -498,19 +544,15 @@ if [ "$USE_TRAEFIK" = true ]; then
 
 else
 
-  log_step "8/8 - Configurando Nginx + SSL"
-
+  # ---- Nginx ----
   HTTP_PORT=80
 
-  # Remover config default
   rm -f /etc/nginx/sites-enabled/default
 
-  # Frontend
   sed "s|{{DOMAIN}}|${DOMAIN}|g; s|{{PROJECT_DIR}}|${PROJECT_DIR}|g; s|{{HTTP_PORT}}|${HTTP_PORT}|g" \
     "${PROJECT_DIR}/nginx/frontend.conf.template" \
     > /etc/nginx/sites-available/whats-grupos
 
-  # API proxy
   sed "s|{{API_DOMAIN}}|${API_DOMAIN}|g; s|{{HTTP_PORT}}|${HTTP_PORT}|g" \
     "${PROJECT_DIR}/nginx/api.conf.template" \
     > /etc/nginx/sites-available/whats-grupos-api
@@ -568,6 +610,10 @@ echo -e "  Frontend:        ${CYAN}https://${DOMAIN}${NC}"
 echo -e "  API Supabase:    ${CYAN}https://${API_DOMAIN}${NC}"
 echo -e "  Supabase Studio: ${CYAN}https://${API_DOMAIN}/project/default${NC}"
 echo ""
+echo -e "  ${GREEN}Conta Administrador:${NC}"
+echo -e "    Email: ${YELLOW}${ADMIN_EMAIL}${NC}"
+echo -e "    Senha: ${YELLOW}${ADMIN_PASSWORD}${NC}"
+echo ""
 echo -e "  Studio Login:"
 echo -e "    Usuario: ${YELLOW}admin${NC}"
 echo -e "    Senha:   ${YELLOW}${DASHBOARD_PASSWORD}${NC}"
@@ -603,6 +649,8 @@ ANON_KEY=${ANON_KEY}
 SERVICE_ROLE_KEY=${SERVICE_ROLE_KEY}
 DASHBOARD_USER=admin
 DASHBOARD_PASSWORD=${DASHBOARD_PASSWORD}
+ADMIN_EMAIL=${ADMIN_EMAIL}
+ADMIN_PASSWORD=${ADMIN_PASSWORD}
 USE_TRAEFIK=${USE_TRAEFIK}
 TRAEFIK_NETWORK=${TRAEFIK_NETWORK}
 CERT_RESOLVER=${CERT_RESOLVER}
