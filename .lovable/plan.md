@@ -1,66 +1,93 @@
 
 
-# Corrigir Menções em Mídias - Adicionar Logs de Debug
+# Backup Completo para VPS - Sem Dependencia do Lovable Cloud
 
-## Problema
-A menção em imagens/videos não funciona apesar do codigo estar correto. O `catch` vazio no `groupMetadata` pode estar engolindo erros silenciosamente, impossibilitando o diagnostico.
+## Objetivo
 
-## Solucao
+Atualmente o backup exporta dados e midias usando a Edge Function `backup-export` do Lovable Cloud, e a restauracao faz upload de volta para o Storage do Lovable Cloud. O objetivo e tornar o sistema 100% autonomo na VPS, sem depender do Lovable Cloud para armazenamento de arquivos.
 
-### Arquivo: `baileys-server/server.js`
+## Mudancas Necessarias
 
-Adicionar logs no endpoint `sendMedia` para rastrear o fluxo completo:
+### 1. Exportacao de Midias - Direto pelo Storage URL (sem Edge Function)
 
-```javascript
-// Dentro do endpoint sendMedia, apos construir msgContent:
+Atualmente o `backup.ts` usa `supabase.functions.invoke("backup-export")` para baixar cada midia. Vamos mudar para baixar diretamente via `fetch()` da URL publica do Storage (que ja funciona tanto no Lovable Cloud quanto na VPS com Supabase self-hosted).
 
-console.log(`[sendMedia] mentionsEveryOne=${mentionsEveryOne}, jid=${jid}, mediatype=${mediatype}`);
+**Arquivo: `src/lib/backup.ts`**
+- Substituir a chamada `supabase.functions.invoke("backup-export")` por um `fetch()` direto na URL publica da midia
+- Converter o blob baixado para data URL (base64) no proprio frontend
+- Isso elimina a dependencia da Edge Function `backup-export`
 
-if (mentionsEveryOne) {
-  try {
-    const metadata = await session.sock.groupMetadata(jid);
-    msgContent.mentions = metadata.participants.map(p => p.id);
-    console.log(`[sendMedia] Mentions added: ${msgContent.mentions.length} participants`);
-  } catch (mentionErr) {
-    console.error(`[sendMedia] Failed to fetch group metadata for mentions:`, mentionErr.message);
-  }
-}
+### 2. Restauracao de Midias - Upload para o Storage da VPS
 
-console.log(`[sendMedia] Sending with mentions: ${!!msgContent.mentions}`);
+A restauracao ja faz upload para o Storage via `supabase.storage.from("media").upload()`. Isso funciona automaticamente apontando para o Supabase da VPS desde que o `VITE_SUPABASE_URL` esteja configurado corretamente no `.env` da VPS.
+
+Nenhuma mudanca necessaria aqui - ja funciona para qualquer Supabase (Cloud ou self-hosted).
+
+### 3. Reescrita de URLs durante Restauracao
+
+Adicionar logica para detectar e substituir URLs de midia do servidor de origem (ex: Lovable Cloud) pelas URLs do servidor de destino (VPS). Atualmente o `replaceUrls` so mapeia URLs de midias re-uploadadas. Vamos garantir que TODAS as URLs de midia nos registros apontem para o novo servidor.
+
+**Arquivo: `src/lib/backup.ts`**
+- Na funcao `importBackup`, alem do mapa de URLs das midias re-uploadadas, tambem substituir o dominio base de todas as URLs de midia que referenciem o servidor de origem (salvo no backup) pelo `VITE_SUPABASE_URL` atual
+
+### 4. Salvar URL de Origem no Backup
+
+**Arquivo: `src/lib/backup.ts`**
+- Adicionar campo `source_url` no `BackupFile` com o valor de `VITE_SUPABASE_URL` no momento da exportacao
+- Na restauracao, usar esse campo para fazer a substituicao de dominio automaticamente
+
+---
+
+## Detalhes Tecnicos
+
+### Arquivo: `src/lib/backup.ts`
+
+**Interface BackupFile** - Adicionar campo:
+```typescript
+source_url: string; // VITE_SUPABASE_URL de onde o backup foi gerado
 ```
 
-Tambem adicionar log no endpoint `sendText` (que funciona) para comparacao:
-
-```javascript
-console.log(`[sendText] mentionsEveryOne=${mentionsEveryOne}, jid=${jid}`);
+**Funcao `exportBackup`** - Substituir download via Edge Function:
+```typescript
+// ANTES: supabase.functions.invoke("backup-export", { body: { media_path } })
+// DEPOIS: fetch direto da URL publica
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const publicUrl = `${supabaseUrl}/storage/v1/object/public/media/${mediaPaths[i]}`;
+const resp = await fetch(publicUrl);
+const blob = await resp.blob();
+// converter blob para data URL base64
 ```
 
-### Apos o deploy
-
-Na VPS, reconstruir o container **sem cache**:
-
-```bash
-cd /opt/whats-grupos
-git pull
-docker build --no-cache -t baileys-server ./baileys-server
-docker rm -f baileys-server
-docker run -d --name baileys-server --restart unless-stopped \
-  --network supabase_default \
-  -p 127.0.0.1:3100:3100 -v baileys-data:/data baileys-server
+**Funcao `importBackup`** - Adicionar substituicao de dominio:
+```typescript
+// Apos upload das midias, substituir tambem o dominio base
+const sourceUrl = backup.source_url;
+const targetUrl = import.meta.env.VITE_SUPABASE_URL;
+// Em replaceUrls, tambem trocar sourceUrl por targetUrl em todas as strings
 ```
 
-Depois, enviar uma imagem com mencao e verificar os logs:
-
-```bash
-docker logs baileys-server --tail 20
+**Funcao `replaceUrls`** - Expandir para aceitar tambem substituicao de dominio:
+```typescript
+// Alem do urlMap existente, fazer string.replace do dominio de origem pelo destino
 ```
 
-Os logs vao mostrar exatamente onde o problema esta:
-- Se `mentionsEveryOne=undefined` -> o process-queue nao esta enviando o campo
-- Se `mentionsEveryOne=true` mas "Failed to fetch" -> erro ao buscar participantes
-- Se `mentionsEveryOne=true` e "Mentions added" -> funciona mas o WhatsApp ignora
+### Arquivo: `supabase/functions/backup-export/index.ts`
 
-## Detalhes tecnicos
+Nenhuma mudanca - a Edge Function continua existindo para compatibilidade, mas nao sera mais chamada pelo novo codigo.
 
-Arquivos modificados:
-- `baileys-server/server.js` - Adicionar console.log e trocar `catch (_) {}` por `catch` com log de erro
+---
+
+## Resumo do Fluxo
+
+### Exportacao (de qualquer servidor)
+1. Buscar todos os dados das tabelas
+2. Identificar URLs de midia nos registros
+3. Baixar cada midia diretamente pela URL publica (sem Edge Function)
+4. Salvar tudo no JSON incluindo o `source_url`
+
+### Restauracao (na VPS de destino)
+1. Fazer upload de cada midia para o Storage do servidor de destino
+2. Construir mapa de URLs antigas para novas
+3. Substituir o dominio de origem pelo de destino em todas as URLs
+4. Inserir todos os registros com URLs atualizadas
+
