@@ -8,7 +8,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Users, UserPlus, UserMinus, RefreshCw, Loader2, BarChart3, ArrowUpDown } from "lucide-react";
+import { Users, RefreshCw, Loader2, BarChart3, Settings } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -18,13 +18,30 @@ import {
 } from "recharts";
 import GroupSummaryCards from "@/components/groups/GroupSummaryCards";
 import RecentEventsSection from "@/components/groups/RecentEventsSection";
+import { useNavigate } from "react-router-dom";
 
 export default function GroupsPage() {
   const { user, session } = useAuth();
   const queryClient = useQueryClient();
-  const [instanceFilter, setInstanceFilter] = useState<string>("all");
+  const navigate = useNavigate();
+  const [selectedConfigId, setSelectedConfigId] = useState<string>("all");
 
   const today = new Date().toISOString().split("T")[0];
+
+  // Query api_configs to always show instance selector
+  const { data: apiConfigs, isLoading: configsLoading } = useQuery({
+    queryKey: ["api-configs-active", user?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("api_configs")
+        .select("id, instance_name, is_active")
+        .eq("user_id", user!.id)
+        .eq("is_active", true);
+      if (error) throw error;
+      return data ?? [];
+    },
+    enabled: !!user,
+  });
 
   const { data: todayStats, isLoading } = useQuery({
     queryKey: ["group-stats-today", user?.id, today],
@@ -41,7 +58,9 @@ export default function GroupsPage() {
     enabled: !!user,
   });
 
-  const instances = [...new Set((todayStats ?? []).map((s: any) => s.instance_name))];
+  // Derive instance filter from selected config
+  const selectedConfig = apiConfigs?.find(c => c.id === selectedConfigId);
+  const instanceFilter = selectedConfigId === "all" ? "all" : (selectedConfig?.instance_name ?? "all");
 
   const filteredStats = instanceFilter === "all"
     ? (todayStats ?? [])
@@ -84,8 +103,13 @@ export default function GroupsPage() {
 
   const syncMutation = useMutation({
     mutationFn: async () => {
+      const body: any = {};
+      if (selectedConfigId !== "all") {
+        body.configId = selectedConfigId;
+      }
       const { data, error } = await supabase.functions.invoke("sync-group-stats", {
         headers: { Authorization: `Bearer ${session?.access_token}` },
+        body,
       });
       if (error) throw error;
       return data;
@@ -116,6 +140,38 @@ export default function GroupsPage() {
     );
   }
 
+  const hasConfigs = (apiConfigs?.length ?? 0) > 0;
+
+  // Empty state: no instances configured
+  if (!configsLoading && !hasConfigs) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center gap-4">
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20">
+            <Users className="h-7 w-7 text-primary" />
+          </div>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Monitoramento de Grupos</h1>
+            <p className="text-muted-foreground text-sm mt-0.5">Acompanhe membros, entradas e saídas em tempo real</p>
+          </div>
+        </div>
+        <Card className="border-border/30">
+          <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+            <Settings className="h-12 w-12 text-muted-foreground/30 mb-4" />
+            <h3 className="text-lg font-semibold mb-2">Nenhuma instância configurada</h3>
+            <p className="text-muted-foreground text-sm mb-6 max-w-md">
+              Para monitorar seus grupos, primeiro configure uma instância do WhatsApp na página de Configurações.
+            </p>
+            <Button onClick={() => navigate("/settings")}>
+              <Settings className="h-4 w-4 mr-2" />
+              Ir para Configurações
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -136,19 +192,17 @@ export default function GroupsPage() {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            {instances.length > 1 && (
-              <Select value={instanceFilter} onValueChange={setInstanceFilter}>
-                <SelectTrigger className="w-[180px]">
-                  <SelectValue placeholder="Todas instâncias" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todas instâncias</SelectItem>
-                  {instances.map((inst) => (
-                    <SelectItem key={inst} value={inst}>{inst}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
+            <Select value={selectedConfigId} onValueChange={setSelectedConfigId}>
+              <SelectTrigger className="w-[200px]">
+                <SelectValue placeholder="Selecione a instância" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas instâncias</SelectItem>
+                {(apiConfigs ?? []).map((cfg) => (
+                  <SelectItem key={cfg.id} value={cfg.id}>{cfg.instance_name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Button
               onClick={() => syncMutation.mutate()}
               disabled={syncMutation.isPending}
@@ -223,7 +277,7 @@ export default function GroupsPage() {
           ) : filteredStats.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
               <Users className="h-10 w-10 mx-auto mb-3 opacity-30" />
-              <p className="text-sm">Nenhum dado encontrado. Clique em "Sincronizar Agora" para buscar os grupos.</p>
+              <p className="text-sm">Nenhum dado encontrado. Selecione uma instância e clique em "Sincronizar Agora".</p>
             </div>
           ) : (
             <Table>
