@@ -115,7 +115,11 @@ export default function GroupsPage() {
       return data;
     },
     onSuccess: (data) => {
-      toast.success(`Sincronização concluída! ${data.synced} grupos, +${data.joined} entradas, -${data.left} saídas`);
+      if (data.errors?.length) {
+        toast.error(`Erros na sincronização: ${data.errors.join("; ")}`);
+      } else {
+        toast.success(`Sincronização concluída! ${data.synced} grupos, +${data.joined} entradas, -${data.left} saídas`);
+      }
       queryClient.invalidateQueries({ queryKey: ["group-stats-today"] });
       queryClient.invalidateQueries({ queryKey: ["group-stats-history"] });
       queryClient.invalidateQueries({ queryKey: ["group-stats-dashboard"] });

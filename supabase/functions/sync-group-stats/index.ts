@@ -64,14 +64,19 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Get global config for baileys URL
+    // Get global config for baileys URL (same logic as process-queue)
     const { data: globalConfig } = await supabase
       .from("global_config")
-      .select("baileys_api_url")
+      .select("whatsapp_provider, baileys_api_url")
       .limit(1)
       .single();
 
-    const baileysUrl = globalConfig?.baileys_api_url || "http://baileys-server:3100";
+    const provider = globalConfig?.whatsapp_provider || "baileys";
+    const baileysUrl = provider === "baileys"
+      ? (globalConfig?.baileys_api_url || "http://baileys-server:3100")
+      : (globalConfig?.baileys_api_url || "http://baileys-server:3100");
+    
+    console.log(`[sync-group-stats] provider=${provider}, baileysUrl=${baileysUrl}`);
     const today = new Date().toISOString().split("T")[0];
 
     let totalSynced = 0;
