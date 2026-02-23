@@ -1,93 +1,95 @@
 
+# Correcao do Upload de Midias no Backup
 
-# Backup Completo para VPS - Sem Dependencia do Lovable Cloud
+## Problemas Identificados
 
-## Objetivo
+1. **Conversao base64 falha silenciosamente para arquivos grandes**: As funcoes `btoa()` e `atob()` do navegador tem limites de tamanho de string. Videos e audios maiores (1-20MB) causam erro, mas o `catch` vazio ignora.
 
-Atualmente o backup exporta dados e midias usando a Edge Function `backup-export` do Lovable Cloud, e a restauracao faz upload de volta para o Storage do Lovable Cloud. O objetivo e tornar o sistema 100% autonomo na VPS, sem depender do Lovable Cloud para armazenamento de arquivos.
+2. **Nenhum feedback sobre falhas**: O usuario nao sabe quais arquivos falharam - o codigo simplesmente pula sem avisar.
 
-## Mudancas Necessarias
+3. **Import tambem falha silenciosamente**: Na funcao `uploadMedia`, a conversao `atob(base64)` tambem pode falhar para arquivos grandes, e o erro e ignorado.
 
-### 1. Exportacao de Midias - Direto pelo Storage URL (sem Edge Function)
+4. **URL map no import esta incorreta**: Na funcao `uploadMedia`, o `oldUrl` e construido usando o `VITE_SUPABASE_URL` atual (do destino), mas deveria usar a URL de origem do backup para fazer o mapeamento correto.
 
-Atualmente o `backup.ts` usa `supabase.functions.invoke("backup-export")` para baixar cada midia. Vamos mudar para baixar diretamente via `fetch()` da URL publica do Storage (que ja funciona tanto no Lovable Cloud quanto na VPS com Supabase self-hosted).
+## Correcoes Planejadas
 
-**Arquivo: `src/lib/backup.ts`**
-- Substituir a chamada `supabase.functions.invoke("backup-export")` por um `fetch()` direto na URL publica da midia
-- Converter o blob baixado para data URL (base64) no proprio frontend
-- Isso elimina a dependencia da Edge Function `backup-export`
+### Arquivo: `src/lib/backup.ts`
 
-### 2. Restauracao de Midias - Upload para o Storage da VPS
+**1. Substituir `btoa()`/`atob()` por conversao chunked**
 
-A restauracao ja faz upload para o Storage via `supabase.storage.from("media").upload()`. Isso funciona automaticamente apontando para o Supabase da VPS desde que o `VITE_SUPABASE_URL` esteja configurado corretamente no `.env` da VPS.
+Na exportacao, trocar `blobToDataUrl` (que usa `FileReader.readAsDataURL`) por uma funcao que converte o ArrayBuffer em base64 em chunks de 8KB, evitando estouro de stack:
 
-Nenhuma mudanca necessaria aqui - ja funciona para qualquer Supabase (Cloud ou self-hosted).
+```typescript
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 8192;
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length));
+    for (let j = 0; j < chunk.length; j++) {
+      binary += String.fromCharCode(chunk[j]);
+    }
+  }
+  return btoa(binary);
+}
+```
 
-### 3. Reescrita de URLs durante Restauracao
+Na importacao, trocar `atob()` por conversao chunked similar.
 
-Adicionar logica para detectar e substituir URLs de midia do servidor de origem (ex: Lovable Cloud) pelas URLs do servidor de destino (VPS). Atualmente o `replaceUrls` so mapeia URLs de midias re-uploadadas. Vamos garantir que TODAS as URLs de midia nos registros apontem para o novo servidor.
+**2. Adicionar logs e contadores de erro**
 
-**Arquivo: `src/lib/backup.ts`**
-- Na funcao `importBackup`, alem do mapa de URLs das midias re-uploadadas, tambem substituir o dominio base de todas as URLs de midia que referenciem o servidor de origem (salvo no backup) pelo `VITE_SUPABASE_URL` atual
+Em vez de `catch {}` vazio, registrar quais arquivos falharam e mostrar um resumo ao final:
 
-### 4. Salvar URL de Origem no Backup
+- Na exportacao: contar arquivos baixados vs falhados
+- Na importacao: contar arquivos uploadados vs falhados  
+- Exibir toast com resumo ("X de Y arquivos de midia transferidos, Z falharam")
 
-**Arquivo: `src/lib/backup.ts`**
-- Adicionar campo `source_url` no `BackupFile` com o valor de `VITE_SUPABASE_URL` no momento da exportacao
-- Na restauracao, usar esse campo para fazer a substituicao de dominio automaticamente
+**3. Corrigir mapeamento de URLs no import**
+
+Na funcao `uploadMedia`, o `oldUrl` precisa usar a URL de origem do backup (`backup.source_url`), nao a URL do destino:
+
+```typescript
+// ANTES (errado):
+const oldUrl = `${supabaseUrl}/storage/v1/object/public/media/${originalPath}`;
+// DEPOIS (correto):
+const oldUrl = `${sourceUrl}/storage/v1/object/public/media/${originalPath}`;
+```
+
+Passar `sourceUrl` como parametro para `uploadMedia`.
+
+**4. Melhorar progresso na exportacao**
+
+Mostrar nome do arquivo sendo baixado e tipo (imagem/video/audio) para o usuario acompanhar.
+
+### Arquivo: `src/pages/BackupPage.tsx`
+
+**5. Mostrar resumo de midias apos export/import**
+
+Exibir toast detalhado informando quantos arquivos de midia foram processados com sucesso e quantos falharam, para o usuario saber se precisa tentar novamente.
 
 ---
 
 ## Detalhes Tecnicos
 
-### Arquivo: `src/lib/backup.ts`
+### Funcao `exportBackup` - Mudancas
 
-**Interface BackupFile** - Adicionar campo:
-```typescript
-source_url: string; // VITE_SUPABASE_URL de onde o backup foi gerado
-```
+- Substituir `blobToDataUrl(blob)` por: obter `ArrayBuffer` do blob, converter com `arrayBufferToBase64`, e montar o data URL manualmente (`data:${blob.type};base64,${base64}`)
+- Adicionar contador de falhas
+- Retornar info de falhas no resultado
 
-**Funcao `exportBackup`** - Substituir download via Edge Function:
-```typescript
-// ANTES: supabase.functions.invoke("backup-export", { body: { media_path } })
-// DEPOIS: fetch direto da URL publica
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const publicUrl = `${supabaseUrl}/storage/v1/object/public/media/${mediaPaths[i]}`;
-const resp = await fetch(publicUrl);
-const blob = await resp.blob();
-// converter blob para data URL base64
-```
+### Funcao `uploadMedia` - Mudancas  
 
-**Funcao `importBackup`** - Adicionar substituicao de dominio:
-```typescript
-// Apos upload das midias, substituir tambem o dominio base
-const sourceUrl = backup.source_url;
-const targetUrl = import.meta.env.VITE_SUPABASE_URL;
-// Em replaceUrls, tambem trocar sourceUrl por targetUrl em todas as strings
-```
+- Receber `sourceUrl` como parametro adicional
+- Usar `sourceUrl` para construir `oldUrl` no mapeamento
+- Substituir `atob(base64)` por conversao chunked: iterar o base64 em blocos, decodificar cada bloco separadamente
+- Adicionar contador de falhas e log de erros
 
-**Funcao `replaceUrls`** - Expandir para aceitar tambem substituicao de dominio:
-```typescript
-// Alem do urlMap existente, fazer string.replace do dominio de origem pelo destino
-```
+### Funcao `importBackup` - Mudancas
 
-### Arquivo: `supabase/functions/backup-export/index.ts`
+- Passar `backup.source_url` para `uploadMedia`
+- Coletar resultado de falhas e propagar ao caller
 
-Nenhuma mudanca - a Edge Function continua existindo para compatibilidade, mas nao sera mais chamada pelo novo codigo.
+### Funcao `blobToDataUrl` - Sera substituida
 
----
-
-## Resumo do Fluxo
-
-### Exportacao (de qualquer servidor)
-1. Buscar todos os dados das tabelas
-2. Identificar URLs de midia nos registros
-3. Baixar cada midia diretamente pela URL publica (sem Edge Function)
-4. Salvar tudo no JSON incluindo o `source_url`
-
-### Restauracao (na VPS de destino)
-1. Fazer upload de cada midia para o Storage do servidor de destino
-2. Construir mapa de URLs antigas para novas
-3. Substituir o dominio de origem pelo de destino em todas as URLs
-4. Inserir todos os registros com URLs atualizadas
+- Removida em favor da nova funcao `arrayBufferToBase64` que nao depende de `FileReader`
 
