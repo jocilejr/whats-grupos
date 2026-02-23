@@ -64,17 +64,18 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Get global config for baileys URL (same logic as process-queue)
+    // Get global config (same logic as process-queue)
     const { data: globalConfig } = await supabase
       .from("global_config")
-      .select("whatsapp_provider, baileys_api_url")
+      .select("whatsapp_provider")
       .limit(1)
       .single();
 
     const provider = globalConfig?.whatsapp_provider || "baileys";
+    // When provider is "baileys", ALWAYS use Docker service name (ignores DB value)
     const baileysUrl = provider === "baileys"
-      ? (globalConfig?.baileys_api_url || "http://baileys-server:3100")
-      : (globalConfig?.baileys_api_url || "http://baileys-server:3100");
+      ? "http://baileys-server:3100"
+      : "http://baileys-server:3100";
     
     console.log(`[sync-group-stats] provider=${provider}, baileysUrl=${baileysUrl}`);
     const today = new Date().toISOString().split("T")[0];
