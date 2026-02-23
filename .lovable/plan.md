@@ -1,40 +1,48 @@
 
 
-# Corrigir Sincronizacao de Grupos na VPS
+# Corrigir URL do Baileys na Sincronizacao de Grupos
 
-## Problema Identificado
+## Problema
 
-A Edge Function `sync-group-stats` retorna "0 grupos" mas **esconde os erros**. O toast so mostra `synced/joined/left` e ignora o campo `errors` da resposta. Isso impede de saber o que realmente esta falhando.
+O erro no toast mostra claramente:
+```
+http://localhost:3100/group/fetchAllGroups/Rosana - Connection refused
+```
 
-Alem disso, a resolucao da URL do Baileys e **diferente** entre as Edge Functions:
-- `process-queue` (que funciona): hardcoda `http://baileys-server:3100` quando o provider e "baileys"
-- `sync-group-stats` (que falha): le `global_config.baileys_api_url`, que pode estar vazio ou com valor errado
+A Edge Function `sync-group-stats` le `baileys_api_url` do banco de dados, que na VPS esta configurado como `http://localhost:3100`. Porem, a Edge Function roda em um container Docker separado e nao consegue acessar `localhost` do host.
 
-## Plano de Implementacao
+O `process-queue` funciona porque **ignora** o valor do banco e hardcoda `http://baileys-server:3100` quando o provider e "baileys".
 
-### 1. Corrigir `sync-group-stats` - Usar mesma logica de URL do `process-queue`
+## Plano
+
+### 1. Corrigir `sync-group-stats` - Copiar logica do `process-queue`
 
 **Arquivo**: `supabase/functions/sync-group-stats/index.ts`
 
-Mudar a resolucao da URL do Baileys (linha 67-74) para:
-- Ler `global_config.whatsapp_provider` e `global_config.baileys_api_url`
-- Se provider for "baileys", usar `baileys_api_url` do global_config, com fallback para `http://baileys-server:3100`
-- Logar a URL usada para debug
-
-### 2. Mostrar erros no toast do frontend
-
-**Arquivo**: `src/pages/GroupsPage.tsx`
-
-No `onSuccess` da mutation de sync (linha ~115), verificar se `data.errors` existe e mostra-los:
+Substituir a resolucao de URL (linhas 67-78) para usar a mesma funcao `getProviderConfig` do `process-queue`:
 
 ```text
-onSuccess: (data) => {
-  if (data.errors?.length) {
-    toast.error(`Erros: ${data.errors.join(", ")}`);
-  } else {
-    toast.success(`Sincronizacao concluida! ${data.synced} grupos...`);
+function getProviderConfig(globalConfig: any) {
+  const provider = globalConfig?.whatsapp_provider || "baileys";
+  if (provider === "baileys") {
+    return { provider: "baileys", apiUrl: "http://baileys-server:3100" };
   }
+  return {
+    provider: "evolution",
+    apiUrl: (globalConfig?.baileys_api_url || "http://baileys-server:3100"),
+  };
 }
+```
+
+Quando o provider e "baileys", o valor do banco e **ignorado** e usa-se o nome do servico Docker diretamente. Isso e exatamente o que o `process-queue` faz e funciona.
+
+### 2. Corrigir `global_config` na VPS (SQL)
+
+Alem do codigo, corrigir o valor no banco para evitar problemas futuros:
+
+```bash
+docker compose -f /opt/supabase-docker/docker/docker-compose.yml exec -T db psql -U postgres -d postgres -c \
+  "UPDATE global_config SET whatsapp_provider = 'baileys', baileys_api_url = 'http://baileys-server:3100';"
 ```
 
 ### 3. Deploy na VPS
@@ -42,10 +50,4 @@ onSuccess: (data) => {
 ```bash
 cd /opt/whats-grupos && git pull && sudo ./scripts/deploy.sh
 ```
-
-## Resultado Esperado
-
-1. Se houver erro de conexao com o Baileys, o toast mostrara a mensagem de erro real
-2. A URL do Baileys sera resolvida corretamente, igual ao `process-queue` que ja funciona
-3. Os grupos serao sincronizados com sucesso
 
