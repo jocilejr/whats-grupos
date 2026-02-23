@@ -193,6 +193,7 @@ async function enqueueMessage(supabase: any, msg: any): Promise<number> {
   const { data: recentItems } = await supabase
     .from("message_queue")
     .select("group_id")
+    .eq("scheduled_message_id", msg.id)
     .in("group_id", allGroupIds)
     .eq("instance_name", instanceName)
     .in("status", ["pending", "sending", "sent"])
