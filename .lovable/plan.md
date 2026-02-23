@@ -1,62 +1,54 @@
 
 
-# Remover campo de URL do Baileys e usar URL fixa automaticamente
+# Corrigir process-queue para usar URL fixa do Baileys
 
-## Resumo
+## Problema
 
-O Baileys sempre roda como um container Docker chamado `baileys-server` na porta 3100, na mesma rede Docker do Supabase. Nao faz sentido pedir ao usuario para digitar a URL manualmente. A solucao e usar a URL `http://baileys-server:3100` de forma fixa no codigo, sem necessidade de configuracao.
+A funcao `process-queue/index.ts` e a responsavel por processar e enviar as mensagens da fila. Ela possui sua propria funcao `getProviderConfig` que ainda usa o codigo antigo:
 
-## O que muda para o usuario
+```
+apiUrl: (globalConfig.baileys_api_url || "http://localhost:3100")
+```
 
-- Na aba "Baileys (Local)", o campo de URL sera removido
-- Basta selecionar a aba Baileys e clicar em "Salvar Configuracao"
-- O botao "Testar Conexao" continuara funcionando normalmente
-- Uma mensagem informativa explicara que o Baileys e detectado automaticamente
+Isso faz com que a mensagem fique presa como "Pendente" porque `localhost:3100` nao e acessivel de dentro do container da Edge Function. A URL correta e `http://baileys-server:3100` (nome DNS do container Docker na rede interna).
+
+Apenas a edge function `evolution-api` foi atualizada anteriormente. A `process-queue`, que e a que de fato envia, ficou com o codigo antigo.
+
+## Solucao
+
+Atualizar a funcao `getProviderConfig` dentro de `supabase/functions/process-queue/index.ts` para usar a URL fixa `http://baileys-server:3100`, identico ao que ja foi feito na `evolution-api`.
 
 ## Detalhes Tecnicos
 
-### 1. Edge Function `evolution-api/index.ts`
+### Arquivo: `supabase/functions/process-queue/index.ts`
 
-Alterar `getProviderConfig` para usar URL fixa quando o provider for Baileys:
+Alterar linhas 34-39 de:
+
+```typescript
+if (provider === "baileys") {
+  return {
+    provider: "baileys",
+    apiUrl: (globalConfig.baileys_api_url || "http://localhost:3100").replace(/\/$/, ""),
+    apiKey: "",
+  };
+}
+```
+
+Para:
 
 ```typescript
 if (provider === "baileys") {
   return {
     provider: "baileys",
     apiUrl: "http://baileys-server:3100",
-    headers: { "Content-Type": "application/json" },
+    apiKey: "",
   };
 }
 ```
 
-Isso ignora completamente o campo `baileys_api_url` do banco de dados, garantindo que a URL correta seja sempre usada.
+### Resultado esperado
 
-### 2. Frontend `AdminConfig.tsx`
+Apos essa correcao, a funcao `process-queue` conseguira alcançar o container Baileys pela rede Docker interna e as mensagens pendentes serao enviadas normalmente.
 
-- Remover o campo `<Input>` da URL do Baileys
-- Remover o estado `baileysUrl` (nao e mais necessario)
-- Manter a mensagem informativa dizendo que o Baileys e detectado automaticamente na VPS
-- Manter o botao "Testar Conexao" e o botao "Salvar Configuracao"
-
-### 3. Migracao de banco de dados
-
-Atualizar o valor padrao da coluna `baileys_api_url` para `http://baileys-server:3100` e atualizar registros existentes:
-
-```sql
-ALTER TABLE global_config 
-  ALTER COLUMN baileys_api_url SET DEFAULT 'http://baileys-server:3100';
-
-UPDATE global_config 
-  SET baileys_api_url = 'http://baileys-server:3100';
-```
-
-### 4. Deploy script (`scripts/deploy.sh`)
-
-Atualizar o comando de criacao do container Baileys para conecta-lo automaticamente a rede `supabase_default`, evitando o passo manual `docker network connect`:
-
-```bash
-docker run -d --name baileys-server --restart unless-stopped \
-  --network supabase_default \
-  -p 127.0.0.1:3100:3100 -v baileys-data:/data baileys-server
-```
+Nenhuma outra alteracao e necessaria -- apenas essa linha estava impedindo o envio.
 
