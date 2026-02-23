@@ -1,95 +1,112 @@
 
 
-# Monitoramento de Grupos: Tempo Real e Interface Profissional
+# Correção: Agendamentos Duplicados e Proteção contra Duplicatas Futuras
 
 ## Problema Identificado
 
-1. **Eventos nao estao sendo registrados** -- A tabela `group_participant_events` esta vazia, indicando que o webhook do Baileys nao esta conseguindo enviar os eventos para a Edge Function (possivelmente problema de conectividade na VPS ou variaveis de ambiente faltando no container)
-2. **UI usa polling de 30s** -- Mesmo quando os eventos chegam, o frontend so atualiza a cada 30 segundos
-3. **Interface pode ser mais profissional** -- Falta feedback visual de tempo real, animacoes de entrada e indicadores de status de conexao
+Para cada dia da semana no horário 14:00, existem **dois registros ativos** em `scheduled_messages`:
+- Um com `campaign_id` (correto, vinculado a campanha `2f54e5e7...`)
+- Um sem `campaign_id` (duplicata órfã, mesmos grupos, mesmo conteúdo)
 
-## Solucao em 3 Partes
+Ambos disparam no mesmo minuto, fazendo cada grupo receber a mensagem **duas vezes**.
 
-### Parte 1: Diagnostico e Correcao do Webhook
+**Causa provável**: restauração de backup que falhou no mapeamento do `campaign_id`, gerando cópias órfãs.
 
-Adicionar logs detalhados na Edge Function `group-events-webhook` para diagnosticar falhas. Tambem verificar se o Baileys Server esta enviando os eventos corretamente.
+---
 
-**Acoes:**
-- Adicionar log de depuracao na Edge Function para rastrear requisicoes recebidas
-- Verificar se a RLS policy `Service role can insert events` esta funcionando (policy atual usa `true` no WITH CHECK mas e RESTRICTIVE -- isso pode bloquear insercoes via service role)
-- Corrigir a policy para PERMISSIVE se necessario
+## Plano de Correção
 
-### Parte 2: Ativar Supabase Realtime
+### 1. Limpeza dos Registros Duplicados (VPS - Manual)
 
-Habilitar realtime na tabela `group_participant_events` e atualizar o componente `RecentEventsSection` para usar WebSockets com fallback de polling.
+Executar na VPS para desativar os registros órfãos sem campaign_id que são duplicatas:
 
-**Acoes:**
-- Migration SQL: `ALTER PUBLICATION supabase_realtime ADD TABLE public.group_participant_events;`
-- Reescrever `RecentEventsSection` para usar `supabase.channel()` com subscription em `postgres_changes`
-- Manter polling como fallback com backoff exponencial (2s -> 30s)
-- Adicionar indicador visual de "ao vivo" (bolinha verde pulsante) quando conectado via realtime
+```sql
+UPDATE scheduled_messages
+SET is_active = false
+WHERE campaign_id IS NULL
+  AND is_active = true
+  AND content->>'runTime' = '14:00'
+  AND schedule_type = 'weekly'
+  AND instance_name = 'Rosana';
+```
 
-### Parte 3: Interface Profissional Redesenhada
+**Recomendação**: antes de desativar, verificar se existem duplicatas em outros horarios tambem:
 
-**RecentEventsSection melhorado:**
-- Animacao de entrada suave para novos eventos (slide-in)
-- Indicador "LIVE" com dot pulsante verde no header
-- Contador de eventos em tempo real
-- Separacao visual por periodo (Agora, Ultima hora, Hoje)
-- Som/notificacao opcional para novos eventos
-- Scroll automatico para o topo quando novo evento chega
+```sql
+SELECT content->>'runTime' as run_time,
+       content->'weekDays'->0 as weekday,
+       count(*) as total,
+       count(campaign_id) as com_campanha,
+       count(*) - count(campaign_id) as sem_campanha
+FROM scheduled_messages
+WHERE is_active = true
+GROUP BY content->>'runTime', content->'weekDays'->0, schedule_type
+HAVING count(*) > 1
+ORDER BY run_time, weekday;
+```
 
-**GroupSummaryCards melhorado:**
-- Animacao de contagem incremental nos numeros
-- Indicador de variacao em tempo real (seta up/down com delta)
-- Glow effect sutil quando o valor muda
+### 2. Proteção no Edge Function `send-scheduled-messages`
 
-**Pagina GroupsPage:**
-- Badge de status de conexao realtime (Conectado/Reconectando)
-- Botao de sincronizacao com feedback visual melhorado
-- Filtro de tipo de evento (Entradas, Saidas, Todos)
+Adicionar deduplicacao na funcao `enqueueMessage` para evitar que itens da fila sejam criados para grupos que ja foram enfileirados recentemente (mesma campanha/horario).
+
+**Arquivo**: `supabase/functions/send-scheduled-messages/index.ts`
+
+Antes de inserir os `queueItems`, verificar se ja existem itens pendentes/enviando na `message_queue` para os mesmos grupos com o mesmo `scheduled_message_id` ou `campaign_id` nas ultimas 2 horas:
+
+```typescript
+// Dentro de enqueueMessage, antes do insert:
+const { data: recentItems } = await supabase
+  .from("message_queue")
+  .select("group_id")
+  .in("group_id", allGroupIds)
+  .eq("instance_name", instanceName)
+  .in("status", ["pending", "sending", "sent"])
+  .gte("created_at", new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString());
+
+if (recentItems?.length) {
+  const recentGroupIds = new Set(recentItems.map(i => i.group_id));
+  const filteredGroupIds = allGroupIds.filter(id => !recentGroupIds.has(id));
+  if (!filteredGroupIds.length) return 0;
+  // usar filteredGroupIds ao inves de allGroupIds
+}
+```
+
+### 3. Proteção no Backup Restore
+
+**Arquivo**: `src/lib/backup.ts` (linha 369)
+
+Corrigir o mapeamento de `campaign_id` para usar `null` explicitamente quando o mapeamento falha, em vez de `undefined`:
+
+```typescript
+campaign_id: newCampaignId || null,  // ja esta assim, OK
+```
+
+Adicionar verificacao de duplicatas antes de inserir: checar se ja existe um `scheduled_message` ativo com o mesmo `content->>'runTime'`, `schedule_type`, `content->'weekDays'` e mesmos `group_ids` para o mesmo usuario.
 
 ---
 
 ## Detalhes Tecnicos
 
-### Migration SQL
-```sql
--- Habilitar realtime para eventos de grupo
-ALTER PUBLICATION supabase_realtime ADD TABLE public.group_participant_events;
-```
-
-### Correcao da RLS Policy
-A policy `Service role can insert events` e do tipo RESTRICTIVE. O service role key bypassa RLS por padrao no Supabase, entao isso nao deve ser problema. Porem, vou verificar se ha outro bloqueio.
-
-### Arquivos Modificados
-1. `supabase/functions/group-events-webhook/index.ts` -- Adicionar logs de depuracao
-2. `src/components/groups/RecentEventsSection.tsx` -- Reescrever com Realtime + UI profissional
-3. `src/components/groups/GroupSummaryCards.tsx` -- Animacoes e indicadores de variacao
-4. `src/pages/GroupsPage.tsx` -- Filtros de evento, status de conexao, layout melhorado
-
-### Fluxo de Dados Atualizado
+### Fluxo do problema
 
 ```text
-Baileys Server (evento capturado)
-       |
-       v
-group-events-webhook (Edge Function)
-       |
-       v
-group_participant_events (tabela)
-       |
-       +---> Supabase Realtime (WebSocket push)
-       |            |
-       |            v
-       |     RecentEventsSection (atualiza UI instantaneamente)
-       |
-       +---> sync-group-stats (consolida dados diarios)
-                    |
-                    v
-              group_stats (snapshots diarios)
-                    |
-                    v
-              GroupSummaryCards + Chart
+scheduled_messages (14:00, weekday [1])
+  |
+  +-- ID a6590b41 (campaign_id = 2f54e5e7) --> 15 grupos --> message_queue batch A
+  |
+  +-- ID 55b1be0d (campaign_id = NULL)      --> 15 grupos --> message_queue batch B
+                                                              (mesmos grupos = DUPLICATA)
 ```
 
+### Arquivos modificados
+
+| Arquivo | Alteracao |
+|---------|-----------|
+| `supabase/functions/send-scheduled-messages/index.ts` | Adicionar deduplicacao por grupo/instancia antes do enqueue |
+| `src/lib/backup.ts` | Adicionar verificacao de duplicatas no restore |
+
+### Impacto
+
+- Zero downtime
+- Mensagens futuras protegidas contra duplicatas
+- Registros orfaos desativados imediatamente via SQL na VPS
