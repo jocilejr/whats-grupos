@@ -1,26 +1,44 @@
-# Corrigir erro "Instance not connected" no process-queue
 
-## Diagnostico
+# Corrigir: process-queue deve respeitar o instance_name da campanha
 
-O problema nao tem relacao com provider Evolution/Baileys. O erro ocorre porque:
+## Problema
 
-1. A campanha foi criada com a instancia **"RosanaGrupos"** (nome antigo)
-2. A instancia foi renomeada/recriada como **"Rosana"**
-3. O `send-scheduled-messages` grava `instance_name: "RosanaGrupos"` na `message_queue` (vindo da campanha)
-4. O `process-queue` usa esse nome diretamente para montar a URL: `/message/sendText/RosanaGrupos`
-5. O Baileys responde "Instance not connected" porque so conhece "Rosana"
+A correção anterior fez o `process-queue` sobrescrever o `instance_name` da fila com o da tabela `api_configs`. Isso esta errado porque:
 
-## Correcao no codigo
+1. O usuario seleciona a instancia na **campanha** (ex: "Rosana")
+2. O `send-scheduled-messages` grava esse nome na `message_queue`
+3. O `process-queue` deveria usar esse nome, mas agora sobrescreve com o da `api_configs`
+
+O nome na `api_configs` pode estar desatualizado ou ser diferente do que o usuario escolheu na campanha.
+
+## Solucao
 
 ### Arquivo: `supabase/functions/process-queue/index.ts`
 
-Na linha 122-123, quando o `process-queue` busca a config do usuario (`api_configs`), ele so le `api_url` e `api_key`. Precisa tambem ler `instance_name` e usa-lo como fonte da verdade, pois e o nome atualizado da instancia.  
-  
-O instance name se encontra na CAMPANHA onde a instancia foi executada.
+Remover a logica que sobrescreve o `instance_name`. O `process-queue` deve buscar apenas `api_url` e `api_key` da `api_configs`, e usar o `item.instance_name` da fila como fonte da verdade.
 
-**Antes (linhas 120-130):**
+**Antes (linhas 120-134):**
+```text
+let resolvedInstanceName = item.instance_name;
 
-```typescript
+if (item.api_config_id) {
+  const { data: config } = await supabase
+    .from("api_configs")
+    .select("api_url, api_key, instance_name")
+    .eq("id", item.api_config_id)
+    .maybeSingle();
+  if (config) {
+    apiUrl = config.api_url;
+    apiKey = config.api_key;
+    if (config.instance_name) {
+      resolvedInstanceName = config.instance_name;
+    }
+  }
+}
+```
+
+**Depois:**
+```text
 if (item.api_config_id) {
   const { data: config } = await supabase
     .from("api_configs")
@@ -34,52 +52,23 @@ if (item.api_config_id) {
 }
 ```
 
-**Depois:**
+E trocar todas as referencias a `resolvedInstanceName` de volta para `item.instance_name` (nas chamadas de `buildMessagePayload` e nos inserts de `message_logs`).
 
-```typescript
-let resolvedInstanceName = item.instance_name;
+## Por que isso funciona
 
-if (item.api_config_id) {
-  const { data: config } = await supabase
-    .from("api_configs")
-    .select("api_url, api_key, instance_name")
-    .eq("id", item.api_config_id)
-    .maybeSingle();
-  if (config) {
-    apiUrl = config.api_url;
-    apiKey = config.api_key;
-    // Usar o nome atualizado da instancia da api_configs
-    if (config.instance_name) {
-      resolvedInstanceName = config.instance_name;
-    }
-  }
-}
+O fluxo correto e:
+
+```text
+Campanha (instance_name: "Rosana")
+  --> send-scheduled-messages grava na fila (instance_name: "Rosana")
+    --> process-queue usa item.instance_name ("Rosana") para montar a URL
 ```
 
-E na linha 143, trocar `item.instance_name` por `resolvedInstanceName`:
-
-```typescript
-const { endpoint, body } = buildMessagePayload(
-  item.message_type, apiUrl, resolvedInstanceName, item.group_id, content
-);
-```
-
-Tambem atualizar os logs de `message_logs` para gravar o nome correto (`resolvedInstanceName` ao inves de `item.instance_name`).
-
-### Correcao de dados na VPS
-
-Alem da correcao de codigo, atualizar o nome da instancia nas campanhas existentes:
-
-```sql
-UPDATE campaigns SET instance_name = 'Rosana' WHERE instance_name = 'RosanaGrupos';
-UPDATE scheduled_messages SET instance_name = 'Rosana' WHERE instance_name = 'RosanaGrupos';
-UPDATE message_queue SET instance_name = 'Rosana' WHERE instance_name = 'RosanaGrupos' AND status = 'pending';
-```
+O `process-queue` so precisa da `api_configs` para obter `api_url` e `api_key` (ou cair no fallback global). O nome da instancia ja vem correto da fila.
 
 ## Resumo
 
-
-| Correcao                                           | Onde                   | Impacto                                      |
-| -------------------------------------------------- | ---------------------- | -------------------------------------------- |
-| process-queue ler `instance_name` da `api_configs` | Codigo (Edge Function) | Resolve automaticamente nomes desatualizados |
-| Atualizar dados antigos                            | SQL na VPS             | Corrige campanhas e itens pendentes na fila  |
+| Alteracao | Detalhe |
+|-----------|---------|
+| Remover override de `instance_name` no `process-queue` | Usar `item.instance_name` da fila (que veio da campanha) |
+| Remover variavel `resolvedInstanceName` | Voltar a usar `item.instance_name` em todos os pontos |
