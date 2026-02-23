@@ -1,74 +1,48 @@
 
-# Corrigir: process-queue deve respeitar o instance_name da campanha
+
+# Corrigir: instance_name deve vir da campanha, nao da scheduled_message
 
 ## Problema
 
-A correção anterior fez o `process-queue` sobrescrever o `instance_name` da fila com o da tabela `api_configs`. Isso esta errado porque:
+Na funcao `enqueueMessage` do `send-scheduled-messages/index.ts`, linha 166:
 
-1. O usuario seleciona a instancia na **campanha** (ex: "Rosana")
-2. O `send-scheduled-messages` grava esse nome na `message_queue`
-3. O `process-queue` deveria usar esse nome, mas agora sobrescreve com o da `api_configs`
+```
+const instanceName = msg.instance_name || campaign?.instance_name || configInstanceName;
+```
 
-O nome na `api_configs` pode estar desatualizado ou ser diferente do que o usuario escolheu na campanha.
+A prioridade esta errada. O `msg.instance_name` (da tabela `scheduled_messages`) contem o valor antigo "RosanaGrupos", e como ele tem prioridade sobre `campaign?.instance_name`, o valor correto "Rosana" da campanha nunca e usado.
 
 ## Solucao
 
-### Arquivo: `supabase/functions/process-queue/index.ts`
+### Arquivo: `supabase/functions/send-scheduled-messages/index.ts`
 
-Remover a logica que sobrescreve o `instance_name`. O `process-queue` deve buscar apenas `api_url` e `api_key` da `api_configs`, e usar o `item.instance_name` da fila como fonte da verdade.
+Inverter a prioridade na linha 166 para que a campanha seja a fonte da verdade:
 
-**Antes (linhas 120-134):**
-```text
-let resolvedInstanceName = item.instance_name;
-
-if (item.api_config_id) {
-  const { data: config } = await supabase
-    .from("api_configs")
-    .select("api_url, api_key, instance_name")
-    .eq("id", item.api_config_id)
-    .maybeSingle();
-  if (config) {
-    apiUrl = config.api_url;
-    apiKey = config.api_key;
-    if (config.instance_name) {
-      resolvedInstanceName = config.instance_name;
-    }
-  }
-}
+**Antes:**
+```typescript
+const instanceName = msg.instance_name || campaign?.instance_name || configInstanceName;
 ```
 
 **Depois:**
-```text
-if (item.api_config_id) {
-  const { data: config } = await supabase
-    .from("api_configs")
-    .select("api_url, api_key")
-    .eq("id", item.api_config_id)
-    .maybeSingle();
-  if (config) {
-    apiUrl = config.api_url;
-    apiKey = config.api_key;
-  }
-}
+```typescript
+const instanceName = campaign?.instance_name || msg.instance_name || configInstanceName;
 ```
 
-E trocar todas as referencias a `resolvedInstanceName` de volta para `item.instance_name` (nas chamadas de `buildMessagePayload` e nos inserts de `message_logs`).
+Isso garante que, quando a mensagem pertence a uma campanha, o `instance_name` configurado na campanha ("Rosana") e usado. So usa o da `scheduled_messages` como fallback se nao houver campanha.
 
-## Por que isso funciona
-
-O fluxo correto e:
+## Fluxo corrigido
 
 ```text
-Campanha (instance_name: "Rosana")
-  --> send-scheduled-messages grava na fila (instance_name: "Rosana")
-    --> process-queue usa item.instance_name ("Rosana") para montar a URL
+Campanha "Grupo Principal" (instance_name: "Rosana")
+  --> enqueueMessage prioriza campaign.instance_name = "Rosana"
+    --> message_queue recebe instance_name = "Rosana"
+      --> process-queue usa "Rosana" para montar a URL
 ```
-
-O `process-queue` so precisa da `api_configs` para obter `api_url` e `api_key` (ou cair no fallback global). O nome da instancia ja vem correto da fila.
 
 ## Resumo
 
 | Alteracao | Detalhe |
 |-----------|---------|
-| Remover override de `instance_name` no `process-queue` | Usar `item.instance_name` da fila (que veio da campanha) |
-| Remover variavel `resolvedInstanceName` | Voltar a usar `item.instance_name` em todos os pontos |
+| Inverter prioridade do `instance_name` | `campaign?.instance_name` antes de `msg.instance_name` |
+| Arquivo | `supabase/functions/send-scheduled-messages/index.ts`, linha 166 |
+
