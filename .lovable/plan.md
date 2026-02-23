@@ -1,126 +1,181 @@
-# Sistema de Monitoramento de Membros dos Grupos
 
-## O que sera construido
 
-Um sistema completo para rastrear a quantidade de membros em cada grupo WhatsApp, com historico de entradas e saidas diarias.
+# Monitoramento de Grupos por Eventos (Baileys)
+
+## Problema atual
+
+O sistema atual compara snapshots de contagem de membros entre dias, o que nao consegue identificar quem entrou ou saiu. Se 5 pessoas entram e 5 saem no mesmo dia, o sistema mostra 0 entradas e 0 saidas.
+
+## Nova abordagem: Eventos em tempo real
+
+O Baileys emite o evento `group-participants.update` sempre que alguem entra ou sai de um grupo. Vamos escutar esse evento e gravar cada ocorrencia no banco de dados.
 
 ## Componentes
 
-### 1. Nova tabela no banco de dados: `group_stats`
+### 1. Nova tabela: `group_participant_events`
 
-Armazena snapshots diarios dos grupos:
+Registra cada evento individual de entrada/saida:
 
+| Coluna | Tipo | Descricao |
+|--------|------|-----------|
+| id | uuid | Chave primaria |
+| instance_name | text | Instancia que capturou o evento |
+| group_id | text | ID do grupo |
+| group_name | text | Nome do grupo (para exibicao) |
+| participant_jid | text | JID do participante (numero@s.whatsapp.net) |
+| action | text | "add", "remove", "promote", "demote" |
+| triggered_by | text | JID de quem realizou a acao (admin, ou o proprio participante) |
+| created_at | timestamptz | Momento do evento |
 
-| Coluna        | Tipo        | Descricao                                    |
-| ------------- | ----------- | -------------------------------------------- |
-| id            | uuid        | Chave primaria                               |
-| user_id       | uuid        | Dono da instancia                            |
-| instance_name | text        | Nome da instancia                            |
-| group_id      | text        | ID do grupo WhatsApp                         |
-| group_name    | text        | Nome do grupo                                |
-| member_count  | integer     | Total de membros no momento                  |
-| joined_today  | integer     | Quantos entraram desde o ultimo snapshot     |
-| left_today    | integer     | Quantos sairam desde o ultimo snapshot       |
-| snapshot_date | date        | Data do snapshot (uma entrada por grupo/dia) |
-| created_at    | timestamptz | Timestamp de criacao                         |
+Sem necessidade de `user_id` no insert (o servidor Baileys nao tem essa info). A relacao com o usuario sera feita via `instance_name` ao consultar.
 
+### 2. Modificacao no `baileys-server/server.js`
 
-Constraint unica em `(user_id, group_id, snapshot_date)` para garantir um registro por grupo por dia.
+Adicionar listener do evento `group-participants.update` dentro da funcao `createSession()`:
 
-RLS: usuarios so acessam seus proprios dados.
+```javascript
+sock.ev.on('group-participants.update', async ({ id, participants, action }) => {
+  // id = group JID, participants = array de JIDs, action = "add"|"remove"|"promote"|"demote"
+  // Envia para o endpoint de webhook no Supabase
+});
+```
 
-### 2. Nova Edge Function: `sync-group-stats`
+O servidor fara um POST para uma nova Edge Function (`group-events-webhook`) passando os dados do evento.
 
-Fluxo:
+### 3. Nova Edge Function: `group-events-webhook`
 
-1. Recebe `configId` do usuario (ou sincroniza todas as instancias ativas)
-2. Busca a `api_configs` para obter `instance_name` e `api_url`
-3. Chama `/group/fetchAllGroups/:instanceName` no Baileys server
-4. Para cada grupo retornado, busca o ultimo snapshot (dia anterior) no banco
-5. Calcula:
-  - `joined_today` = max(0, member_count_atual - member_count_anterior)
-  - `left_today` = max(0, member_count_anterior - member_count_atual)
-6. Faz upsert na tabela `group_stats` para a data de hoje
+- Recebe os eventos do Baileys server (autenticada via API key, nao via JWT do usuario)
+- Insere os registros na tabela `group_participant_events` usando service role
+- Tambem atualiza o `member_count` na tabela `group_stats` existente
 
-Pode ser chamada manualmente pelo usuario e via cron a cada 15 minutos.
+### 4. Atualizar `sync-group-stats`
 
-### 3. Nova pagina: `/groups` - Monitoramento de Grupos
+Manter a sincronizacao de `member_count` (contagem total) via polling, mas agora calcular `joined_today` e `left_today` a partir dos **eventos reais** da tabela `group_participant_events` em vez de comparar snapshots.
 
-Cards com visao geral:
+### 5. Atualizar `GroupsPage.tsx`
 
-- Total de grupos monitorados
-- Total de membros (soma)
-- Entradas hoje
-- Saidas hoje
+- Manter os cards de resumo (agora com dados reais de eventos)
+- Adicionar uma secao mostrando os eventos recentes (quem entrou/saiu, de qual grupo, quando)
+- Manter o grafico de evolucao de membros
 
-Tabela com todos os grupos:
+### 6. Atualizar `Dashboard.tsx`
 
-- Nome do grupo
-- Membros atuais
-- Entradas hoje (badge verde)
-- Saidas hoje (badge vermelho)
-- Ultimo sync
+- Os cards de grupos ja existentes passam a mostrar dados dos eventos reais
 
-Botao "Sincronizar Agora" para atualizar manualmente.
+## Fluxo do sistema
 
-Grafico de tendencia (opcional): evolucao de membros nos ultimos 30 dias.
+```text
+Baileys (evento group-participants.update)
+  --> POST para group-events-webhook (Edge Function)
+    --> INSERT na tabela group_participant_events
+    --> UPDATE member_count na group_stats
 
-### 4. Navegacao
-
-Adicionar item "Grupos" no menu lateral (`AppSidebar.tsx`) com icone `Users`.  
-  
-IMPORTANTE: ADICIONE TAMBÉM AO DASHBOARD PRINCIPAL TODAS AS INFORMAÇOES DOS GRUPOS
-
-### 5. Rota
-
-Adicionar rota `/groups` no `App.tsx`.
+sync-group-stats (cron cada 15 min)
+  --> Busca member_count atual do Baileys (polling)
+  --> Conta eventos de "add" e "remove" do dia na group_participant_events
+  --> Upsert na group_stats com joined_today e left_today reais
+```
 
 ## Detalhes tecnicos
 
 ### Tabela SQL
 
 ```sql
-CREATE TABLE public.group_stats (
+CREATE TABLE public.group_participant_events (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  user_id uuid NOT NULL,
   instance_name text NOT NULL,
   group_id text NOT NULL,
-  group_name text NOT NULL,
-  member_count integer NOT NULL DEFAULT 0,
-  joined_today integer NOT NULL DEFAULT 0,
-  left_today integer NOT NULL DEFAULT 0,
-  snapshot_date date NOT NULL DEFAULT CURRENT_DATE,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE(user_id, group_id, snapshot_date)
+  group_name text NOT NULL DEFAULT '',
+  participant_jid text NOT NULL,
+  action text NOT NULL, -- 'add', 'remove', 'promote', 'demote'
+  triggered_by text,
+  created_at timestamptz NOT NULL DEFAULT now()
 );
 
-ALTER TABLE public.group_stats ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Users manage own group_stats" ON public.group_stats FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+CREATE INDEX idx_gpe_instance_date ON public.group_participant_events (instance_name, created_at DESC);
+CREATE INDEX idx_gpe_group_date ON public.group_participant_events (group_id, created_at DESC);
+
+ALTER TABLE public.group_participant_events ENABLE ROW LEVEL SECURITY;
+
+-- Politica: usuarios podem ler eventos das instancias que possuem
+CREATE POLICY "Users read own instance events" ON public.group_participant_events
+  FOR SELECT USING (
+    instance_name IN (
+      SELECT ac.instance_name FROM api_configs ac WHERE ac.user_id = auth.uid()
+    )
+  );
+
+-- Service role insere (via Edge Function webhook)
+CREATE POLICY "Service role can insert events" ON public.group_participant_events
+  FOR INSERT WITH CHECK (true);
 ```
 
-### Edge Function `sync-group-stats`
+### Modificacao no `baileys-server/server.js`
 
-- Autenticada (recebe token do usuario)
-- Busca configs ativas do usuario
-- Para cada instancia, chama o Baileys para obter grupos
-- Compara com snapshot anterior e faz upsert
-- Retorna resumo: quantos grupos sincronizados, entradas, saidas
+Dentro de `createSession()`, apos o listener de `connection.update`, adicionar:
 
-### Pagina `GroupsPage.tsx`
+```javascript
+sock.ev.on('group-participants.update', async ({ id, participants, action }) => {
+  try {
+    const webhookUrl = process.env.SUPABASE_FUNCTIONS_URL || 'http://supabase-kong:8000';
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
-- Botao de sync manual que chama a edge function
-- Tabela com dados do dia atual
-- Filtro por instancia (se houver mais de uma)
-- Dados historicos consultaveis por data
+    // Buscar nome do grupo
+    let groupName = id;
+    try {
+      const metadata = await sock.groupMetadata(id);
+      groupName = metadata.subject || id;
+    } catch {}
+
+    await fetch(`${webhookUrl}/functions/v1/group-events-webhook`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${serviceKey}`,
+        'x-instance-name': instanceName,
+      },
+      body: JSON.stringify({
+        groupId: id,
+        groupName,
+        participants,
+        action,
+        instanceName,
+      }),
+    });
+  } catch (err) {
+    console.error(`[${instanceName}] group-participants.update webhook error:`, err.message);
+  }
+});
+```
+
+### Edge Function `group-events-webhook`
+
+- Autenticada via service role key (vem do Baileys server, nao de um usuario)
+- Insere eventos na `group_participant_events`
+- Verifica JWT = false no config.toml (validacao manual via header)
+
+### Atualizacao do `sync-group-stats`
+
+O calculo de `joined_today` e `left_today` muda de comparacao de snapshots para:
+
+```sql
+SELECT
+  COUNT(*) FILTER (WHERE action = 'add') as joined,
+  COUNT(*) FILTER (WHERE action = 'remove') as left
+FROM group_participant_events
+WHERE group_id = $1
+  AND created_at >= CURRENT_DATE
+  AND created_at < CURRENT_DATE + interval '1 day'
+```
 
 ## Arquivos a criar/modificar
 
+| Arquivo | Acao |
+|---------|------|
+| Migracao SQL | Criar tabela `group_participant_events` |
+| `baileys-server/server.js` | Adicionar listener `group-participants.update` |
+| `supabase/functions/group-events-webhook/index.ts` | Nova Edge Function para receber webhooks |
+| `supabase/functions/sync-group-stats/index.ts` | Usar eventos reais para joined/left |
+| `src/pages/GroupsPage.tsx` | Adicionar lista de eventos recentes |
+| `src/pages/Dashboard.tsx` | Dados de grupos baseados em eventos |
 
-| Arquivo                                        | Acao                            |
-| ---------------------------------------------- | ------------------------------- |
-| Migracao SQL                                   | Criar tabela `group_stats`      |
-| `supabase/functions/sync-group-stats/index.ts` | Nova edge function              |
-| `supabase/config.toml`                         | Registrar nova function         |
-| `src/pages/GroupsPage.tsx`                     | Nova pagina                     |
-| `src/App.tsx`                                  | Adicionar rota `/groups`        |
-| `src/components/AppSidebar.tsx`                | Adicionar item de menu "Grupos" |
