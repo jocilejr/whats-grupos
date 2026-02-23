@@ -100,7 +100,7 @@ export function CampaignMessageList({ campaignId, apiConfigId, instanceName, gro
       queryClient.invalidateQueries({ queryKey: ["campaign-scheduled-messages"] });
       toast({
         title: "Envio iniciado",
-        description: `${data?.processed || 0} grupo(s) processado(s)${data?.errors ? `, ${data.errors} erro(s)` : ""}`,
+        description: `${data?.queued || 0} grupo(s) enfileirado(s)${data?.errors ? `, ${data.errors} erro(s)` : ""}`,
       });
     },
     onError: (err: any) => {
