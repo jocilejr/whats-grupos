@@ -117,20 +117,15 @@ Deno.serve(async (req) => {
         let apiKey = "";
         let provider = "evolution";
 
-        let resolvedInstanceName = item.instance_name;
-
         if (item.api_config_id) {
           const { data: config } = await supabase
             .from("api_configs")
-            .select("api_url, api_key, instance_name")
+            .select("api_url, api_key")
             .eq("id", item.api_config_id)
             .maybeSingle();
           if (config) {
             apiUrl = config.api_url;
             apiKey = config.api_key;
-            if (config.instance_name) {
-              resolvedInstanceName = config.instance_name;
-            }
           }
         }
 
@@ -145,7 +140,7 @@ Deno.serve(async (req) => {
 
         const content = item.content as any;
         const { endpoint, body } = buildMessagePayload(
-          item.message_type, apiUrl, resolvedInstanceName, item.group_id, content
+          item.message_type, apiUrl, item.instance_name, item.group_id, content
         );
         if (content.mentionsEveryOne) body.mentionsEveryOne = true;
 
@@ -178,7 +173,7 @@ Deno.serve(async (req) => {
             message_type: item.message_type,
             content: item.content,
             status: "sent",
-            instance_name: resolvedInstanceName,
+            instance_name: item.instance_name,
           });
 
           processed++;
@@ -199,7 +194,7 @@ Deno.serve(async (req) => {
             content: item.content,
             status: "error",
             error_message: JSON.stringify(result),
-            instance_name: resolvedInstanceName,
+            instance_name: item.instance_name,
           });
 
           errors++;
@@ -225,7 +220,7 @@ Deno.serve(async (req) => {
           content: item.content,
           status: "error",
           error_message: errorMsg,
-          instance_name: resolvedInstanceName,
+          instance_name: item.instance_name,
         });
 
         errors++;
