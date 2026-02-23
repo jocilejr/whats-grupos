@@ -1,85 +1,85 @@
+# Corrigir erro "Instance not connected" no process-queue
 
+## Diagnostico
 
-# Corrigir: Mensagens nao chegam na fila quando provider e Baileys
+O problema nao tem relacao com provider Evolution/Baileys. O erro ocorre porque:
 
-## Problema
+1. A campanha foi criada com a instancia **"RosanaGrupos"** (nome antigo)
+2. A instancia foi renomeada/recriada como **"Rosana"**
+3. O `send-scheduled-messages` grava `instance_name: "RosanaGrupos"` na `message_queue` (vindo da campanha)
+4. O `process-queue` usa esse nome diretamente para montar a URL: `/message/sendText/RosanaGrupos`
+5. O Baileys responde "Instance not connected" porque so conhece "Rosana"
 
-Na funcao `enqueueMessage` dentro de `supabase/functions/send-scheduled-messages/index.ts`, existe uma verificacao que exige que `evolution_api_url` esteja preenchido no `global_config`. Como voce usa apenas Baileys (sem Evolution API), esse campo esta vazio e a funcao retorna 0 silenciosamente -- as mensagens **nunca sao inseridas na fila**.
+## Correcao no codigo
 
-Trecho do problema (linhas 144-152):
-```text
-if (!apiUrl || apiUrl === "global" || !apiKey || apiKey === "global") {
-    const { data: globalCfg } = await supabase.from("global_config")
-      .select("evolution_api_url, evolution_api_key")...
-    if (!globalCfg?.evolution_api_url) {
-      return 0;  // <-- bloqueia tudo silenciosamente
-    }
-}
-```
+### Arquivo: `supabase/functions/process-queue/index.ts`
 
-## Solucao
+Na linha 122-123, quando o `process-queue` busca a config do usuario (`api_configs`), ele so le `api_url` e `api_key`. Precisa tambem ler `instance_name` e usa-lo como fonte da verdade, pois e o nome atualizado da instancia.  
+  
+O instance name se encontra na CAMPANHA onde a instancia foi executada.
 
-### 1. Corrigir `send-scheduled-messages/index.ts` (funcao `enqueueMessage`)
+**Antes (linhas 120-130):**
 
-Alterar a logica de fallback para tambem verificar o provider configurado. Quando o provider for `baileys`, nao exigir `evolution_api_url` -- pois o `process-queue` ja resolve a URL correta em tempo de execucao.
-
-**Antes (linhas 143-153):**
 ```typescript
-if (!apiUrl || apiUrl === "global" || !apiKey || apiKey === "global") {
-  const { data: globalCfg } = await supabase.from("global_config")
-    .select("evolution_api_url, evolution_api_key").limit(1).maybeSingle();
-  if (!globalCfg?.evolution_api_url) {
-    console.error(`No global Evolution API config for message ${msg.id}`);
-    return 0;
-  }
-  apiUrl = globalCfg.evolution_api_url;
-  apiKey = globalCfg.evolution_api_key;
-}
-```
-
-**Depois:**
-```typescript
-if (!apiUrl || apiUrl === "global" || !apiKey || apiKey === "global") {
-  const { data: globalCfg } = await supabase.from("global_config")
-    .select("evolution_api_url, evolution_api_key, whatsapp_provider")
-    .limit(1).maybeSingle();
-
-  const provider = globalCfg?.whatsapp_provider || "evolution";
-
-  if (provider === "baileys") {
-    // Baileys: URL resolvida no process-queue, nao precisa validar aqui
-    apiUrl = "resolved-at-runtime";
-    apiKey = "resolved-at-runtime";
-  } else {
-    if (!globalCfg?.evolution_api_url) {
-      console.error(`No global Evolution API config for message ${msg.id}`);
-      return 0;
-    }
-    apiUrl = globalCfg.evolution_api_url;
-    apiKey = globalCfg.evolution_api_key;
+if (item.api_config_id) {
+  const { data: config } = await supabase
+    .from("api_configs")
+    .select("api_url, api_key")
+    .eq("id", item.api_config_id)
+    .maybeSingle();
+  if (config) {
+    apiUrl = config.api_url;
+    apiKey = config.api_key;
   }
 }
 ```
 
-### 2. Corrigir toast no frontend (`CampaignMessageList.tsx`, linha 103)
+**Depois:**
 
-O toast le `data?.processed` mas a Edge Function retorna `data?.queued`.
-
-**Antes:**
 ```typescript
-description: `${data?.processed || 0} grupo(s) processado(s)...`
+let resolvedInstanceName = item.instance_name;
+
+if (item.api_config_id) {
+  const { data: config } = await supabase
+    .from("api_configs")
+    .select("api_url, api_key, instance_name")
+    .eq("id", item.api_config_id)
+    .maybeSingle();
+  if (config) {
+    apiUrl = config.api_url;
+    apiKey = config.api_key;
+    // Usar o nome atualizado da instancia da api_configs
+    if (config.instance_name) {
+      resolvedInstanceName = config.instance_name;
+    }
+  }
+}
 ```
 
-**Depois:**
+E na linha 143, trocar `item.instance_name` por `resolvedInstanceName`:
+
 ```typescript
-description: `${data?.queued || 0} grupo(s) enfileirado(s)...`
+const { endpoint, body } = buildMessagePayload(
+  item.message_type, apiUrl, resolvedInstanceName, item.group_id, content
+);
+```
+
+Tambem atualizar os logs de `message_logs` para gravar o nome correto (`resolvedInstanceName` ao inves de `item.instance_name`).
+
+### Correcao de dados na VPS
+
+Alem da correcao de codigo, atualizar o nome da instancia nas campanhas existentes:
+
+```sql
+UPDATE campaigns SET instance_name = 'Rosana' WHERE instance_name = 'RosanaGrupos';
+UPDATE scheduled_messages SET instance_name = 'Rosana' WHERE instance_name = 'RosanaGrupos';
+UPDATE message_queue SET instance_name = 'Rosana' WHERE instance_name = 'RosanaGrupos' AND status = 'pending';
 ```
 
 ## Resumo
 
-| Arquivo | Problema | Correcao |
-|---------|----------|----------|
-| `supabase/functions/send-scheduled-messages/index.ts` | Exige `evolution_api_url` mesmo quando provider e Baileys, bloqueando o enfileiramento | Verificar o provider e pular validacao de URL para Baileys |
-| `src/components/campaigns/CampaignMessageList.tsx` | Toast le campo inexistente `processed` ao inves de `queued` | Trocar para `data?.queued` |
 
-Apos aplicar, tanto o envio manual ("Enviar agora") quanto o cron das 7h vao funcionar corretamente com Baileys.
+| Correcao                                           | Onde                   | Impacto                                      |
+| -------------------------------------------------- | ---------------------- | -------------------------------------------- |
+| process-queue ler `instance_name` da `api_configs` | Codigo (Edge Function) | Resolve automaticamente nomes desatualizados |
+| Atualizar dados antigos                            | SQL na VPS             | Corrige campanhas e itens pendentes na fila  |
