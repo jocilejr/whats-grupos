@@ -1,47 +1,31 @@
 
 
-# Corrigir deduplicacao que bloqueia mensagens diferentes para os mesmos grupos
+# Corrigir variáveis de ambiente do Baileys Server
 
-## Problema identificado
-
-A funcao `enqueueMessage` no `send-scheduled-messages` possui um filtro de deduplicacao que verifica se um grupo ja foi enfileirado nas ultimas 2 horas para a mesma instancia. Porem, ele nao considera o `scheduled_message_id`, fazendo com que mensagens **diferentes** agendadas para os mesmos grupos dentro de uma janela de 2 horas sejam incorretamente bloqueadas.
-
-**Exemplo real**: A mensagem das 18:01 BRT (`3b0e9d65`) enviou para 15 grupos. Quando a mensagem das 19:30 BRT (`019311af`) tentou disparar (1h29min depois), a deduplicacao filtrou todos os 15 grupos, retornando 0.
+## Problema
+O container `baileys-server` é criado pelo `scripts/deploy.sh` sem as variáveis de ambiente `SUPABASE_FUNCTIONS_URL` e `SUPABASE_SERVICE_ROLE_KEY`. Sem elas, o webhook de eventos de grupo envia `Authorization: Bearer ` (vazio), resultando em 401 Unauthorized.
 
 ## Solucao
 
-Adicionar o filtro `.eq("scheduled_message_id", msg.id)` na query de deduplicacao. Assim, a verificacao so impede duplicatas da **mesma** mensagem agendada, permitindo que mensagens diferentes enviem para os mesmos grupos normalmente.
+Alterar o `scripts/deploy.sh` para passar as variáveis de ambiente ao criar o container do Baileys.
 
-## Alteracao tecnica
+### Alteracao tecnica
 
-**Arquivo**: `supabase/functions/send-scheduled-messages/index.ts`
+**Arquivo**: `scripts/deploy.sh`
 
-Na funcao `enqueueMessage`, alterar a query de deduplicacao (linhas ~194-200):
+No bloco que faz `docker run` do baileys-server (linha ~47), adicionar as variáveis de ambiente lidas do arquivo `.credentials`:
 
-Antes:
-```typescript
-const { data: recentItems } = await supabase
-  .from("message_queue")
-  .select("group_id")
-  .in("group_id", allGroupIds)
-  .eq("instance_name", instanceName)
-  .in("status", ["pending", "sending", "sent"])
-  .gte("created_at", twoHoursAgo);
+```bash
+docker run -d --name baileys-server --restart unless-stopped \
+  --network supabase_default \
+  -e SUPABASE_FUNCTIONS_URL=http://supabase-kong:8000 \
+  -e SUPABASE_SERVICE_ROLE_KEY="${SERVICE_ROLE_KEY}" \
+  -p 127.0.0.1:3100:3100 -v baileys-data:/data baileys-server
 ```
 
-Depois:
-```typescript
-const { data: recentItems } = await supabase
-  .from("message_queue")
-  .select("group_id")
-  .eq("scheduled_message_id", msg.id)
-  .in("group_id", allGroupIds)
-  .eq("instance_name", instanceName)
-  .in("status", ["pending", "sending", "sent"])
-  .gte("created_at", twoHoursAgo);
-```
+A variável `SERVICE_ROLE_KEY` já deve existir no arquivo `/opt/whats-grupos/.credentials` (gerado pelo `install.sh`). O script já faz `source` desse arquivo antes desse bloco.
 
-Essa unica linha adicionada (`.eq("scheduled_message_id", msg.id)`) garante que a deduplicacao so se aplica a mesma mensagem agendada, resolvendo o problema sem remover a protecao contra duplicatas reais.
+Se a variável no `.credentials` tiver outro nome, será necessário ajustar. Para garantir, o bloco carregará o `.credentials` e usará a chave correta.
 
 ## Apos deploy
 
@@ -50,5 +34,13 @@ Executar na VPS:
 cd /opt/whats-grupos && git pull && sudo ./scripts/deploy.sh
 ```
 
-A mensagem das 19:30 voltara a funcionar normalmente no proximo dia (segunda-feira).
+Em seguida, verificar que as variáveis estão presentes:
+```bash
+docker inspect baileys-server --format '{{json .Config.Env}}' | python3 -m json.tool
+```
+
+E testar o webhook:
+```bash
+docker exec baileys-server wget -q -O- --post-data='{}' --header='Content-Type: application/json' --header='Authorization: Bearer <SERVICE_ROLE_KEY>' http://supabase-kong:8000/functions/v1/group-events-webhook
+```
 
