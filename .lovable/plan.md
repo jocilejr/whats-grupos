@@ -1,63 +1,90 @@
-# Corrigir: process-queue nunca e chamado  
-  
-Crie uma nova função: Um botão na fila que envia imediatamente a mensagem que está pendente.
 
-## Problema
+# Corrigir Menções em Mídias e Link Preview no Baileys
 
-O sistema possui dois componentes:
+## Problemas Identificados
 
-- **send-scheduled-messages** (Produtor): enfileira mensagens na tabela `message_queue`
-- **process-queue** (Consumidor): processa e envia as mensagens da fila
+### 1. Menções em imagem/vídeo não funcionam
+No `baileys-server/server.js`, o endpoint `/message/sendMedia` (linha 297-324) **não lê nem usa** o campo `mentionsEveryOne` do body. Ele só extrai `number, mediatype, media, caption, fileName`. Mesmo que o `process-queue` envie `mentionsEveryOne: true` no payload, o Baileys Server ignora completamente.
 
-O cron job (pg_cron) so esta configurado para chamar `send-scheduled-messages` a cada minuto. A funcao `process-queue` nunca e chamada automaticamente, entao as mensagens ficam eternamente como "Pendente".
+### 2. Link Preview não funciona
+O Baileys precisa do pacote `link-preview-js` para gerar previews de links. Apesar de `generateHighQualityLinkPreview: true` estar configurado no socket, o pacote necessário não está nas dependências do projeto (`baileys-server/package.json`). Sem ele, o Baileys não consegue buscar os metadados da URL.
 
-## Solucao
+## Solução
 
-Adicionar um segundo cron job no script `setup-cron.sh` para chamar `process-queue` a cada minuto, logo apos o cron existente do `send-scheduled-messages`.
+### Arquivo: `baileys-server/server.js`
 
-Alem disso, como o usuario ja tem o sistema rodando, fornecer o comando SQL para adicionar o cron job diretamente sem precisar rodar o script de instalacao completo novamente.
+**Endpoint `sendMedia` (linhas 296-324)** - Adicionar suporte a menções:
 
-## Detalhes Tecnicos
+```javascript
+app.post('/message/sendMedia/:name', async (req, res) => {
+  try {
+    const session = await getSession(req.params.name);
+    if (!session || !session.connected) {
+      return res.status(400).json({ error: 'Instance not connected' });
+    }
 
-### 1. Atualizar `scripts/setup-cron.sh`
+    const { number, mediatype, media, caption, fileName, mentionsEveryOne } = req.body;
+    const jid = number.includes('@') ? number : `${number}@g.us`;
 
-Adicionar um segundo bloco de cron job para `process-queue`, usando o mesmo padrao do cron existente:
+    let msgContent;
+    if (mediatype === 'image') {
+      msgContent = { image: { url: media }, caption: caption || '' };
+    } else if (mediatype === 'video') {
+      msgContent = { video: { url: media }, caption: caption || '' };
+    } else if (mediatype === 'document') {
+      msgContent = { document: { url: media }, fileName: fileName || 'file', caption: caption || '' };
+    } else {
+      return res.status(400).json({ error: `Unsupported media type: ${mediatype}` });
+    }
 
-```sql
-SELECT cron.schedule(
-  'process-queue',
-  '* * * * *',
-  $$
-  SELECT net.http_post(
-    url := 'https://<API_DOMAIN>/functions/v1/process-queue',
-    headers := '{"Content-Type":"application/json","Authorization":"Bearer <ANON_KEY>"}'::jsonb,
-    body := '{"time":"now"}'::jsonb
-  ) AS request_id;
-  $$
-);
+    // Adicionar menções se solicitado
+    if (mentionsEveryOne) {
+      try {
+        const metadata = await session.sock.groupMetadata(jid);
+        msgContent.mentions = metadata.participants.map(p => p.id);
+      } catch (_) {}
+    }
+
+    const result = await session.sock.sendMessage(jid, msgContent);
+    res.json({ key: result.key, status: 'PENDING' });
+  } catch (e) {
+    console.error('[sendMedia]', e);
+    res.status(500).json({ error: e.message });
+  }
+});
 ```
 
-### 2. Comando para o usuario aplicar imediatamente na VPS
+### Arquivo: `baileys-server/package.json`
 
-O usuario precisara rodar o seguinte no banco de dados do Supabase (via `psql` ou Docker exec) para ativar o cron do `process-queue`, substituindo `<API_DOMAIN>` e `<ANON_KEY>` pelos valores reais:
+Adicionar dependência `link-preview-js` para que o Baileys consiga gerar previews de links:
+
+```json
+"dependencies": {
+    "@whiskeysockets/baileys": "^6.7.16",
+    "express": "^4.21.2",
+    "qrcode": "^1.5.4",
+    "pino": "^9.6.0",
+    "link-preview-js": "^3.0.5"
+}
+```
+
+### Apos o deploy
+
+Na VPS, depois do `git pull`, rodar:
 
 ```bash
-cd /opt/supabase-docker/docker
-docker compose exec -T db psql -U postgres -d postgres -c "
-SELECT cron.schedule(
-  'process-queue',
-  '* * * * *',
-  \$\$
-  SELECT net.http_post(
-    url := 'https://<API_DOMAIN>/functions/v1/process-queue',
-    headers := '{\"Content-Type\":\"application/json\",\"Authorization\":\"Bearer <ANON_KEY>\"}'::jsonb,
-    body := '{\"time\":\"now\"}'::jsonb
-  ) AS request_id;
-  \$\$
-);
-"
+cd /opt/whats-grupos/baileys-server
+npm install
+docker compose restart baileys-server
+```
+
+Ou se estiver usando Docker build:
+
+```bash
+docker compose build baileys-server && docker compose up -d baileys-server
 ```
 
 ### Resultado esperado
 
-Apos adicionar o cron job, o `process-queue` sera chamado automaticamente a cada minuto, processando as mensagens pendentes na fila e enviando-as pelo Baileys.
+- Imagens e videos enviados com "Mencionar todos" vao mencionar todos os participantes do grupo
+- Mensagens de texto com links vao gerar preview automaticamente
