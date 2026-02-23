@@ -1,95 +1,85 @@
 
-# Correcao do Upload de Midias no Backup
 
-## Problemas Identificados
+# Corrigir: Mensagens nao chegam na fila quando provider e Baileys
 
-1. **Conversao base64 falha silenciosamente para arquivos grandes**: As funcoes `btoa()` e `atob()` do navegador tem limites de tamanho de string. Videos e audios maiores (1-20MB) causam erro, mas o `catch` vazio ignora.
+## Problema
 
-2. **Nenhum feedback sobre falhas**: O usuario nao sabe quais arquivos falharam - o codigo simplesmente pula sem avisar.
+Na funcao `enqueueMessage` dentro de `supabase/functions/send-scheduled-messages/index.ts`, existe uma verificacao que exige que `evolution_api_url` esteja preenchido no `global_config`. Como voce usa apenas Baileys (sem Evolution API), esse campo esta vazio e a funcao retorna 0 silenciosamente -- as mensagens **nunca sao inseridas na fila**.
 
-3. **Import tambem falha silenciosamente**: Na funcao `uploadMedia`, a conversao `atob(base64)` tambem pode falhar para arquivos grandes, e o erro e ignorado.
-
-4. **URL map no import esta incorreta**: Na funcao `uploadMedia`, o `oldUrl` e construido usando o `VITE_SUPABASE_URL` atual (do destino), mas deveria usar a URL de origem do backup para fazer o mapeamento correto.
-
-## Correcoes Planejadas
-
-### Arquivo: `src/lib/backup.ts`
-
-**1. Substituir `btoa()`/`atob()` por conversao chunked**
-
-Na exportacao, trocar `blobToDataUrl` (que usa `FileReader.readAsDataURL`) por uma funcao que converte o ArrayBuffer em base64 em chunks de 8KB, evitando estouro de stack:
-
-```typescript
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  const chunkSize = 8192;
-  let binary = "";
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length));
-    for (let j = 0; j < chunk.length; j++) {
-      binary += String.fromCharCode(chunk[j]);
+Trecho do problema (linhas 144-152):
+```text
+if (!apiUrl || apiUrl === "global" || !apiKey || apiKey === "global") {
+    const { data: globalCfg } = await supabase.from("global_config")
+      .select("evolution_api_url, evolution_api_key")...
+    if (!globalCfg?.evolution_api_url) {
+      return 0;  // <-- bloqueia tudo silenciosamente
     }
-  }
-  return btoa(binary);
 }
 ```
 
-Na importacao, trocar `atob()` por conversao chunked similar.
+## Solucao
 
-**2. Adicionar logs e contadores de erro**
+### 1. Corrigir `send-scheduled-messages/index.ts` (funcao `enqueueMessage`)
 
-Em vez de `catch {}` vazio, registrar quais arquivos falharam e mostrar um resumo ao final:
+Alterar a logica de fallback para tambem verificar o provider configurado. Quando o provider for `baileys`, nao exigir `evolution_api_url` -- pois o `process-queue` ja resolve a URL correta em tempo de execucao.
 
-- Na exportacao: contar arquivos baixados vs falhados
-- Na importacao: contar arquivos uploadados vs falhados  
-- Exibir toast com resumo ("X de Y arquivos de midia transferidos, Z falharam")
-
-**3. Corrigir mapeamento de URLs no import**
-
-Na funcao `uploadMedia`, o `oldUrl` precisa usar a URL de origem do backup (`backup.source_url`), nao a URL do destino:
-
+**Antes (linhas 143-153):**
 ```typescript
-// ANTES (errado):
-const oldUrl = `${supabaseUrl}/storage/v1/object/public/media/${originalPath}`;
-// DEPOIS (correto):
-const oldUrl = `${sourceUrl}/storage/v1/object/public/media/${originalPath}`;
+if (!apiUrl || apiUrl === "global" || !apiKey || apiKey === "global") {
+  const { data: globalCfg } = await supabase.from("global_config")
+    .select("evolution_api_url, evolution_api_key").limit(1).maybeSingle();
+  if (!globalCfg?.evolution_api_url) {
+    console.error(`No global Evolution API config for message ${msg.id}`);
+    return 0;
+  }
+  apiUrl = globalCfg.evolution_api_url;
+  apiKey = globalCfg.evolution_api_key;
+}
 ```
 
-Passar `sourceUrl` como parametro para `uploadMedia`.
+**Depois:**
+```typescript
+if (!apiUrl || apiUrl === "global" || !apiKey || apiKey === "global") {
+  const { data: globalCfg } = await supabase.from("global_config")
+    .select("evolution_api_url, evolution_api_key, whatsapp_provider")
+    .limit(1).maybeSingle();
 
-**4. Melhorar progresso na exportacao**
+  const provider = globalCfg?.whatsapp_provider || "evolution";
 
-Mostrar nome do arquivo sendo baixado e tipo (imagem/video/audio) para o usuario acompanhar.
+  if (provider === "baileys") {
+    // Baileys: URL resolvida no process-queue, nao precisa validar aqui
+    apiUrl = "resolved-at-runtime";
+    apiKey = "resolved-at-runtime";
+  } else {
+    if (!globalCfg?.evolution_api_url) {
+      console.error(`No global Evolution API config for message ${msg.id}`);
+      return 0;
+    }
+    apiUrl = globalCfg.evolution_api_url;
+    apiKey = globalCfg.evolution_api_key;
+  }
+}
+```
 
-### Arquivo: `src/pages/BackupPage.tsx`
+### 2. Corrigir toast no frontend (`CampaignMessageList.tsx`, linha 103)
 
-**5. Mostrar resumo de midias apos export/import**
+O toast le `data?.processed` mas a Edge Function retorna `data?.queued`.
 
-Exibir toast detalhado informando quantos arquivos de midia foram processados com sucesso e quantos falharam, para o usuario saber se precisa tentar novamente.
+**Antes:**
+```typescript
+description: `${data?.processed || 0} grupo(s) processado(s)...`
+```
 
----
+**Depois:**
+```typescript
+description: `${data?.queued || 0} grupo(s) enfileirado(s)...`
+```
 
-## Detalhes Tecnicos
+## Resumo
 
-### Funcao `exportBackup` - Mudancas
+| Arquivo | Problema | Correcao |
+|---------|----------|----------|
+| `supabase/functions/send-scheduled-messages/index.ts` | Exige `evolution_api_url` mesmo quando provider e Baileys, bloqueando o enfileiramento | Verificar o provider e pular validacao de URL para Baileys |
+| `src/components/campaigns/CampaignMessageList.tsx` | Toast le campo inexistente `processed` ao inves de `queued` | Trocar para `data?.queued` |
 
-- Substituir `blobToDataUrl(blob)` por: obter `ArrayBuffer` do blob, converter com `arrayBufferToBase64`, e montar o data URL manualmente (`data:${blob.type};base64,${base64}`)
-- Adicionar contador de falhas
-- Retornar info de falhas no resultado
-
-### Funcao `uploadMedia` - Mudancas  
-
-- Receber `sourceUrl` como parametro adicional
-- Usar `sourceUrl` para construir `oldUrl` no mapeamento
-- Substituir `atob(base64)` por conversao chunked: iterar o base64 em blocos, decodificar cada bloco separadamente
-- Adicionar contador de falhas e log de erros
-
-### Funcao `importBackup` - Mudancas
-
-- Passar `backup.source_url` para `uploadMedia`
-- Coletar resultado de falhas e propagar ao caller
-
-### Funcao `blobToDataUrl` - Sera substituida
-
-- Removida em favor da nova funcao `arrayBufferToBase64` que nao depende de `FileReader`
-
+Apos aplicar, tanto o envio manual ("Enviar agora") quanto o cron das 7h vao funcionar corretamente com Baileys.
