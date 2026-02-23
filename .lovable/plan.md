@@ -1,67 +1,77 @@
 
-# Completar Funcionalidade de Monitoramento de Grupos
 
-## Problema
+# Corrigir 3 Problemas: Fantasmas, Exclusao de Erros e Grupos
 
-A pagina de Grupos esta incompleta:
-- O seletor de instancia so aparece quando ja existem dados (`instances` vem dos `todayStats`, que esta vazio)
-- O botao "Sincronizar Agora" nao envia qual instancia sincronizar
-- Nao ha feedback quando nenhuma instancia esta configurada
-- O usuario nao consegue iniciar o fluxo porque nao ha como selecionar a instancia antes da primeira sincronizacao
+## Problema 1: Entradas fantasma "RosanaGrupos"
 
-## Solucao
+O cron `send-scheduled-messages` chama `claim_due_messages()` que pega TODOS os `scheduled_messages` ativos com `next_run_at <= now()`. Se existem agendamentos antigos com `instance_name = 'RosanaGrupos'` na tabela `scheduled_messages`, eles continuam sendo enfileirados a cada ciclo.
 
-### 1. Carregar instancias disponiveis da tabela `api_configs`
+A linha 166 do `send-scheduled-messages` define a instancia:
+```text
+const instanceName = campaign?.instance_name || msg.instance_name || configInstanceName;
+```
 
-Adicionar uma query separada para buscar as instancias ativas do usuario diretamente da tabela `api_configs` (independente de ja ter dados em `group_stats`).
+Se a campanha nao tem `instance_name` definido, usa o do `scheduled_message` (que pode ser "RosanaGrupos"). Se nenhum dos dois tem, usa o do `api_configs`.
 
-### 2. Mostrar seletor de instancia SEMPRE
+**Solucao**: Executar na VPS para identificar e corrigir os registros fantasma:
 
-O seletor de instancia deve aparecer sempre que o usuario tiver instancias configuradas, nao apenas quando ja existem dados sincronizados.
+```bash
+docker compose -f /opt/supabase-docker/docker/docker-compose.yml exec -T db psql -U postgres -d postgres <<'EOF'
 
-### 3. Enviar `configId` na sincronizacao
+-- 1. Ver quais scheduled_messages tem RosanaGrupos
+SELECT id, instance_name, schedule_type, is_active, next_run_at
+FROM scheduled_messages
+WHERE instance_name = 'RosanaGrupos' AND is_active = true;
 
-Quando o usuario clicar em "Sincronizar Agora", enviar o `configId` selecionado para a Edge Function, que ja suporta esse parametro no body.
+-- 2. Ver quais campanhas tem RosanaGrupos
+SELECT id, name, instance_name FROM campaigns WHERE instance_name = 'RosanaGrupos';
 
-### 4. Estado vazio informativo
+-- 3. Ver api_configs
+SELECT id, instance_name FROM api_configs WHERE instance_name = 'RosanaGrupos';
 
-Quando nao houver nenhuma instancia configurada, mostrar mensagem direcionando o usuario para a pagina de Configuracoes.
+-- 4. Corrigir TUDO de uma vez
+UPDATE scheduled_messages SET instance_name = 'Rosana' WHERE instance_name = 'RosanaGrupos';
+UPDATE campaigns SET instance_name = 'Rosana' WHERE instance_name = 'RosanaGrupos';
+UPDATE api_configs SET instance_name = 'Rosana' WHERE instance_name = 'RosanaGrupos';
 
-## Detalhes Tecnicos
+-- 5. Limpar itens fantasma da fila
+DELETE FROM message_queue WHERE instance_name = 'RosanaGrupos';
 
-### Arquivo: `src/pages/GroupsPage.tsx`
+EOF
+```
+
+## Problema 2: Nao consegue deletar itens com erro da fila
+
+**Arquivo**: `src/pages/QueuePage.tsx`
 
 Mudancas:
 
-1. **Nova query para instancias**: Buscar `api_configs` do usuario com `is_active = true`
-2. **State `selectedInstance`**: Controlar qual instancia esta selecionada (default: primeira instancia ou "all")
-3. **Seletor sempre visivel**: Renderizar o `Select` baseado nas configs, nao nos stats
-4. **Passar configId no sync**: Enviar `{ configId }` no body da chamada `supabase.functions.invoke`
-5. **Estado vazio**: Se nao houver configs, mostrar card com botao "Ir para Configuracoes"
-6. **Filtrar dados por instancia selecionada**: Usar `selectedInstance` tanto para filtrar a tabela quanto para o sync
-
-### Fluxo atualizado
-
+1. Adicionar funcao `handleDeleteSelected` que deleta os itens selecionados (checkbox) com status `error`:
 ```text
-Usuario abre /groups
-  |
-  v
-Carrega api_configs ativas do usuario
-  |
-  +-- Sem instancias? --> Mostra "Configure uma instancia em Configuracoes"
-  |
-  +-- Com instancias --> Mostra seletor de instancia + botao Sincronizar
-        |
-        v
-  Usuario seleciona instancia e clica Sincronizar
-        |
-        v
-  Edge Function busca grupos do Baileys para aquela instancia
-        |
-        v
-  Dados aparecem na tabela e graficos
+const handleDeleteSelected = async () => {
+  const ids = Array.from(selectedIds);
+  const { error } = await supabase
+    .from("message_queue")
+    .delete()
+    .in("id", ids);
+  // feedback + limpar selecao
+};
 ```
 
-### Edge Function `sync-group-stats`
+2. Adicionar botao "Deletar selecionados" (vermelho, com icone lixeira) ao lado do botao "Reenviar selecionados" no header -- aparece apenas quando ha itens selecionados
 
-Nenhuma mudanca necessaria -- ja suporta receber `configId` no body do POST e filtrar por ele.
+3. Alterar `handleClearAllQueue` (linha 240-251) para incluir status `error` na exclusao:
+```text
+.in("status", ["pending", "sent", "error"])
+```
+
+## Problema 3: Grupos nao sincronizam
+
+Este problema sera resolvido automaticamente ao corrigir o `instance_name` na tabela `api_configs` (Problema 1). A Edge Function `sync-group-stats` usa o nome da instancia para chamar `/group/fetchAllGroups/{instanceName}` no Baileys. Com "RosanaGrupos" a chamada falha; com "Rosana" vai funcionar.
+
+## Deploy
+
+Apos as mudancas no codigo:
+```bash
+cd /opt/whats-grupos && git pull && sudo ./scripts/deploy.sh
+```
