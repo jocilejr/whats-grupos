@@ -35,9 +35,20 @@ export default function BackupPage() {
     setExporting(true);
     setProgress(0);
     try {
-      const backup = await exportBackup(handleProgress);
+      const { backup, result } = await exportBackup(handleProgress);
       downloadBackup(backup);
-      toast({ title: "Backup exportado com sucesso!" });
+
+      if (result.mediaTotal === 0) {
+        toast({ title: "Backup exportado com sucesso!" });
+      } else if (result.mediaFailed === 0) {
+        toast({ title: "Backup exportado com sucesso!", description: `${result.mediaSuccess} arquivo(s) de mídia incluídos.` });
+      } else {
+        toast({
+          title: "Backup exportado com avisos",
+          description: `${result.mediaSuccess} de ${result.mediaTotal} mídias incluídas. ${result.mediaFailed} falharam: ${result.failedFiles.join(", ")}`,
+          variant: "destructive",
+        });
+      }
     } catch (err: any) {
       toast({ title: "Erro ao exportar", description: err.message, variant: "destructive" });
     } finally {
@@ -74,8 +85,19 @@ export default function BackupPage() {
     setImporting(true);
     setProgress(0);
     try {
-      await importBackup(pendingFile, handleProgress);
-      toast({ title: "Restauração concluída com sucesso!" });
+      const result = await importBackup(pendingFile, handleProgress);
+
+      if (result.mediaTotal === 0) {
+        toast({ title: "Restauração concluída com sucesso!" });
+      } else if (result.mediaFailed === 0) {
+        toast({ title: "Restauração concluída!", description: `${result.mediaSuccess} arquivo(s) de mídia restaurados.` });
+      } else {
+        toast({
+          title: "Restauração concluída com avisos",
+          description: `${result.mediaSuccess} de ${result.mediaTotal} mídias restauradas. ${result.mediaFailed} falharam: ${result.failedFiles.join(", ")}`,
+          variant: "destructive",
+        });
+      }
     } catch (err: any) {
       toast({ title: "Erro ao restaurar", description: err.message, variant: "destructive" });
     } finally {
