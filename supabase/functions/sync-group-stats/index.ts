@@ -97,34 +97,33 @@ Deno.serve(async (req) => {
 
         if (groups.length === 0) continue;
 
-        // Get yesterday's snapshots for comparison
+        // Get event-based joined/left counts for today from group_participant_events
         const groupIds = groups.map((g: any) => g.id || g.jid);
-        const { data: prevSnapshots } = await supabase
-          .from("group_stats")
-          .select("group_id, member_count")
-          .eq("user_id", user.id)
+        
+        const { data: eventCounts } = await supabase
+          .from("group_participant_events")
+          .select("group_id, action")
+          .eq("instance_name", config.instance_name)
           .in("group_id", groupIds)
-          .lt("snapshot_date", today)
-          .order("snapshot_date", { ascending: false });
+          .gte("created_at", `${today}T00:00:00`)
+          .lt("created_at", `${today}T23:59:59.999`);
 
-        // Build a map of latest previous counts per group
-        const prevMap: Record<string, number> = {};
-        for (const snap of prevSnapshots || []) {
-          if (!(snap.group_id in prevMap)) {
-            prevMap[snap.group_id] = snap.member_count;
-          }
+        // Build event count map
+        const eventMap: Record<string, { joined: number; left: number }> = {};
+        for (const ev of (eventCounts || []) as any[]) {
+          if (!eventMap[ev.group_id]) eventMap[ev.group_id] = { joined: 0, left: 0 };
+          if (ev.action === "add") eventMap[ev.group_id].joined++;
+          else if (ev.action === "remove") eventMap[ev.group_id].left++;
         }
 
         // Upsert today's stats
         const upsertRows = groups.map((g: any) => {
           const groupId = g.id || g.jid;
           const memberCount = g.size || g.participants?.length || 0;
-          const prev = prevMap[groupId] ?? memberCount;
-          const joined = Math.max(0, memberCount - prev);
-          const left = Math.max(0, prev - memberCount);
+          const events = eventMap[groupId] || { joined: 0, left: 0 };
 
-          totalJoined += joined;
-          totalLeft += left;
+          totalJoined += events.joined;
+          totalLeft += events.left;
 
           return {
             user_id: user.id,
@@ -132,8 +131,8 @@ Deno.serve(async (req) => {
             group_id: groupId,
             group_name: g.subject || g.name || groupId,
             member_count: memberCount,
-            joined_today: joined,
-            left_today: left,
+            joined_today: events.joined,
+            left_today: events.left,
             snapshot_date: today,
           };
         });

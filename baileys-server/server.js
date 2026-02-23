@@ -93,6 +93,40 @@ async function createSession(instanceName) {
     }
   });
 
+  // Listen for group participant events (join/leave/promote/demote)
+  sock.ev.on('group-participants.update', async ({ id, participants, action }) => {
+    try {
+      const webhookUrl = process.env.SUPABASE_FUNCTIONS_URL || 'http://supabase-kong:8000';
+      const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+
+      // Try to get group name
+      let groupName = id;
+      try {
+        const metadata = await sock.groupMetadata(id);
+        groupName = metadata.subject || id;
+      } catch {}
+
+      await fetch(`${webhookUrl}/functions/v1/group-events-webhook`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${serviceKey}`,
+        },
+        body: JSON.stringify({
+          groupId: id,
+          groupName,
+          participants,
+          action,
+          instanceName,
+        }),
+      });
+
+      console.log(`[${instanceName}] group-participants.update: ${action} ${participants.length} in ${groupName}`);
+    } catch (err) {
+      console.error(`[${instanceName}] group-participants.update webhook error:`, err.message);
+    }
+  });
+
   sessions.set(instanceName, session);
   return session;
 }
