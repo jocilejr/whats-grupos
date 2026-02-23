@@ -194,6 +194,21 @@ export default function QueuePage() {
     }
   };
 
+  const handleDeleteSelected = async () => {
+    const ids = Array.from(selectedIds);
+    const { error } = await supabase
+      .from("message_queue")
+      .delete()
+      .in("id", ids);
+    if (error) {
+      toast.error("Erro ao deletar itens");
+    } else {
+      toast.success(`${ids.length} itens deletados`);
+      setSelectedIds(new Set());
+      queryClient.invalidateQueries({ queryKey: ["message-queue"] });
+    }
+  };
+
   const handleBulkRetry = async () => {
     setBulkRetrying(true);
     const itemsToRetry = queueItems.filter((i) => selectedIds.has(i.id));
@@ -241,7 +256,7 @@ export default function QueuePage() {
     const { error } = await supabase
       .from("message_queue")
       .delete()
-      .in("status", ["pending", "sent"]);
+      .in("status", ["pending", "sent", "error"]);
     if (error) {
       toast.error("Erro ao limpar fila");
     } else {
@@ -303,16 +318,26 @@ export default function QueuePage() {
         </div>
         <div className="flex gap-2 flex-wrap justify-end">
           {selectedIds.size > 0 && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleBulkRetry}
-              disabled={bulkRetrying}
-              className="border-primary/30 text-primary hover:bg-primary/10"
-            >
-              {bulkRetrying ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RotateCcw className="h-4 w-4 mr-2" />}
-              Reenviar {selectedIds.size} selecionados
-            </Button>
+            <>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={handleDeleteSelected}
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Deletar {selectedIds.size} selecionados
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleBulkRetry}
+                disabled={bulkRetrying}
+                className="border-primary/30 text-primary hover:bg-primary/10"
+              >
+                {bulkRetrying ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RotateCcw className="h-4 w-4 mr-2" />}
+                Reenviar {selectedIds.size} selecionados
+              </Button>
+            </>
           )}
           <AlertDialog>
             <AlertDialogTrigger asChild>
