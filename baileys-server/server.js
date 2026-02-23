@@ -275,14 +275,18 @@ app.post('/message/sendText/:name', async (req, res) => {
     const { number, text, mentionsEveryOne } = req.body;
     const jid = number.includes('@') ? number : `${number}@g.us`;
 
+    console.log(`[sendText] mentionsEveryOne=${mentionsEveryOne}, jid=${jid}`);
+
     const msgOptions = { text };
 
     if (mentionsEveryOne) {
-      // Fetch group participants for @everyone mention
       try {
         const metadata = await session.sock.groupMetadata(jid);
         msgOptions.mentions = metadata.participants.map(p => p.id);
-      } catch (_) {}
+        console.log(`[sendText] Mentions added: ${msgOptions.mentions.length} participants`);
+      } catch (mentionErr) {
+        console.error(`[sendText] Failed to fetch group metadata for mentions:`, mentionErr.message);
+      }
     }
 
     const result = await session.sock.sendMessage(jid, msgOptions);
@@ -304,6 +308,8 @@ app.post('/message/sendMedia/:name', async (req, res) => {
     const { number, mediatype, media, caption, fileName, mentionsEveryOne } = req.body;
     const jid = number.includes('@') ? number : `${number}@g.us`;
 
+    console.log(`[sendMedia] mentionsEveryOne=${mentionsEveryOne}, jid=${jid}, mediatype=${mediatype}`);
+
     let msgContent;
     if (mediatype === 'image') {
       msgContent = { image: { url: media }, caption: caption || '' };
@@ -320,8 +326,13 @@ app.post('/message/sendMedia/:name', async (req, res) => {
       try {
         const metadata = await session.sock.groupMetadata(jid);
         msgContent.mentions = metadata.participants.map(p => p.id);
-      } catch (_) {}
+        console.log(`[sendMedia] Mentions added: ${msgContent.mentions.length} participants`);
+      } catch (mentionErr) {
+        console.error(`[sendMedia] Failed to fetch group metadata for mentions:`, mentionErr.message);
+      }
     }
+
+    console.log(`[sendMedia] Sending with mentions: ${!!msgContent.mentions}`);
 
     const result = await session.sock.sendMessage(jid, msgContent);
     res.json({ key: result.key, status: 'PENDING' });
