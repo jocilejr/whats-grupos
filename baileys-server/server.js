@@ -301,7 +301,7 @@ app.post('/message/sendMedia/:name', async (req, res) => {
       return res.status(400).json({ error: 'Instance not connected' });
     }
 
-    const { number, mediatype, media, caption, fileName } = req.body;
+    const { number, mediatype, media, caption, fileName, mentionsEveryOne } = req.body;
     const jid = number.includes('@') ? number : `${number}@g.us`;
 
     let msgContent;
@@ -313,6 +313,14 @@ app.post('/message/sendMedia/:name', async (req, res) => {
       msgContent = { document: { url: media }, fileName: fileName || 'file', caption: caption || '' };
     } else {
       return res.status(400).json({ error: `Unsupported media type: ${mediatype}` });
+    }
+
+    // Adicionar menções se solicitado
+    if (mentionsEveryOne) {
+      try {
+        const metadata = await session.sock.groupMetadata(jid);
+        msgContent.mentions = metadata.participants.map(p => p.id);
+      } catch (_) {}
     }
 
     const result = await session.sock.sendMessage(jid, msgContent);
