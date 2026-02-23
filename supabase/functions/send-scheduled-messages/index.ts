@@ -163,7 +163,7 @@ async function enqueueMessage(supabase: any, msg: any): Promise<number> {
   }
   apiUrl = apiUrl!.replace(/\/$/, "");
 
-  const instanceName = msg.instance_name || campaign?.instance_name || configInstanceName;
+  const instanceName = campaign?.instance_name || msg.instance_name || configInstanceName;
   const executionBatch = crypto.randomUUID();
 
   let content = msg.content as any;
