@@ -1,54 +1,63 @@
-
-
-# Corrigir process-queue para usar URL fixa do Baileys
+# Corrigir: process-queue nunca e chamado  
+  
+Crie uma nova função: Um botão na fila que envia imediatamente a mensagem que está pendente.
 
 ## Problema
 
-A funcao `process-queue/index.ts` e a responsavel por processar e enviar as mensagens da fila. Ela possui sua propria funcao `getProviderConfig` que ainda usa o codigo antigo:
+O sistema possui dois componentes:
 
-```
-apiUrl: (globalConfig.baileys_api_url || "http://localhost:3100")
-```
+- **send-scheduled-messages** (Produtor): enfileira mensagens na tabela `message_queue`
+- **process-queue** (Consumidor): processa e envia as mensagens da fila
 
-Isso faz com que a mensagem fique presa como "Pendente" porque `localhost:3100` nao e acessivel de dentro do container da Edge Function. A URL correta e `http://baileys-server:3100` (nome DNS do container Docker na rede interna).
-
-Apenas a edge function `evolution-api` foi atualizada anteriormente. A `process-queue`, que e a que de fato envia, ficou com o codigo antigo.
+O cron job (pg_cron) so esta configurado para chamar `send-scheduled-messages` a cada minuto. A funcao `process-queue` nunca e chamada automaticamente, entao as mensagens ficam eternamente como "Pendente".
 
 ## Solucao
 
-Atualizar a funcao `getProviderConfig` dentro de `supabase/functions/process-queue/index.ts` para usar a URL fixa `http://baileys-server:3100`, identico ao que ja foi feito na `evolution-api`.
+Adicionar um segundo cron job no script `setup-cron.sh` para chamar `process-queue` a cada minuto, logo apos o cron existente do `send-scheduled-messages`.
+
+Alem disso, como o usuario ja tem o sistema rodando, fornecer o comando SQL para adicionar o cron job diretamente sem precisar rodar o script de instalacao completo novamente.
 
 ## Detalhes Tecnicos
 
-### Arquivo: `supabase/functions/process-queue/index.ts`
+### 1. Atualizar `scripts/setup-cron.sh`
 
-Alterar linhas 34-39 de:
+Adicionar um segundo bloco de cron job para `process-queue`, usando o mesmo padrao do cron existente:
 
-```typescript
-if (provider === "baileys") {
-  return {
-    provider: "baileys",
-    apiUrl: (globalConfig.baileys_api_url || "http://localhost:3100").replace(/\/$/, ""),
-    apiKey: "",
-  };
-}
+```sql
+SELECT cron.schedule(
+  'process-queue',
+  '* * * * *',
+  $$
+  SELECT net.http_post(
+    url := 'https://<API_DOMAIN>/functions/v1/process-queue',
+    headers := '{"Content-Type":"application/json","Authorization":"Bearer <ANON_KEY>"}'::jsonb,
+    body := '{"time":"now"}'::jsonb
+  ) AS request_id;
+  $$
+);
 ```
 
-Para:
+### 2. Comando para o usuario aplicar imediatamente na VPS
 
-```typescript
-if (provider === "baileys") {
-  return {
-    provider: "baileys",
-    apiUrl: "http://baileys-server:3100",
-    apiKey: "",
-  };
-}
+O usuario precisara rodar o seguinte no banco de dados do Supabase (via `psql` ou Docker exec) para ativar o cron do `process-queue`, substituindo `<API_DOMAIN>` e `<ANON_KEY>` pelos valores reais:
+
+```bash
+cd /opt/supabase-docker/docker
+docker compose exec -T db psql -U postgres -d postgres -c "
+SELECT cron.schedule(
+  'process-queue',
+  '* * * * *',
+  \$\$
+  SELECT net.http_post(
+    url := 'https://<API_DOMAIN>/functions/v1/process-queue',
+    headers := '{\"Content-Type\":\"application/json\",\"Authorization\":\"Bearer <ANON_KEY>\"}'::jsonb,
+    body := '{\"time\":\"now\"}'::jsonb
+  ) AS request_id;
+  \$\$
+);
+"
 ```
 
 ### Resultado esperado
 
-Apos essa correcao, a funcao `process-queue` conseguira alcançar o container Baileys pela rede Docker interna e as mensagens pendentes serao enviadas normalmente.
-
-Nenhuma outra alteracao e necessaria -- apenas essa linha estava impedindo o envio.
-
+Apos adicionar o cron job, o `process-queue` sera chamado automaticamente a cada minuto, processando as mensagens pendentes na fila e enviando-as pelo Baileys.
