@@ -231,7 +231,12 @@ export default function GroupsPage() {
       />
 
       {/* Recent Events */}
-      <RecentEventsSection instanceFilter={instanceFilter} />
+      <RecentEventsSection
+        instanceFilter={instanceFilter}
+        onRealtimeEvent={(action) => {
+          // Realtime events automatically invalidate queries via the component
+        }}
+      />
 
       {/* Chart */}
       {(historicalData?.length ?? 0) > 1 && (
