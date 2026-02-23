@@ -5,6 +5,7 @@ export interface BackupFile {
   version: number;
   created_at: string;
   user_email: string;
+  source_url: string;
   data: {
     profiles: any[];
     api_configs: any[];
@@ -18,7 +19,7 @@ export interface BackupFile {
 
 type ProgressCallback = (step: string, progress: number) => void;
 
-// ─── EXPORT ───
+// ─── HELPERS ───
 
 function extractMediaPaths(records: any[]): string[] {
   const paths = new Set<string>();
@@ -40,9 +41,49 @@ function extractMediaPaths(records: any[]): string[] {
   return Array.from(paths);
 }
 
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+function replaceUrls(obj: any, urlMap: Map<string, string>, sourceUrl?: string, targetUrl?: string): any {
+  if (!obj) return obj;
+  if (typeof obj === "string") {
+    let result = urlMap.get(obj) || obj;
+    if (sourceUrl && targetUrl && sourceUrl !== targetUrl) {
+      result = result.split(sourceUrl).join(targetUrl);
+    }
+    return result;
+  }
+  if (Array.isArray(obj)) {
+    return obj.map((item) => replaceUrls(item, urlMap, sourceUrl, targetUrl));
+  }
+  if (typeof obj === "object") {
+    const result: any = {};
+    for (const [key, value] of Object.entries(obj)) {
+      result[key] = replaceUrls(value, urlMap, sourceUrl, targetUrl);
+    }
+    return result;
+  }
+  return obj;
+}
+
+function stripMeta(record: any) {
+  const { id, created_at, updated_at, user_id, ...rest } = record;
+  return rest;
+}
+
+// ─── EXPORT ───
+
 export async function exportBackup(onProgress?: ProgressCallback): Promise<BackupFile> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Usuário não autenticado");
+
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 
   onProgress?.("Buscando perfil...", 5);
   const { data: profiles } = await supabase.from("profiles").select("*");
@@ -88,12 +129,11 @@ export async function exportBackup(onProgress?: ProgressCallback): Promise<Backu
     for (let i = 0; i < mediaPaths.length; i++) {
       onProgress?.(`Baixando mídia ${i + 1}/${mediaPaths.length}...`, 65 + Math.round((i / mediaPaths.length) * 20));
       try {
-        const resp = await supabase.functions.invoke("backup-export", {
-          body: { media_path: mediaPaths[i] },
-        });
-        if (resp.data?.data_url) {
-          media[mediaPaths[i]] = resp.data.data_url;
-        }
+        const publicUrl = `${supabaseUrl}/storage/v1/object/public/media/${mediaPaths[i]}`;
+        const resp = await fetch(publicUrl);
+        if (!resp.ok) continue;
+        const blob = await resp.blob();
+        media[mediaPaths[i]] = await blobToDataUrl(blob);
       } catch {
         // Skip failed downloads
       }
@@ -106,6 +146,7 @@ export async function exportBackup(onProgress?: ProgressCallback): Promise<Backu
     version: 1,
     created_at: new Date().toISOString(),
     user_email: user.email || "",
+    source_url: supabaseUrl,
     data: {
       profiles: profiles || [],
       api_configs: api_configs || [],
@@ -185,32 +226,12 @@ async function uploadMedia(media: Record<string, string>, userId: string): Promi
   return urlMap;
 }
 
-function replaceUrls(obj: any, urlMap: Map<string, string>): any {
-  if (!obj) return obj;
-  if (typeof obj === "string") {
-    return urlMap.get(obj) || obj;
-  }
-  if (Array.isArray(obj)) {
-    return obj.map((item) => replaceUrls(item, urlMap));
-  }
-  if (typeof obj === "object") {
-    const result: any = {};
-    for (const [key, value] of Object.entries(obj)) {
-      result[key] = replaceUrls(value, urlMap);
-    }
-    return result;
-  }
-  return obj;
-}
-
-function stripMeta(record: any) {
-  const { id, created_at, updated_at, user_id, ...rest } = record;
-  return rest;
-}
-
 export async function importBackup(backup: BackupFile, onProgress?: ProgressCallback) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Usuário não autenticado");
+
+  const targetUrl = import.meta.env.VITE_SUPABASE_URL;
+  const sourceUrl = backup.source_url || "";
 
   // 1. Upload media
   let urlMap = new Map<string, string>();
@@ -258,7 +279,7 @@ export async function importBackup(backup: BackupFile, onProgress?: ProgressCall
     delete clean.campaign_id;
     const newConfigId = msg.api_config_id ? configIdMap.get(msg.api_config_id) : null;
     const newCampaignId = msg.campaign_id ? campaignIdMap.get(msg.campaign_id) : null;
-    const content = replaceUrls(clean.content, urlMap);
+    const content = replaceUrls(clean.content, urlMap, sourceUrl, targetUrl);
     await supabase.from("scheduled_messages").insert({
       ...clean,
       content: content as Json,
@@ -272,7 +293,7 @@ export async function importBackup(backup: BackupFile, onProgress?: ProgressCall
   onProgress?.("Restaurando templates...", 70);
   for (const tpl of backup.data.message_templates) {
     const clean = stripMeta(tpl);
-    const content = replaceUrls(clean.content, urlMap);
+    const content = replaceUrls(clean.content, urlMap, sourceUrl, targetUrl);
     await supabase.from("message_templates").insert({
       ...clean,
       content: content as Json,
@@ -288,7 +309,7 @@ export async function importBackup(backup: BackupFile, onProgress?: ProgressCall
       delete clean.api_config_id;
       delete clean.scheduled_message_id;
       const newConfigId = log.api_config_id ? configIdMap.get(log.api_config_id) : null;
-      const content = replaceUrls(clean.content, urlMap);
+      const content = replaceUrls(clean.content, urlMap, sourceUrl, targetUrl);
       return {
         ...clean,
         content: content as Json,
@@ -299,7 +320,6 @@ export async function importBackup(backup: BackupFile, onProgress?: ProgressCall
     })
     .filter(Boolean);
 
-  // Insert in batches of 500
   const BATCH_SIZE = 500;
   for (let i = 0; i < logRecords.length; i += BATCH_SIZE) {
     const batch = logRecords.slice(i, i + BATCH_SIZE);
