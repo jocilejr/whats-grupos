@@ -17,9 +17,42 @@ export interface BackupFile {
   media: Record<string, string>;
 }
 
+export interface BackupResult {
+  mediaSuccess: number;
+  mediaFailed: number;
+  mediaTotal: number;
+  failedFiles: string[];
+}
+
 type ProgressCallback = (step: string, progress: number) => void;
 
 // ─── HELPERS ───
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 8192;
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length));
+    for (let j = 0; j < chunk.length; j++) {
+      binary += String.fromCharCode(chunk[j]);
+    }
+  }
+  return btoa(binary);
+}
+
+function base64ToUint8Array(base64: string): Uint8Array {
+  const chunkSize = 8192;
+  const chunks: number[] = [];
+  for (let i = 0; i < base64.length; i += chunkSize) {
+    const slice = base64.substring(i, Math.min(i + chunkSize, base64.length));
+    const decoded = atob(slice);
+    for (let j = 0; j < decoded.length; j++) {
+      chunks.push(decoded.charCodeAt(j));
+    }
+  }
+  return new Uint8Array(chunks);
+}
 
 function extractMediaPaths(records: any[]): string[] {
   const paths = new Set<string>();
@@ -39,15 +72,6 @@ function extractMediaPaths(records: any[]): string[] {
 
   records.forEach(walk);
   return Array.from(paths);
-}
-
-function blobToDataUrl(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => resolve(reader.result as string);
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
-  });
 }
 
 function replaceUrls(obj: any, urlMap: Map<string, string>, sourceUrl?: string, targetUrl?: string): any {
@@ -77,9 +101,13 @@ function stripMeta(record: any) {
   return rest;
 }
 
+function getFileName(path: string): string {
+  return path.split("/").pop() || path;
+}
+
 // ─── EXPORT ───
 
-export async function exportBackup(onProgress?: ProgressCallback): Promise<BackupFile> {
+export async function exportBackup(onProgress?: ProgressCallback): Promise<{ backup: BackupFile; result: BackupResult }> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Usuário não autenticado");
 
@@ -125,17 +153,32 @@ export async function exportBackup(onProgress?: ProgressCallback): Promise<Backu
   const mediaPaths = extractMediaPaths(allRecords);
 
   let media: Record<string, string> = {};
+  let mediaSuccess = 0;
+  let mediaFailed = 0;
+  const failedFiles: string[] = [];
+
   if (mediaPaths.length > 0) {
     for (let i = 0; i < mediaPaths.length; i++) {
-      onProgress?.(`Baixando mídia ${i + 1}/${mediaPaths.length}...`, 65 + Math.round((i / mediaPaths.length) * 20));
+      const fileName = getFileName(mediaPaths[i]);
+      onProgress?.(`Baixando mídia ${i + 1}/${mediaPaths.length}: ${fileName}`, 65 + Math.round((i / mediaPaths.length) * 20));
       try {
         const publicUrl = `${supabaseUrl}/storage/v1/object/public/media/${mediaPaths[i]}`;
         const resp = await fetch(publicUrl);
-        if (!resp.ok) continue;
+        if (!resp.ok) {
+          mediaFailed++;
+          failedFiles.push(fileName);
+          console.warn(`[backup-export] Failed to download: ${fileName} (HTTP ${resp.status})`);
+          continue;
+        }
         const blob = await resp.blob();
-        media[mediaPaths[i]] = await blobToDataUrl(blob);
-      } catch {
-        // Skip failed downloads
+        const arrayBuffer = await blob.arrayBuffer();
+        const base64 = arrayBufferToBase64(arrayBuffer);
+        media[mediaPaths[i]] = `data:${blob.type};base64,${base64}`;
+        mediaSuccess++;
+      } catch (err) {
+        mediaFailed++;
+        failedFiles.push(fileName);
+        console.error(`[backup-export] Error downloading ${fileName}:`, err);
       }
     }
   }
@@ -159,7 +202,15 @@ export async function exportBackup(onProgress?: ProgressCallback): Promise<Backu
   };
 
   onProgress?.("Backup concluído!", 100);
-  return backup;
+  return {
+    backup,
+    result: {
+      mediaSuccess,
+      mediaFailed,
+      mediaTotal: mediaPaths.length,
+      failedFiles,
+    },
+  };
 }
 
 export function downloadBackup(backup: BackupFile) {
@@ -190,43 +241,69 @@ export function validateBackupFile(data: any): data is BackupFile {
   );
 }
 
-async function uploadMedia(media: Record<string, string>, userId: string): Promise<Map<string, string>> {
+async function uploadMedia(
+  media: Record<string, string>,
+  userId: string,
+  sourceUrl: string,
+  onProgress?: ProgressCallback,
+): Promise<{ urlMap: Map<string, string>; success: number; failed: number; failedFiles: string[] }> {
   const urlMap = new Map<string, string>();
-  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+  const targetUrl = import.meta.env.VITE_SUPABASE_URL;
+  let success = 0;
+  let failed = 0;
+  const failedFiles: string[] = [];
+  const entries = Object.entries(media);
 
-  for (const [originalPath, dataUrl] of Object.entries(media)) {
+  for (let i = 0; i < entries.length; i++) {
+    const [originalPath, dataUrl] = entries[i];
+    const fileName = getFileName(originalPath);
+    onProgress?.(`Enviando mídia ${i + 1}/${entries.length}: ${fileName}`, 10 + Math.round((i / entries.length) * 15));
+
     try {
       const [header, base64] = dataUrl.split(",");
       const mimeMatch = header.match(/data:(.+);base64/);
       const mimeType = mimeMatch?.[1] || "application/octet-stream";
 
-      const binary = atob(base64);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) {
-        bytes[i] = binary.charCodeAt(i);
+      // Chunked base64 decode
+      const decoded = atob(base64);
+      const bytes = new Uint8Array(decoded.length);
+      const chunkSize = 8192;
+      for (let offset = 0; offset < decoded.length; offset += chunkSize) {
+        const end = Math.min(offset + chunkSize, decoded.length);
+        for (let j = offset; j < end; j++) {
+          bytes[j] = decoded.charCodeAt(j);
+        }
       }
       const blob = new Blob([bytes], { type: mimeType });
 
-      const newPath = `${userId}/${Date.now()}-${originalPath.split("/").pop()}`;
+      const newPath = `${userId}/${Date.now()}-${fileName}`;
       const { error } = await supabase.storage.from("media").upload(newPath, blob, {
         contentType: mimeType,
         upsert: false,
       });
 
       if (!error) {
-        const oldUrl = `${supabaseUrl}/storage/v1/object/public/media/${originalPath}`;
-        const newUrl = `${supabaseUrl}/storage/v1/object/public/media/${newPath}`;
+        // Use sourceUrl for old URL mapping (not targetUrl)
+        const oldUrl = `${sourceUrl}/storage/v1/object/public/media/${originalPath}`;
+        const newUrl = `${targetUrl}/storage/v1/object/public/media/${newPath}`;
         urlMap.set(oldUrl, newUrl);
+        success++;
+      } else {
+        failed++;
+        failedFiles.push(fileName);
+        console.error(`[backup-import] Upload error for ${fileName}:`, error.message);
       }
-    } catch {
-      // Skip failed uploads
+    } catch (err) {
+      failed++;
+      failedFiles.push(fileName);
+      console.error(`[backup-import] Error processing ${fileName}:`, err);
     }
   }
 
-  return urlMap;
+  return { urlMap, success, failed, failedFiles };
 }
 
-export async function importBackup(backup: BackupFile, onProgress?: ProgressCallback) {
+export async function importBackup(backup: BackupFile, onProgress?: ProgressCallback): Promise<BackupResult> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Usuário não autenticado");
 
@@ -235,13 +312,17 @@ export async function importBackup(backup: BackupFile, onProgress?: ProgressCall
 
   // 1. Upload media
   let urlMap = new Map<string, string>();
+  let mediaResult = { success: 0, failed: 0, failedFiles: [] as string[] };
+
   if (backup.media && Object.keys(backup.media).length > 0) {
     onProgress?.(`Enviando ${Object.keys(backup.media).length} arquivo(s) de mídia...`, 10);
-    urlMap = await uploadMedia(backup.media, user.id);
+    const result = await uploadMedia(backup.media, user.id, sourceUrl, onProgress);
+    urlMap = result.urlMap;
+    mediaResult = { success: result.success, failed: result.failed, failedFiles: result.failedFiles };
   }
 
   // 2. api_configs
-  onProgress?.("Restaurando instâncias...", 25);
+  onProgress?.("Restaurando instâncias...", 30);
   const configIdMap = new Map<string, string>();
   for (const config of backup.data.api_configs) {
     const clean = stripMeta(config);
@@ -254,7 +335,7 @@ export async function importBackup(backup: BackupFile, onProgress?: ProgressCall
   }
 
   // 3. campaigns
-  onProgress?.("Restaurando campanhas...", 40);
+  onProgress?.("Restaurando campanhas...", 45);
   const campaignIdMap = new Map<string, string>();
   for (const campaign of backup.data.campaigns) {
     const clean = stripMeta(campaign);
@@ -339,4 +420,12 @@ export async function importBackup(backup: BackupFile, onProgress?: ProgressCall
   }
 
   onProgress?.("Restauração concluída!", 100);
+
+  const totalMedia = backup.media ? Object.keys(backup.media).length : 0;
+  return {
+    mediaSuccess: mediaResult.success,
+    mediaFailed: mediaResult.failed,
+    mediaTotal: totalMedia,
+    failedFiles: mediaResult.failedFiles,
+  };
 }
