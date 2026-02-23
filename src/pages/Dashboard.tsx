@@ -87,7 +87,7 @@ export default function Dashboard() {
     enabled: !!user,
   });
 
-  // Group stats for today
+  // Group stats for today (uses event-based joined/left from group_participant_events via sync)
   const todayDate = new Date().toISOString().split("T")[0];
   const { data: groupStats } = useQuery({
     queryKey: ["group-stats-dashboard", user?.id, todayDate],

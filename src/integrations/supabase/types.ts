@@ -133,6 +133,39 @@ export type Database = {
         }
         Relationships: []
       }
+      group_participant_events: {
+        Row: {
+          action: string
+          created_at: string
+          group_id: string
+          group_name: string
+          id: string
+          instance_name: string
+          participant_jid: string
+          triggered_by: string | null
+        }
+        Insert: {
+          action: string
+          created_at?: string
+          group_id: string
+          group_name?: string
+          id?: string
+          instance_name: string
+          participant_jid: string
+          triggered_by?: string | null
+        }
+        Update: {
+          action?: string
+          created_at?: string
+          group_id?: string
+          group_name?: string
+          id?: string
+          instance_name?: string
+          participant_jid?: string
+          triggered_by?: string | null
+        }
+        Relationships: []
+      }
       group_stats: {
         Row: {
           created_at: string

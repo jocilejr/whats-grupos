@@ -11,3 +11,6 @@ verify_jwt = false
 
 [functions.process-queue]
 verify_jwt = false
+
+[functions.group-events-webhook]
+verify_jwt = false
