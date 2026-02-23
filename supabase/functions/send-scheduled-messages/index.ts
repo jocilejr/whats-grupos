@@ -187,7 +187,28 @@ async function enqueueMessage(supabase: any, msg: any): Promise<number> {
     }
   }
 
-  const queueItems = allGroupIds.map((groupId: string, index: number) => ({
+  // Deduplication: filter out groups already enqueued in the last 2 hours
+  let finalGroupIds = allGroupIds;
+  const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+  const { data: recentItems } = await supabase
+    .from("message_queue")
+    .select("group_id")
+    .in("group_id", allGroupIds)
+    .eq("instance_name", instanceName)
+    .in("status", ["pending", "sending", "sent"])
+    .gte("created_at", twoHoursAgo);
+
+  if (recentItems?.length) {
+    const recentGroupIds = new Set(recentItems.map((i: any) => i.group_id));
+    finalGroupIds = allGroupIds.filter((id: string) => !recentGroupIds.has(id));
+    if (!finalGroupIds.length) {
+      console.log(`Message ${msg.id}: all ${allGroupIds.length} groups already enqueued recently, skipping`);
+      return 0;
+    }
+    console.log(`Message ${msg.id}: filtered ${allGroupIds.length - finalGroupIds.length} duplicate groups, enqueuing ${finalGroupIds.length}`);
+  }
+
+  const queueItems = finalGroupIds.map((groupId: string, index: number) => ({
     user_id: msg.user_id,
     scheduled_message_id: msg.id,
     campaign_id: msg.campaign_id,
@@ -209,8 +230,8 @@ async function enqueueMessage(supabase: any, msg: any): Promise<number> {
     return 0;
   }
 
-  console.log(`Message ${msg.id}: enqueued ${allGroupIds.length} items (batch ${executionBatch})`);
-  return allGroupIds.length;
+  console.log(`Message ${msg.id}: enqueued ${finalGroupIds.length} items (batch ${executionBatch})`);
+  return finalGroupIds.length;
 }
 
 function calculateNextRunAt(msg: any, now: Date): string | null {

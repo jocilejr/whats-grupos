@@ -105,6 +105,36 @@ function getFileName(path: string): string {
   return path.split("/").pop() || path;
 }
 
+async function checkScheduleDuplicate(
+  client: any,
+  userId: string,
+  scheduleType: string,
+  content: any,
+  groupIds: string[],
+): Promise<boolean> {
+  const { data: candidates } = await client
+    .from("scheduled_messages")
+    .select("id, content, group_ids")
+    .eq("user_id", userId)
+    .eq("is_active", true)
+    .eq("schedule_type", scheduleType)
+    .limit(100);
+
+  if (!candidates?.length) return false;
+
+  const runTime = content?.runTime;
+  const weekDays = JSON.stringify((content?.weekDays || []).sort());
+  const sortedGroups = JSON.stringify([...groupIds].sort());
+
+  return candidates.some((c: any) => {
+    const cContent = c.content as any;
+    if (cContent?.runTime !== runTime) return false;
+    if (JSON.stringify((cContent?.weekDays || []).sort()) !== weekDays) return false;
+    const cGroups = JSON.stringify([...(c.group_ids || [])].sort());
+    return cGroups === sortedGroups;
+  });
+}
+
 // ─── EXPORT ───
 
 export async function exportBackup(onProgress?: ProgressCallback): Promise<{ backup: BackupFile; result: BackupResult }> {
@@ -361,12 +391,37 @@ export async function importBackup(backup: BackupFile, onProgress?: ProgressCall
     const newConfigId = msg.api_config_id ? configIdMap.get(msg.api_config_id) : null;
     const newCampaignId = msg.campaign_id ? campaignIdMap.get(msg.campaign_id) : null;
     const content = replaceUrls(clean.content, urlMap, sourceUrl, targetUrl);
+
+    // Duplicate check: skip if an active scheduled_message already exists
+    // with the same runTime, schedule_type, weekDays, and group_ids
+    const msgContent = content as any;
+    if (clean.is_active !== false && msgContent?.runTime && clean.schedule_type) {
+      const { data: existing } = await supabase
+        .from("scheduled_messages")
+        .select("id")
+        .eq("user_id", user.id)
+        .eq("is_active", true)
+        .eq("schedule_type", clean.schedule_type)
+        .limit(50);
+
+      if (existing?.length) {
+        // Check for content-level duplicates (same runTime + weekDays + groups)
+        const isDuplicate = await checkScheduleDuplicate(
+          supabase, user.id, clean.schedule_type, msgContent, clean.group_ids || msg.group_ids
+        );
+        if (isDuplicate) {
+          console.warn(`[backup-import] Skipping duplicate scheduled_message: ${clean.schedule_type} at ${msgContent.runTime}`);
+          continue;
+        }
+      }
+    }
+
     await supabase.from("scheduled_messages").insert({
       ...clean,
       content: content as Json,
       user_id: user.id,
       api_config_id: newConfigId || null,
-      campaign_id: newCampaignId,
+      campaign_id: newCampaignId || null,
     });
   }
 
