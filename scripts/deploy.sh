@@ -32,8 +32,14 @@ echo "[INFO] Atualizando Baileys Server..."
 if [ -d "${PROJECT_DIR}/baileys-server" ]; then
   docker build -t baileys-server "${PROJECT_DIR}/baileys-server" 2>/dev/null && \
     docker rm -f baileys-server 2>/dev/null && \
+    # Carregar .credentials para obter SERVICE_ROLE_KEY
+    if [ -f "${PROJECT_DIR}/.credentials" ]; then
+      source "${PROJECT_DIR}/.credentials"
+    fi
     docker run -d --name baileys-server --restart unless-stopped \
       --network supabase_default \
+      -e SUPABASE_FUNCTIONS_URL=http://supabase-kong:8000 \
+      -e SUPABASE_SERVICE_ROLE_KEY="${SERVICE_ROLE_KEY}" \
       -p 127.0.0.1:3100:3100 -v baileys-data:/data baileys-server 2>/dev/null && \
     echo "[OK] Baileys Server atualizado." || \
     echo "[AVISO] Falha ao atualizar Baileys Server."
