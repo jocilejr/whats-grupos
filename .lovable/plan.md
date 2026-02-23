@@ -1,64 +1,50 @@
 
 
-# Corrigir Deploy das Edge Functions na VPS
+# Corrigir Permissoes GRANT nas Tabelas de Grupos
 
-## Problema
+## Problema Raiz
 
-O script `deploy.sh` nao inclui as duas novas edge functions na lista de funcoes copiadas para a VPS:
-- `sync-group-stats`
-- `group-events-webhook`
+As tabelas `group_participant_events` e `group_stats` foram criadas **sem GRANT de permissoes** para os roles `anon`, `authenticated` e `service_role`. Sem essas permissoes, o PostgREST nao consegue acessar as tabelas e retorna **404 (Not Found)**.
 
-Isso causa o erro **500** ao clicar "Sincronizar Agora" e impede o recebimento de webhooks de eventos de grupo.
-
-Alem disso, os erros **404** em `rest/v1/group_participant_events` indicam que a tabela ou as politicas RLS ainda nao estao corretas na VPS.
+As politicas RLS estao corretas (PERMISSIVE), mas sao irrelevantes se o role nao tem permissao basica de acesso a tabela.
 
 ## Solucao
 
-### 1. Atualizar `scripts/deploy.sh`
+Criar uma migracao SQL que adiciona as permissoes GRANT necessarias:
 
-Adicionar `sync-group-stats` e `group-events-webhook` na lista de funcoes da linha 24:
+```sql
+-- group_participant_events: leitura para authenticated, escrita para service_role
+GRANT SELECT ON public.group_participant_events TO anon, authenticated;
+GRANT INSERT ON public.group_participant_events TO service_role;
+GRANT ALL ON public.group_participant_events TO service_role;
 
-```text
-Antes:
-  for FUNC in evolution-api send-scheduled-messages admin-api backup-export generate-ai-message process-queue; do
-
-Depois:
-  for FUNC in evolution-api send-scheduled-messages admin-api backup-export generate-ai-message process-queue sync-group-stats group-events-webhook; do
+-- group_stats: leitura e escrita para authenticated (usuarios gerenciam seus proprios dados)
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.group_stats TO authenticated;
+GRANT ALL ON public.group_stats TO service_role;
 ```
 
-### 2. Acao manual na VPS
-
-Apos o deploy aqui no Lovable, o usuario deve executar na VPS:
-
-**Passo 1 — Corrigir as politicas RLS (caso ainda nao tenha feito):**
-
-```bash
-docker compose -f /opt/supabase-docker/docker/docker-compose.yml exec -T db psql -U postgres -d postgres <<'EOF'
-DROP POLICY IF EXISTS "Users read own instance events" ON public.group_participant_events;
-DROP POLICY IF EXISTS "Service role can insert events" ON public.group_participant_events;
-CREATE POLICY "Users read own instance events" ON public.group_participant_events
-  FOR SELECT USING (
-    instance_name IN (
-      SELECT ac.instance_name FROM api_configs ac WHERE ac.user_id = auth.uid()
-    )
-  );
-CREATE POLICY "Service role can insert events" ON public.group_participant_events
-  FOR INSERT WITH CHECK (true);
-EOF
-```
-
-**Passo 2 — Atualizar codigo e redeployar:**
-
-```bash
-cd /opt/whats-grupos && git pull && sudo ./scripts/deploy.sh
-```
-
-## Arquivos a modificar
+## Arquivo a modificar
 
 | Arquivo | Acao |
 |---------|------|
-| `scripts/deploy.sh` | Adicionar `sync-group-stats` e `group-events-webhook` na lista de funcoes |
+| Nova migracao SQL | Adicionar GRANT para ambas as tabelas |
 
-## Detalhes tecnicos
+## Acao manual na VPS
 
-O script `deploy.sh` copia as edge functions do repositorio para o diretorio de volumes do Supabase self-hosted e reinicia o container `functions`. Sem as novas funcoes na lista, elas nunca sao implantadas no ambiente de producao, resultando em erro 500 quando o frontend tenta invoca-las.
+Apos aplicar a migracao no Lovable Cloud, executar na VPS:
+
+```bash
+docker compose -f /opt/supabase-docker/docker/docker-compose.yml exec -T db psql -U postgres -d postgres <<'EOF'
+GRANT SELECT ON public.group_participant_events TO anon, authenticated;
+GRANT ALL ON public.group_participant_events TO service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.group_stats TO authenticated;
+GRANT ALL ON public.group_stats TO service_role;
+EOF
+```
+
+Depois reiniciar o PostgREST para detectar as novas permissoes:
+
+```bash
+docker compose -f /opt/supabase-docker/docker/docker-compose.yml restart rest
+```
+
