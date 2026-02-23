@@ -34,6 +34,24 @@ SELECT cron.schedule(
   ) AS request_id;
   \$\$
 );
+
+-- Remove cron job anterior do process-queue se existir
+SELECT cron.unschedule('process-queue') WHERE EXISTS (
+  SELECT 1 FROM cron.job WHERE jobname = 'process-queue'
+);
+
+-- Cria cron job para processar a fila - dispara a cada minuto
+SELECT cron.schedule(
+  'process-queue',
+  '* * * * *',
+  \$\$
+  SELECT net.http_post(
+    url := 'https://${API_DOMAIN}/functions/v1/process-queue',
+    headers := '{"Content-Type":"application/json","Authorization":"Bearer ${ANON_KEY}"}'::jsonb,
+    body := concat('{"time":"', now(), '"}')::jsonb
+  ) AS request_id;
+  \$\$
+);
 SQL
 
 if [ $? -ne 0 ]; then
