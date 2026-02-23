@@ -133,6 +133,45 @@ export type Database = {
         }
         Relationships: []
       }
+      group_stats: {
+        Row: {
+          created_at: string
+          group_id: string
+          group_name: string
+          id: string
+          instance_name: string
+          joined_today: number
+          left_today: number
+          member_count: number
+          snapshot_date: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          group_id: string
+          group_name: string
+          id?: string
+          instance_name: string
+          joined_today?: number
+          left_today?: number
+          member_count?: number
+          snapshot_date?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          group_id?: string
+          group_name?: string
+          id?: string
+          instance_name?: string
+          joined_today?: number
+          left_today?: number
+          member_count?: number
+          snapshot_date?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       message_logs: {
         Row: {
           api_config_id: string | null

@@ -21,6 +21,7 @@ const Campaigns = lazy(() => import("./pages/Campaigns"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const BackupPage = lazy(() => import("./pages/BackupPage"));
 const QueuePage = lazy(() => import("./pages/QueuePage"));
+const GroupsPage = lazy(() => import("./pages/GroupsPage"));
 const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard"));
 const AdminUsers = lazy(() => import("./pages/admin/AdminUsers"));
 const AdminConfig = lazy(() => import("./pages/admin/AdminConfig"));
@@ -70,6 +71,7 @@ const App = () => (
                   <Route path="/campaigns" element={<Campaigns />} />
                   <Route path="/templates" element={<Templates />} />
                   <Route path="/queue" element={<QueuePage />} />
+                  <Route path="/groups" element={<GroupsPage />} />
                   <Route path="/settings" element={<SettingsPage />} />
                   <Route path="/backup" element={<BackupPage />} />
                   <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />

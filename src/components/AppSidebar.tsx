@@ -40,6 +40,7 @@ const userMenuItems = [
   { title: "Campanhas", icon: Megaphone, path: "/campaigns" },
   { title: "Templates", icon: FileText, path: "/templates" },
   { title: "Fila", icon: ListOrdered, path: "/queue" },
+  { title: "Grupos", icon: Users, path: "/groups" },
   { title: "Backup", icon: DatabaseBackup, path: "/backup" },
   { title: "Configurações", icon: Settings, path: "/settings" },
 ];
