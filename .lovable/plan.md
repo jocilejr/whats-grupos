@@ -1,112 +1,54 @@
 
 
-# Correção: Agendamentos Duplicados e Proteção contra Duplicatas Futuras
+# Corrigir deduplicacao que bloqueia mensagens diferentes para os mesmos grupos
 
-## Problema Identificado
+## Problema identificado
 
-Para cada dia da semana no horário 14:00, existem **dois registros ativos** em `scheduled_messages`:
-- Um com `campaign_id` (correto, vinculado a campanha `2f54e5e7...`)
-- Um sem `campaign_id` (duplicata órfã, mesmos grupos, mesmo conteúdo)
+A funcao `enqueueMessage` no `send-scheduled-messages` possui um filtro de deduplicacao que verifica se um grupo ja foi enfileirado nas ultimas 2 horas para a mesma instancia. Porem, ele nao considera o `scheduled_message_id`, fazendo com que mensagens **diferentes** agendadas para os mesmos grupos dentro de uma janela de 2 horas sejam incorretamente bloqueadas.
 
-Ambos disparam no mesmo minuto, fazendo cada grupo receber a mensagem **duas vezes**.
+**Exemplo real**: A mensagem das 18:01 BRT (`3b0e9d65`) enviou para 15 grupos. Quando a mensagem das 19:30 BRT (`019311af`) tentou disparar (1h29min depois), a deduplicacao filtrou todos os 15 grupos, retornando 0.
 
-**Causa provável**: restauração de backup que falhou no mapeamento do `campaign_id`, gerando cópias órfãs.
+## Solucao
 
----
+Adicionar o filtro `.eq("scheduled_message_id", msg.id)` na query de deduplicacao. Assim, a verificacao so impede duplicatas da **mesma** mensagem agendada, permitindo que mensagens diferentes enviem para os mesmos grupos normalmente.
 
-## Plano de Correção
-
-### 1. Limpeza dos Registros Duplicados (VPS - Manual)
-
-Executar na VPS para desativar os registros órfãos sem campaign_id que são duplicatas:
-
-```sql
-UPDATE scheduled_messages
-SET is_active = false
-WHERE campaign_id IS NULL
-  AND is_active = true
-  AND content->>'runTime' = '14:00'
-  AND schedule_type = 'weekly'
-  AND instance_name = 'Rosana';
-```
-
-**Recomendação**: antes de desativar, verificar se existem duplicatas em outros horarios tambem:
-
-```sql
-SELECT content->>'runTime' as run_time,
-       content->'weekDays'->0 as weekday,
-       count(*) as total,
-       count(campaign_id) as com_campanha,
-       count(*) - count(campaign_id) as sem_campanha
-FROM scheduled_messages
-WHERE is_active = true
-GROUP BY content->>'runTime', content->'weekDays'->0, schedule_type
-HAVING count(*) > 1
-ORDER BY run_time, weekday;
-```
-
-### 2. Proteção no Edge Function `send-scheduled-messages`
-
-Adicionar deduplicacao na funcao `enqueueMessage` para evitar que itens da fila sejam criados para grupos que ja foram enfileirados recentemente (mesma campanha/horario).
+## Alteracao tecnica
 
 **Arquivo**: `supabase/functions/send-scheduled-messages/index.ts`
 
-Antes de inserir os `queueItems`, verificar se ja existem itens pendentes/enviando na `message_queue` para os mesmos grupos com o mesmo `scheduled_message_id` ou `campaign_id` nas ultimas 2 horas:
+Na funcao `enqueueMessage`, alterar a query de deduplicacao (linhas ~194-200):
 
+Antes:
 ```typescript
-// Dentro de enqueueMessage, antes do insert:
 const { data: recentItems } = await supabase
   .from("message_queue")
   .select("group_id")
   .in("group_id", allGroupIds)
   .eq("instance_name", instanceName)
   .in("status", ["pending", "sending", "sent"])
-  .gte("created_at", new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString());
-
-if (recentItems?.length) {
-  const recentGroupIds = new Set(recentItems.map(i => i.group_id));
-  const filteredGroupIds = allGroupIds.filter(id => !recentGroupIds.has(id));
-  if (!filteredGroupIds.length) return 0;
-  // usar filteredGroupIds ao inves de allGroupIds
-}
+  .gte("created_at", twoHoursAgo);
 ```
 
-### 3. Proteção no Backup Restore
-
-**Arquivo**: `src/lib/backup.ts` (linha 369)
-
-Corrigir o mapeamento de `campaign_id` para usar `null` explicitamente quando o mapeamento falha, em vez de `undefined`:
-
+Depois:
 ```typescript
-campaign_id: newCampaignId || null,  // ja esta assim, OK
+const { data: recentItems } = await supabase
+  .from("message_queue")
+  .select("group_id")
+  .eq("scheduled_message_id", msg.id)
+  .in("group_id", allGroupIds)
+  .eq("instance_name", instanceName)
+  .in("status", ["pending", "sending", "sent"])
+  .gte("created_at", twoHoursAgo);
 ```
 
-Adicionar verificacao de duplicatas antes de inserir: checar se ja existe um `scheduled_message` ativo com o mesmo `content->>'runTime'`, `schedule_type`, `content->'weekDays'` e mesmos `group_ids` para o mesmo usuario.
+Essa unica linha adicionada (`.eq("scheduled_message_id", msg.id)`) garante que a deduplicacao so se aplica a mesma mensagem agendada, resolvendo o problema sem remover a protecao contra duplicatas reais.
 
----
+## Apos deploy
 
-## Detalhes Tecnicos
-
-### Fluxo do problema
-
-```text
-scheduled_messages (14:00, weekday [1])
-  |
-  +-- ID a6590b41 (campaign_id = 2f54e5e7) --> 15 grupos --> message_queue batch A
-  |
-  +-- ID 55b1be0d (campaign_id = NULL)      --> 15 grupos --> message_queue batch B
-                                                              (mesmos grupos = DUPLICATA)
+Executar na VPS:
+```bash
+cd /opt/whats-grupos && git pull && sudo ./scripts/deploy.sh
 ```
 
-### Arquivos modificados
+A mensagem das 19:30 voltara a funcionar normalmente no proximo dia (segunda-feira).
 
-| Arquivo | Alteracao |
-|---------|-----------|
-| `supabase/functions/send-scheduled-messages/index.ts` | Adicionar deduplicacao por grupo/instancia antes do enqueue |
-| `src/lib/backup.ts` | Adicionar verificacao de duplicatas no restore |
-
-### Impacto
-
-- Zero downtime
-- Mensagens futuras protegidas contra duplicatas
-- Registros orfaos desativados imediatamente via SQL na VPS
