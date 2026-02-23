@@ -12,8 +12,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { RefreshCw, Trash2, RotateCcw, Clock, Send, CheckCircle2, AlertCircle, Loader2, Settings2, ListOrdered } from "lucide-react";
+import { RefreshCw, Trash2, RotateCcw, Clock, Send, CheckCircle2, AlertCircle, Loader2, Settings2, ListOrdered, Play } from "lucide-react";
 import { toast } from "sonner";
+import { supabase as supabaseClient } from "@/integrations/supabase/client";
 
 type QueueItem = {
   id: string;
@@ -52,6 +53,23 @@ export default function QueuePage() {
   const [delayInput, setDelayInput] = useState<string>("10");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkRetrying, setBulkRetrying] = useState(false);
+  const [processing, setProcessing] = useState(false);
+
+  const handleProcessQueue = async () => {
+    setProcessing(true);
+    try {
+      const { error } = await supabaseClient.functions.invoke("process-queue", {
+        body: { time: new Date().toISOString() },
+      });
+      if (error) throw error;
+      toast.success("Fila processada com sucesso!");
+      queryClient.invalidateQueries({ queryKey: ["message-queue"] });
+    } catch (e: any) {
+      toast.error("Erro ao processar fila: " + (e.message || "desconhecido"));
+    } finally {
+      setProcessing(false);
+    }
+  };
 
   // Clear selection when filter changes
   useEffect(() => {
@@ -315,6 +333,16 @@ export default function QueuePage() {
               <AlertDialogCancel>Cancelar</AlertDialogCancel>
             </AlertDialogContent>
           </AlertDialog>
+          <Button
+            variant="default"
+            size="sm"
+            onClick={handleProcessQueue}
+            disabled={processing || counts.pending === 0}
+            className="bg-primary hover:bg-primary/90"
+          >
+            {processing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Play className="h-4 w-4 mr-2" />}
+            Processar Fila
+          </Button>
           <Button variant="outline" size="sm" onClick={handleClearSent}>
             <Trash2 className="h-4 w-4 mr-2" /> Limpar concluídos
           </Button>
