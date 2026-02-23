@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   Send, CalendarClock, Wifi, Megaphone, Activity, CheckCircle2,
   XCircle, Sparkles, TrendingUp, TrendingDown, Clock, BarChart3,
+  Users, UserPlus, UserMinus,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useQuery } from "@tanstack/react-query";
@@ -82,6 +83,28 @@ export default function Dashboard() {
         .limit(5000);
       if (error) throw error;
       return data ?? [];
+    },
+    enabled: !!user,
+  });
+
+  // Group stats for today
+  const todayDate = new Date().toISOString().split("T")[0];
+  const { data: groupStats } = useQuery({
+    queryKey: ["group-stats-dashboard", user?.id, todayDate],
+    queryFn: async () => {
+      const { data, error } = await (supabase
+        .from("group_stats" as any)
+        .select("member_count, joined_today, left_today")
+        .eq("user_id", user!.id)
+        .eq("snapshot_date", todayDate) as any);
+      if (error) throw error;
+      const stats = (data ?? []) as any[];
+      return {
+        totalGroups: stats.length,
+        totalMembers: stats.reduce((s: number, r: any) => s + r.member_count, 0),
+        joinedToday: stats.reduce((s: number, r: any) => s + r.joined_today, 0),
+        leftToday: stats.reduce((s: number, r: any) => s + r.left_today, 0),
+      };
     },
     enabled: !!user,
   });
@@ -465,6 +488,54 @@ export default function Dashboard() {
                 })}
               </div>
             )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Group Stats Section */}
+      <div className="grid gap-4 md:grid-cols-4">
+        <Card className="border-border/30">
+          <CardContent className="pt-5 pb-4 flex items-center gap-4">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
+              <Users className="h-5 w-5 text-primary" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold">{groupStats?.totalGroups ?? 0}</p>
+              <p className="text-xs text-muted-foreground uppercase tracking-wider">Grupos</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="border-border/30">
+          <CardContent className="pt-5 pb-4 flex items-center gap-4">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[hsl(262_60%_55%/0.15)]">
+              <Users className="h-5 w-5 text-[hsl(262,60%,55%)]" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold">{(groupStats?.totalMembers ?? 0).toLocaleString("pt-BR")}</p>
+              <p className="text-xs text-muted-foreground uppercase tracking-wider">Membros Total</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="border-border/30">
+          <CardContent className="pt-5 pb-4 flex items-center gap-4">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[hsl(142_71%_45%/0.15)]">
+              <UserPlus className="h-5 w-5 text-[hsl(142,71%,45%)]" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-[hsl(142,71%,45%)]">+{groupStats?.joinedToday ?? 0}</p>
+              <p className="text-xs text-muted-foreground uppercase tracking-wider">Entradas Hoje</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="border-border/30">
+          <CardContent className="pt-5 pb-4 flex items-center gap-4">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-destructive/10">
+              <UserMinus className="h-5 w-5 text-destructive" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-destructive">-{groupStats?.leftToday ?? 0}</p>
+              <p className="text-xs text-muted-foreground uppercase tracking-wider">Saídas Hoje</p>
+            </div>
           </CardContent>
         </Card>
       </div>
