@@ -387,6 +387,7 @@ export default function GroupsPage() {
         <div className="lg:col-span-2">
           <RecentEventsSection
             instanceFilter={instanceFilter}
+            selectedGroupIds={selectedGroupIds}
             onRealtimeEvent={() => {
               queryClient.invalidateQueries({ queryKey: ["group-stats-today"] });
               queryClient.invalidateQueries({ queryKey: ["group-event-counts-today"] });

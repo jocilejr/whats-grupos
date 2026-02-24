@@ -11,12 +11,13 @@ import { ptBR } from "date-fns/locale";
 
 interface RecentEventsSectionProps {
   instanceFilter: string;
+  selectedGroupIds: Set<string>;
   onRealtimeEvent?: (action: string) => void;
 }
 
 type EventFilter = "all" | "add" | "remove";
 
-export default function RecentEventsSection({ instanceFilter, onRealtimeEvent }: RecentEventsSectionProps) {
+export default function RecentEventsSection({ instanceFilter, selectedGroupIds, onRealtimeEvent }: RecentEventsSectionProps) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [isConnected, setIsConnected] = useState(false);
@@ -60,6 +61,7 @@ export default function RecentEventsSection({ instanceFilter, onRealtimeEvent }:
         (payload: any) => {
           const newEvent = payload.new;
           if (instanceFilter !== "all" && newEvent.instance_name !== instanceFilter) return;
+          if (selectedGroupIds.size > 0 && !selectedGroupIds.has(newEvent.group_id)) return;
 
           // Add to new events set for animation
           setNewEventIds((prev) => new Set(prev).add(newEvent.id));
@@ -115,11 +117,13 @@ export default function RecentEventsSection({ instanceFilter, onRealtimeEvent }:
   };
 
   const filteredEvents = (events ?? []).filter((e: any) => {
+    if (selectedGroupIds.size > 0 && !selectedGroupIds.has(e.group_id)) return false;
     if (eventFilter === "all") return true;
     return e.action === eventFilter;
   });
 
   const todayCount = (events ?? []).filter((e: any) => {
+    if (selectedGroupIds.size > 0 && !selectedGroupIds.has(e.group_id)) return false;
     const eventDate = new Date(e.created_at).toDateString();
     return eventDate === new Date().toDateString();
   }).length;
