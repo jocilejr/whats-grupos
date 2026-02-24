@@ -21,7 +21,7 @@ SUPABASE_DIR="/opt/supabase-docker"
 FUNCTIONS_DIR="${SUPABASE_DIR}/docker/volumes/functions"
 
 if [ -d "$FUNCTIONS_DIR" ]; then
-  for FUNC in evolution-api send-scheduled-messages admin-api backup-export generate-ai-message process-queue sync-group-stats group-events-webhook smart-link-redirect sync-invite-links; do
+  for FUNC in evolution-api send-scheduled-messages admin-api backup-export generate-ai-message process-queue sync-group-stats group-events-webhook smart-link-redirect smart-link-api sync-invite-links; do
     cp -r "supabase/functions/${FUNC}" "$FUNCTIONS_DIR/" 2>/dev/null || true
   done
   cd "${SUPABASE_DIR}/docker" && docker compose restart functions 2>/dev/null || true
