@@ -11,9 +11,9 @@ export default function SmartLinkRedirect() {
 
     const redirect = async () => {
       try {
-        const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
         const res = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/smart-link-redirect?slug=${encodeURIComponent(slug)}`
+          `${supabaseUrl}/functions/v1/smart-link-redirect?slug=${encodeURIComponent(slug)}`
         );
         const json = await res.json();
 

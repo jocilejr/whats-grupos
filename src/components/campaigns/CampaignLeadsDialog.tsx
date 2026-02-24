@@ -392,12 +392,25 @@ export function CampaignLeadsDialog({ open, onOpenChange, campaign }: Props) {
                     const joins = joinsMap[gl.group_id] ?? 0;
                     const inviteUrl = (stat as any)?.invite_url || gl.invite_url || null;
                     const hasUrl = !!inviteUrl;
+                    const isActive = hasUrl && !isFull && !groupLinks.slice(0, idx).some((prev) => {
+                      const prevStat = statsMap[prev.group_id];
+                      const prevUrl = (prevStat as any)?.invite_url || prev.invite_url || null;
+                      const prevCount = prevStat?.member_count ?? 0;
+                      return !!prevUrl && prevCount < maxMembers;
+                    });
 
                     return (
-                      <TableRow key={gl.group_id}>
+                      <TableRow key={gl.group_id} className={isActive ? "bg-primary/5" : ""}>
                         <TableCell className="text-muted-foreground text-center">{idx + 1}</TableCell>
                         <TableCell>
-                          <span className="font-medium text-sm">{name}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-sm">{name}</span>
+                            {isActive && (
+                              <Badge variant="outline" className="text-xs gap-1 text-primary border-primary/30 bg-primary/10">
+                                Ativo
+                              </Badge>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell className="text-center">
                           <Badge variant={isFull ? "destructive" : "secondary"} className="text-xs">
@@ -418,10 +431,10 @@ export function CampaignLeadsDialog({ open, onOpenChange, campaign }: Props) {
                               </span>
                             </div>
                           ) : (
-                            <Badge variant="outline" className="text-xs gap-1 text-destructive border-destructive/30 bg-destructive/5">
-                              <Link2Off className="h-3 w-3" />
-                              Sem permissão
-                            </Badge>
+                             <Badge variant="outline" className="text-xs gap-1 text-destructive border-destructive/30 bg-destructive/5">
+                               <Link2Off className="h-3 w-3" />
+                               Sem link
+                             </Badge>
                           )}
                         </TableCell>
                       </TableRow>

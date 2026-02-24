@@ -105,8 +105,16 @@ Deno.serve(async (req) => {
         }
 
         const batchData = await batchRes.json();
+        console.log(`[sync-invite-links] ${config.instance_name} raw response:`, JSON.stringify(batchData));
+        
+        const failedJids: string[] = [];
         for (const [jid, url] of Object.entries(batchData)) {
           inviteMap[jid] = url as string | null;
+          if (!url) failedJids.push(jid);
+        }
+        
+        if (failedJids.length > 0) {
+          console.log(`[sync-invite-links] ${config.instance_name} groups without URL:`, failedJids);
         }
 
         totalSynced += jids.length;
@@ -146,10 +154,15 @@ Deno.serve(async (req) => {
       }
     }
 
+    const failedGroups = Object.entries(inviteMap)
+      .filter(([, url]) => !url)
+      .map(([jid]) => jid);
+
     return new Response(
       JSON.stringify({
         success: true,
         synced: totalSynced,
+        failed_groups: failedGroups.length > 0 ? failedGroups : undefined,
         errors: errors.length > 0 ? errors : undefined,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
