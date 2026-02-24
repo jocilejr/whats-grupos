@@ -1,45 +1,92 @@
 
 
-# Corrigir Contagem de Eventos por Fuso Horario
+# Unificar Contagem de Eventos por Fuso Horario
 
-## Problema
+## Problema Raiz
 
-A query `group-event-counts-today` usa `new Date().toISOString().split("T")[0]` para calcular "hoje", o que resulta na data UTC. No Brasil (UTC-3), isso significa que eventos entre meia-noite local e 03:00 UTC sao filtrados para o dia errado, causando divergencia entre o badge "3 hoje" (que usa fuso local) e o card "-2 saidas" (que usa UTC).
+Existem 3 fontes de dados com fusos diferentes:
+
+| Componente | Fonte | Fuso |
+|---|---|---|
+| Cards de resumo | `group_participant_events` (query direta) | Local (corrigido) |
+| Tabela de grupos | `group_stats.joined_today` / `left_today` | UTC (edge function) |
+| Feed + badge "hoje" | `group_participant_events` (JS `toDateString`) | Local |
+
+A tabela mostra valores diferentes dos cards porque le de `group_stats` (pre-agregado em UTC pela edge function), enquanto os cards contam diretamente da `group_participant_events` com limites de dia local.
 
 ## Solucao
 
-Usar meia-noite local convertida para UTC ao filtrar eventos, garantindo que a query capture todos os eventos do dia local do usuario.
+Fazer a tabela de grupos tambem derivar entradas/saidas diretamente da `group_participant_events` (mesma fonte dos cards), eliminando a dependencia dos contadores pre-agregados da `group_stats` para exibicao.
 
-## Mudanca Tecnica
+## Mudancas Tecnicas
 
 ### `src/pages/GroupsPage.tsx`
 
-Substituir o filtro de data baseado em UTC por limites de dia local:
+1. **Expandir a query `group-event-counts-today`** para retornar contagens **por grupo** (nao so o total). Ao inves de acumular `joined`/`left` globais, construir um mapa `{ [group_id]: { joined, left } }`.
+
+2. **Na tabela**, substituir `stat.joined_today` e `stat.left_today` pelos valores do mapa de eventos por grupo.
+
+Detalhes da mudanca na query (linhas 119-145):
 
 ```typescript
-// Antes (UTC):
-const today = new Date().toISOString().split("T")[0];
-// ...
-.gte("created_at", `${today}T00:00:00`)
-.lt("created_at", `${today}T23:59:59.999`)
+// Antes: retorna { joined, left } totais
+// Depois: retorna { totals: { joined, left }, byGroup: Record<string, { joined, left }> }
 
-// Depois (local):
-const startOfToday = new Date();
-startOfToday.setHours(0, 0, 0, 0);
-const endOfToday = new Date(startOfToday);
-endOfToday.setDate(endOfToday.getDate() + 1);
-// ...
-.gte("created_at", startOfToday.toISOString())
-.lt("created_at", endOfToday.toISOString())
+const { data: eventCounts } = useQuery({
+  queryKey: ["group-event-counts-today", ...],
+  queryFn: async () => {
+    let query = supabase
+      .from("group_participant_events")
+      .select("action, group_id")
+      .gte("created_at", startOfToday.toISOString())
+      .lt("created_at", endOfToday.toISOString());
+
+    if (instanceFilter !== "all") {
+      query = query.eq("instance_name", instanceFilter);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    let joined = 0, left = 0;
+    const byGroup: Record<string, { joined: number; left: number }> = {};
+
+    for (const ev of data ?? []) {
+      if (selectedGroupIds.size > 0 && !selectedGroupIds.has(ev.group_id)) continue;
+      if (ev.action === "add") joined++;
+      else if (ev.action === "remove") left++;
+
+      if (!byGroup[ev.group_id]) byGroup[ev.group_id] = { joined: 0, left: 0 };
+      if (ev.action === "add") byGroup[ev.group_id].joined++;
+      else if (ev.action === "remove") byGroup[ev.group_id].left++;
+    }
+
+    return { joined, left, byGroup };
+  },
+  ...
+});
 ```
 
-A variavel `today` (usada para `snapshot_date` do `group_stats`) permanece inalterada pois o snapshot_date e gerado em UTC pela edge function e deve ser consultado consistentemente em UTC.
+Na tabela (linhas 360-376), substituir:
+```typescript
+// Antes:
+stat.joined_today
+stat.left_today
 
-Adicionar novas variaveis `startOfToday` e `endOfToday` apenas para a query de contagem de eventos.
+// Depois:
+eventCounts?.byGroup?.[stat.group_id]?.joined ?? 0
+eventCounts?.byGroup?.[stat.group_id]?.left ?? 0
+```
 
 ### Arquivos modificados
 
 | Arquivo | Mudanca |
-|---------|---------|
-| `src/pages/GroupsPage.tsx` | Adicionar `startOfToday`/`endOfToday` com fuso local; atualizar filtro da query `group-event-counts-today` |
+|---|---|
+| `src/pages/GroupsPage.tsx` | Expandir query de eventos para retornar contagens por grupo; atualizar tabela para usar esses valores |
+
+### O que NAO muda
+
+- A edge function `sync-group-stats` continua gravando `joined_today`/`left_today` em UTC na `group_stats` (usada para historico de 30 dias no grafico).
+- Os cards de resumo continuam funcionando como antes (mesma fonte).
+- O feed de eventos nao e alterado.
 
