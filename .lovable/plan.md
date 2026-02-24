@@ -1,30 +1,27 @@
 
-## Adicionar `smart-link-api` ao script de deploy
+
+## Corrigir URL da API saindo do container
 
 ### Problema
 
-O script `scripts/deploy.sh` copia as edge functions para o servidor VPS, mas a funcao `smart-link-api` nao esta na lista de funcoes a serem copiadas (linha 24). Por isso, a versao corrigida (com `npm:` import) nunca chega ao servidor, e o erro `InvalidWorkerCreation` persiste.
+A URL longa de "URL de Retorno (Texto)" esta ultrapassando os limites do container porque o elemento `code` nao esta respeitando o overflow corretamente.
 
 ### Solucao
 
-**Arquivo:** `scripts/deploy.sh`
+**Arquivo:** `src/components/campaigns/CampaignLeadsDialog.tsx` (linhas 385-398)
 
-Adicionar `smart-link-api` na lista de funcoes copiadas na linha 24.
+Adicionar `overflow-hidden` ao container e garantir que o `code` tenha `overflow-hidden text-ellipsis` para truncar o texto longo corretamente:
 
-De:
-```text
-for FUNC in evolution-api send-scheduled-messages admin-api backup-export generate-ai-message process-queue sync-group-stats group-events-webhook smart-link-redirect sync-invite-links; do
-```
+1. No `div` container (linha 385): adicionar `overflow-hidden`
+2. No elemento `code` (linha 388): adicionar `overflow-hidden` para garantir que o texto longo seja cortado
 
-Para:
-```text
-for FUNC in evolution-api send-scheduled-messages admin-api backup-export generate-ai-message process-queue sync-group-stats group-events-webhook smart-link-redirect smart-link-api sync-invite-links; do
-```
+Alteracao na linha 385:
+- De: `<div className="flex items-center gap-2 rounded-lg border border-muted bg-muted/30 p-3">`
+- Para: `<div className="flex items-center gap-2 rounded-lg border border-muted bg-muted/30 p-3 overflow-hidden">`
 
-### Apos a implementacao
+Alteracao na linha 388:
+- De: `<code className="text-sm truncate block text-foreground">`
+- Para: `<code className="text-sm truncate block text-foreground overflow-hidden">`
 
-Voce precisara rodar no servidor VPS:
-1. `git pull`
-2. `sudo ./scripts/deploy.sh`
+Isso garante que a URL longa sera truncada com reticencias (...) em vez de ultrapassar o container.
 
-Isso copiara a versao corrigida do `smart-link-api` (com import `npm:`) para o ambiente Supabase local e reiniciara as functions.
