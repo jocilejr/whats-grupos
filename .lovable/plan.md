@@ -1,89 +1,39 @@
 
 
-## Corrigir busca de invite links falhando para 5 grupos
+## Buscar invite links individualmente (1 por vez)
 
-### Diagnostico
+### Problema
 
-O endpoint `inviteCodeBatch` no Baileys server chama `groupInviteCode()` para cada grupo sequencialmente sem nenhum delay. O WhatsApp aplica rate limit apos muitas chamadas seguidas, fazendo as ultimas falharem silenciosamente. Com 15 grupos, as primeiras 10 passam e as 5 finais sao bloqueadas.
-
-Alem disso, o erro especifico de cada grupo nao e retornado ao frontend -- o toast so mostra "Links: 15" mas nao diz quais falharam nem por que.
+O endpoint batch do Baileys ainda falha para 3 grupos mesmo com delay e retry. O rate limit do WhatsApp e mais agressivo do que o esperado.
 
 ### Solucao
 
-#### 1. Adicionar delay entre chamadas no Baileys server
+Substituir a chamada batch por chamadas individuais ao endpoint `/group/inviteCode/:name/:jid` (que ja existe no Baileys server), com delay de 1.5s entre cada chamada e retry automatico para falhas.
 
-**Arquivo:** `baileys-server/server.js` (endpoint `inviteCodeBatch`)
-
-- Adicionar um `await sleep(500)` entre cada chamada a `groupInviteCode()` para evitar rate limit do WhatsApp
-- Retornar o motivo do erro para cada grupo que falhar no JSON de resposta (campo `errors`)
-- Adicionar retry automatico (1 tentativa extra com delay de 2s) para grupos que falharem na primeira tentativa
-
-```javascript
-// Antes (sem delay):
-for (const jid of jids) {
-  const code = await session.sock.groupInviteCode(jid);
-  result[jid] = `https://chat.whatsapp.com/${code}`;
-}
-
-// Depois (com delay + retry):
-const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-const errors = {};
-for (const jid of jids) {
-  try {
-    const code = await session.sock.groupInviteCode(jid);
-    result[jid] = `https://chat.whatsapp.com/${code}`;
-  } catch (err) {
-    errors[jid] = err.message;
-    result[jid] = null;
-  }
-  await sleep(500);
-}
-// Retry failed ones
-const failedJids = Object.keys(errors);
-if (failedJids.length > 0) {
-  await sleep(2000);
-  for (const jid of failedJids) {
-    try {
-      const code = await session.sock.groupInviteCode(jid);
-      result[jid] = `https://chat.whatsapp.com/${code}`;
-      delete errors[jid];
-    } catch (err) {
-      errors[jid] = err.message;
-    }
-    await sleep(500);
-  }
-}
-res.json({ results: result, errors });
-```
-
-#### 2. Atualizar sync-invite-links para o novo formato de resposta
+### Alteracao
 
 **Arquivo:** `supabase/functions/sync-invite-links/index.ts`
 
-- Adaptar o parsing para aceitar tanto o formato antigo `{ jid: url }` quanto o novo `{ results: { jid: url }, errors: { jid: msg } }`
-- Incluir os erros por grupo no response final da edge function
+- Remover a chamada ao endpoint `inviteCodeBatch`
+- Para cada grupo, chamar `GET /group/inviteCode/:name/:jid` individualmente
+- Esperar 1.5 segundos entre cada chamada
+- Se falhar, esperar 3 segundos e tentar novamente (1 retry)
+- Logar cada sucesso/falha individualmente
 
-#### 3. Mostrar grupos com falha e motivo no toast
+### Fluxo
 
-**Arquivo:** `src/components/campaigns/CampaignLeadsDialog.tsx`
-
-- Quando o sync retornar `failed_groups`, mostrar quantos falharam no toast
-- Exemplo: "Links: 15 (5 falharam) | Stats: 24 grupos"
-
-### Arquivos a modificar
-
-| Arquivo | Alteracao |
-|---------|-----------|
-| `baileys-server/server.js` | Delay de 500ms entre chamadas, retry automatico, retornar erros por grupo |
-| `supabase/functions/sync-invite-links/index.ts` | Adaptar parsing para novo formato com retry errors |
-| `src/components/campaigns/CampaignLeadsDialog.tsx` | Mostrar quantidade de falhas no toast |
-
-### Nota importante
-
-Apos o deploy na VPS, voce precisara rebuildar o container do Baileys:
-```bash
-cd /opt/whats-grupos
-docker compose build baileys-server
-docker service update --force whats-grupos_baileys-server
+```text
+Para cada grupo (JID):
+  1. GET /group/inviteCode/:instance/:jid
+  2. Se sucesso -> salvar URL
+  3. Se falhou -> esperar 3s -> retry 1x
+  4. Esperar 1.5s antes do proximo grupo
 ```
+
+### Detalhes tecnicos
+
+- O endpoint individual `/group/inviteCode/:name/:jid` ja existe no `baileys-server/server.js` e retorna `{ invite_url: "https://chat.whatsapp.com/..." }` ou `{ invite_url: null }`
+- Nenhuma alteracao necessaria no Baileys server
+- Apenas a edge function `sync-invite-links` sera modificada
+- O delay de 1.5s entre chamadas garante que o WhatsApp nao aplique rate limit (total ~22s para 15 grupos, aceitavel)
 
