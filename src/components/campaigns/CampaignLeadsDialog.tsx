@@ -12,7 +12,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Copy, Check, Users, MousePointerClick, UserPlus, RefreshCw, Link2, Link2Off } from "lucide-react";
+import { Loader2, Copy, Check, Users, MousePointerClick, UserPlus, RefreshCw, Link2, Link2Off, X, Clock } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 
@@ -38,6 +38,7 @@ export function CampaignLeadsDialog({ open, onOpenChange, campaign }: Props) {
   const [groupLinks, setGroupLinks] = useState<GroupLink[]>([]);
   const [copied, setCopied] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<Record<string, "syncing" | "success" | "error">>({});
 
   const campaignId = campaign?.id;
   const groupIds: string[] = campaign?.group_ids || [];
@@ -220,8 +221,8 @@ export function CampaignLeadsDialog({ open, onOpenChange, campaign }: Props) {
 
   const handleSyncUrls = async () => {
     setSyncing(true);
+    setSyncStatus({});
     try {
-      // Get VPS API URL from global_config
       const { data: globalCfg } = await supabase
         .from("global_config")
         .select("vps_api_url")
@@ -232,6 +233,7 @@ export function CampaignLeadsDialog({ open, onOpenChange, campaign }: Props) {
 
       if (!vpsBase) {
         toast({ title: "URL da VPS não configurada", description: "Peça ao administrador para configurar a URL da API da VPS em Configurações Globais.", variant: "destructive" });
+        setSyncing(false);
         return;
       }
 
@@ -241,26 +243,49 @@ export function CampaignLeadsDialog({ open, onOpenChange, campaign }: Props) {
         "Authorization": `Bearer ${token}`,
       };
 
-      // Call both sync functions on VPS in parallel
-      const [linksRes, statsRes] = await Promise.all([
-        fetch(`${vpsBase}/functions/v1/sync-invite-links`, { method: "POST", headers }),
-        fetch(`${vpsBase}/functions/v1/sync-group-stats`, { method: "POST", headers }),
-      ]);
+      // Start sync-group-stats in parallel (fire and forget)
+      fetch(`${vpsBase}/functions/v1/sync-group-stats`, { method: "POST", headers }).catch(() => {});
 
-      const linksJson = await linksRes.json();
-      const statsJson = await statsRes.json();
+      // Sequential sync per group
+      const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-      if (linksJson.error && statsJson.error) {
-        toast({ title: "Erro ao sincronizar", description: linksJson.error, variant: "destructive" });
-      } else {
-        const failedCount = linksJson.failed_groups?.length || 0;
-        const linksPart = failedCount > 0
-          ? `Links: ${linksJson.synced || 0} (${failedCount} falharam)`
-          : `Links: ${linksJson.synced || 0}`;
-        toast({ title: "Sincronizado!", description: `${linksPart} | Stats: ${statsJson.synced || 0} grupos` });
-        queryClient.invalidateQueries({ queryKey: ["group-stats-latest"] });
-        queryClient.invalidateQueries({ queryKey: ["smart-link", campaignId] });
+      for (const gl of groupLinks) {
+        const groupId = gl.group_id;
+        setSyncStatus((prev) => ({ ...prev, [groupId]: "syncing" }));
+
+        try {
+          const res = await fetch(`${vpsBase}/functions/v1/sync-invite-links`, {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ group_id: groupId }),
+          });
+          const json = await res.json();
+
+          if (json.success && json.invite_url) {
+            setSyncStatus((prev) => ({ ...prev, [groupId]: "success" }));
+          } else if (json.success && !json.invite_url) {
+            // Synced but no URL available
+            setSyncStatus((prev) => ({ ...prev, [groupId]: "error" }));
+          } else {
+            setSyncStatus((prev) => ({ ...prev, [groupId]: "error" }));
+          }
+        } catch {
+          setSyncStatus((prev) => ({ ...prev, [groupId]: "error" }));
+        }
+
+        await sleep(500);
       }
+
+      // Invalidate queries
+      queryClient.invalidateQueries({ queryKey: ["group-stats-latest"] });
+      queryClient.invalidateQueries({ queryKey: ["smart-link", campaignId] });
+
+      toast({ title: "Sincronização concluída!" });
+
+      // Clear status after 5 seconds
+      setTimeout(() => {
+        setSyncStatus({});
+      }, 5000);
     } catch (err: any) {
       toast({ title: "Erro", description: err.message, variant: "destructive" });
     } finally {
@@ -423,16 +448,38 @@ export function CampaignLeadsDialog({ open, onOpenChange, campaign }: Props) {
                         <TableCell className="text-center text-sm">{clicks}</TableCell>
                         <TableCell className="text-center text-sm">{joins}</TableCell>
                         <TableCell>
-                          {hasUrl ? (
+                          {syncStatus[gl.group_id] === "syncing" ? (
+                            <Badge variant="outline" className="text-xs gap-1 text-primary border-primary/30 bg-primary/10">
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                              Buscando...
+                            </Badge>
+                          ) : syncStatus[gl.group_id] === "success" ? (
+                            <Badge variant="outline" className="text-xs gap-1 text-green-600 border-green-300 bg-green-50">
+                              <Check className="h-3 w-3" />
+                              Atualizado
+                            </Badge>
+                          ) : syncStatus[gl.group_id] === "error" ? (
+                            <Badge variant="outline" className="text-xs gap-1 text-destructive border-destructive/30 bg-destructive/5">
+                              <X className="h-3 w-3" />
+                              Falhou
+                            </Badge>
+                          ) : !syncing ? (
+                            hasUrl ? (
                               <Badge variant="outline" className="text-xs gap-1 text-green-600 border-green-300 bg-green-50">
                                 <Link2 className="h-3 w-3" />
                                 Disponível
                               </Badge>
+                            ) : (
+                              <Badge variant="outline" className="text-xs gap-1 text-destructive border-destructive/30 bg-destructive/5">
+                                <Link2Off className="h-3 w-3" />
+                                Sem link
+                              </Badge>
+                            )
                           ) : (
-                             <Badge variant="outline" className="text-xs gap-1 text-destructive border-destructive/30 bg-destructive/5">
-                               <Link2Off className="h-3 w-3" />
-                               Sem link
-                             </Badge>
+                            <Badge variant="outline" className="text-xs gap-1 text-muted-foreground border-muted">
+                              <Clock className="h-3 w-3" />
+                              Aguardando
+                            </Badge>
                           )}
                         </TableCell>
                       </TableRow>
