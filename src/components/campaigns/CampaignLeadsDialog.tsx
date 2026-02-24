@@ -382,13 +382,14 @@ export function CampaignLeadsDialog({ open, onOpenChange, campaign }: Props) {
                     {copied ? "Copiado" : "Copiar"}
                   </Button>
                 </div>
-                <div className="flex items-center gap-2 rounded-lg border border-muted bg-muted/30 p-3">
+              <div className="flex items-center gap-2 rounded-lg border border-muted bg-muted/30 p-3">
                   <div className="flex-1 min-w-0">
                     <p className="text-xs text-muted-foreground mb-0.5">URL de Retorno (Texto)</p>
-                    <code className="text-sm truncate block text-foreground">{publicUrl}-get</code>
+                    <code className="text-sm truncate block text-foreground">{`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/smart-link-api?slug=${slug.trim().toLowerCase().replace(/[^a-z0-9-]/g, "-")}`}</code>
                   </div>
                   <Button size="sm" variant="outline" className="gap-1.5 shrink-0" onClick={() => {
-                    navigator.clipboard.writeText(`${publicUrl}-get`);
+                    const getUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/smart-link-api?slug=${slug.trim().toLowerCase().replace(/[^a-z0-9-]/g, "-")}`;
+                    navigator.clipboard.writeText(getUrl);
                     toast({ title: "URL GET copiada!" });
                   }}>
                     <Copy className="h-3.5 w-3.5" />
