@@ -1,35 +1,50 @@
 
 
-## Corrigir CORS na URL de Retorno (GET)
+## Adicionar CORS no Nginx para rotas /r/ (Smart Links)
 
 ### Problema
 
-A URL de Retorno (`/r/slug-get`) aponta para uma pagina React (SPA). Quando um sistema externo (como `grupo.comunidademeire.online`) tenta fazer fetch dessa URL, o navegador bloqueia por CORS porque o servidor web (nginx) nao envia headers `Access-Control-Allow-Origin` para paginas do frontend.
+O site externo (`grupo.comunidademeire.online`) faz fetch para `https://app.simplificandogrupos.com/r/comunidade-rosana-get` via JavaScript. O nginx que serve o frontend nao envia headers CORS, entao o navegador bloqueia a requisicao.
 
-### Causa raiz
+A edge function `smart-link-api` ja tem CORS configurado e funciona, mas exigiria que o usuario atualizasse todas as URLs externas. Uma solucao complementar e adicionar CORS diretamente no nginx para as rotas `/r/`.
 
-Uma pagina React nao e um endpoint de API -- ela retorna HTML sem headers CORS. Para sistemas externos consumirem uma URL via fetch/AJAX, precisa ser um endpoint servidor com headers CORS adequados.
+### Solucao (duas frentes)
 
-### Solucao
+#### 1. Nginx - Adicionar headers CORS para rotas `/r/`
 
-Ja existe uma edge function `smart-link-api` que faz exatamente isso: recebe o slug, encontra o grupo disponivel, e retorna a URL como texto puro COM headers CORS. A solucao e simplesmente apontar a "URL de Retorno (Texto)" para essa edge function em vez da rota do frontend.
+Atualizar os arquivos de configuracao do nginx para adicionar um bloco `location` especifico para `/r/` com headers CORS:
 
-### Alteracao
+**Arquivos:** `nginx/spa.conf` e `nginx/frontend.conf.template`
 
-**Arquivo:** `src/components/campaigns/CampaignLeadsDialog.tsx`
+Adicionar antes do `location /` existente:
 
-1. Construir a URL do GET apontando para a edge function `smart-link-api` em vez do frontend:
-   - De: `{publicUrl}-get` (ex: `https://app.simplificandogrupos.com/r/comunidade-rosana-get`)
-   - Para: `https://{SUPABASE_URL}/functions/v1/smart-link-api?slug={slug}` (ex: usando `import.meta.env.VITE_SUPABASE_URL`)
+```text
+location /r/ {
+    add_header Access-Control-Allow-Origin "*" always;
+    add_header Access-Control-Allow-Methods "GET, OPTIONS" always;
+    add_header Access-Control-Allow-Headers "Content-Type" always;
 
-2. Atualizar o botao de copiar para usar a mesma URL da edge function
+    if ($request_method = OPTIONS) {
+        return 204;
+    }
 
-A edge function `smart-link-api` ja esta configurada com `verify_jwt = false` e inclui headers CORS, entao funcionara perfeitamente para chamadas de sistemas externos.
+    try_files $uri $uri/ /index.html;
+}
+```
 
-### Resultado esperado
+Isso garante que qualquer requisicao fetch para `/r/slug-get` receba os headers CORS necessarios.
 
-- URL de Redirecionamento: `https://app.simplificandogrupos.com/r/comunidade-rosana` (sem mudanca)
-- URL de Retorno (Texto): `https://wkixerhufxvcmegorjqc.supabase.co/functions/v1/smart-link-api?slug=comunidade-rosana` (endpoint com CORS)
+#### 2. Manter a URL da edge function como alternativa
 
-Sistemas externos poderao fazer fetch dessa URL sem erro de CORS e receberao a URL do grupo como texto puro.
+A "URL de Retorno (Texto)" no CampaignLeadsDialog continuara apontando para a edge function (ja implementado), que e a opcao mais robusta para integracao com sistemas externos.
+
+### Resultado
+
+- URLs existentes como `https://app.simplificandogrupos.com/r/slug-get` passarao a funcionar com CORS (apos deploy do nginx atualizado)
+- A URL da edge function continua disponivel como alternativa mais confiavel
+- O usuario nao precisa atualizar URLs ja configuradas em sites externos
+
+### Nota importante
+
+Apos implementar, o usuario precisara fazer o deploy da nova configuracao do nginx no servidor de producao para que as mudancas tenham efeito.
 
