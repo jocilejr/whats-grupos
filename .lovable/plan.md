@@ -1,92 +1,114 @@
 
 
-# Unificar Contagem de Eventos por Fuso Horario
+# Smart Link - Rotacionador de Grupos por Campanha
 
-## Problema Raiz
+## Resumo
 
-Existem 3 fontes de dados com fusos diferentes:
+Um sistema de "link inteligente" por campanha que distribui leads entre os grupos automaticamente. Voce cria uma URL unica para a campanha, define o limite maximo de membros por grupo, e quando alguem acessa o link, e redirecionado para o link de convite do grupo que ainda tem vaga. Quando um grupo lota, o proximo grupo da lista recebe os novos leads.
 
-| Componente | Fonte | Fuso |
+## Como vai funcionar
+
+1. Na campanha, um novo botao "Leads" aparece quando ha grupos selecionados
+2. Ao clicar, abre um dialog mostrando cada grupo com seu numero atual de membros (via API do WhatsApp)
+3. Nesse dialog, voce configura:
+   - O link de convite de cada grupo (ex: `https://chat.whatsapp.com/ABC123`)
+   - O limite maximo de membros por grupo
+   - Um slug unico para gerar a URL publica (ex: `minha-campanha`)
+4. Uma URL publica e gerada (ex: `https://.../r/minha-campanha`)
+5. Quando alguem acessa essa URL, uma edge function verifica o member_count dos grupos e redireciona para o primeiro grupo que ainda nao atingiu o limite
+
+## Mudancas
+
+### 1. Nova tabela: `campaign_smart_links`
+
+| Coluna | Tipo | Descricao |
 |---|---|---|
-| Cards de resumo | `group_participant_events` (query direta) | Local (corrigido) |
-| Tabela de grupos | `group_stats.joined_today` / `left_today` | UTC (edge function) |
-| Feed + badge "hoje" | `group_participant_events` (JS `toDateString`) | Local |
+| id | uuid | PK |
+| campaign_id | uuid | FK para campaigns |
+| user_id | uuid | Dono |
+| slug | text (unique) | Identificador na URL |
+| max_members_per_group | integer | Limite para rotacionar |
+| group_links | jsonb | Array de `{group_id, invite_url, position}` |
+| is_active | boolean | Ativo/inativo |
+| created_at | timestamptz | Criacao |
+| updated_at | timestamptz | Atualizacao |
 
-A tabela mostra valores diferentes dos cards porque le de `group_stats` (pre-agregado em UTC pela edge function), enquanto os cards contam diretamente da `group_participant_events` com limites de dia local.
+RLS: usuarios gerenciam apenas os proprios registros.
 
-## Solucao
+### 2. Nova edge function: `smart-link-redirect`
 
-Fazer a tabela de grupos tambem derivar entradas/saidas diretamente da `group_participant_events` (mesma fonte dos cards), eliminando a dependencia dos contadores pre-agregados da `group_stats` para exibicao.
+- Rota publica (sem JWT)
+- Recebe o slug como parametro
+- Busca o smart link e os group_ids associados
+- Consulta `group_stats` para obter o `member_count` atual de cada grupo (ultimo snapshot)
+- Percorre os grupos na ordem definida (`position`)
+- Redireciona (HTTP 302) para o `invite_url` do primeiro grupo que ainda nao atingiu `max_members_per_group`
+- Se todos estiverem lotados, redireciona para o ultimo grupo (ou mostra mensagem)
 
-## Mudancas Tecnicas
+### 3. Nova pagina publica: rota `/r/:slug`
 
-### `src/pages/GroupsPage.tsx`
+- Rota simples no React Router (fora do ProtectedRoute)
+- Mostra um loading enquanto chama a edge function
+- Redireciona o usuario para o link de convite do WhatsApp
 
-1. **Expandir a query `group-event-counts-today`** para retornar contagens **por grupo** (nao so o total). Ao inves de acumular `joined`/`left` globais, construir um mapa `{ [group_id]: { joined, left } }`.
+### 4. Novo componente: `CampaignLeadsDialog`
 
-2. **Na tabela**, substituir `stat.joined_today` e `stat.left_today` pelos valores do mapa de eventos por grupo.
+Dialog que abre ao clicar no botao "Leads" da campanha. Conteudo:
 
-Detalhes da mudanca na query (linhas 119-145):
+- **Tabela de grupos**: nome do grupo, membros atuais (buscado da `group_stats`), link de convite (editavel), posicao na fila
+- **Configuracoes**: slug da URL, limite maximo de membros por grupo
+- **URL gerada**: campo copiavel com a URL publica final
+- **Botao salvar**: persiste no `campaign_smart_links`
 
-```typescript
-// Antes: retorna { joined, left } totais
-// Depois: retorna { totals: { joined, left }, byGroup: Record<string, { joined, left }> }
+### 5. Botao "Leads" no card da campanha
 
-const { data: eventCounts } = useQuery({
-  queryKey: ["group-event-counts-today", ...],
-  queryFn: async () => {
-    let query = supabase
-      .from("group_participant_events")
-      .select("action, group_id")
-      .gte("created_at", startOfToday.toISOString())
-      .lt("created_at", endOfToday.toISOString());
+- Aparece apenas quando `c.group_ids?.length > 0`
+- Icone: `BarChart3` ou `Link`
+- Posicionado entre "Mensagens" e o botao de excluir
 
-    if (instanceFilter !== "all") {
-      query = query.eq("instance_name", instanceFilter);
-    }
+## Arquivos criados/modificados
 
-    const { data, error } = await query;
-    if (error) throw error;
-
-    let joined = 0, left = 0;
-    const byGroup: Record<string, { joined: number; left: number }> = {};
-
-    for (const ev of data ?? []) {
-      if (selectedGroupIds.size > 0 && !selectedGroupIds.has(ev.group_id)) continue;
-      if (ev.action === "add") joined++;
-      else if (ev.action === "remove") left++;
-
-      if (!byGroup[ev.group_id]) byGroup[ev.group_id] = { joined: 0, left: 0 };
-      if (ev.action === "add") byGroup[ev.group_id].joined++;
-      else if (ev.action === "remove") byGroup[ev.group_id].left++;
-    }
-
-    return { joined, left, byGroup };
-  },
-  ...
-});
-```
-
-Na tabela (linhas 360-376), substituir:
-```typescript
-// Antes:
-stat.joined_today
-stat.left_today
-
-// Depois:
-eventCounts?.byGroup?.[stat.group_id]?.joined ?? 0
-eventCounts?.byGroup?.[stat.group_id]?.left ?? 0
-```
-
-### Arquivos modificados
-
-| Arquivo | Mudanca |
+| Arquivo | Acao |
 |---|---|
-| `src/pages/GroupsPage.tsx` | Expandir query de eventos para retornar contagens por grupo; atualizar tabela para usar esses valores |
+| Migracao SQL | Criar tabela `campaign_smart_links` |
+| `supabase/functions/smart-link-redirect/index.ts` | Nova edge function |
+| `src/components/campaigns/CampaignLeadsDialog.tsx` | Novo componente |
+| `src/pages/Campaigns.tsx` | Adicionar botao "Leads" + state para o dialog |
+| `src/pages/SmartLinkRedirect.tsx` | Nova pagina publica de redirect |
+| `src/App.tsx` | Adicionar rota `/r/:slug` |
+| `supabase/config.toml` | `verify_jwt = false` para smart-link-redirect |
 
-### O que NAO muda
+## Detalhes tecnicos
 
-- A edge function `sync-group-stats` continua gravando `joined_today`/`left_today` em UTC na `group_stats` (usada para historico de 30 dias no grafico).
-- Os cards de resumo continuam funcionando como antes (mesma fonte).
-- O feed de eventos nao e alterado.
+### Edge function `smart-link-redirect`
+
+```text
+GET /smart-link-redirect?slug=minha-campanha
+
+1. Busca campaign_smart_links onde slug = parametro e is_active = true
+2. Extrai group_links (array ordenado por position)
+3. Para cada group_id, busca member_count mais recente em group_stats
+4. Primeiro grupo com member_count < max_members_per_group -> redireciona para invite_url
+5. Se todos lotados -> redireciona para o ultimo
+```
+
+### Fluxo do usuario
+
+```text
+Campanha -> Botao "Leads" -> Dialog abre
+  -> Ve tabela com grupos e membros atuais
+  -> Cola link de convite em cada grupo
+  -> Define limite (ex: 200)
+  -> Define slug (ex: "promo-2026")
+  -> Salva
+  -> Copia URL: https://whats-grupos.lovable.app/r/promo-2026
+  -> Compartilha essa URL
+  -> Pessoas acessam -> redirecionadas para grupo com vaga
+```
+
+### Fonte de dados para member_count
+
+Os member counts vem da tabela `group_stats` (populada pela edge function `sync-group-stats` que ja roda periodicamente). A edge function de redirect usa o snapshot mais recente de cada grupo. Nao faz chamada direta a API do WhatsApp para manter a resposta rapida.
+
+No dialog, para exibir dados atualizados, disparamos um `sync-group-stats` ao abrir e depois lemos de `group_stats`.
 
