@@ -103,10 +103,20 @@ Deno.serve(async (req) => {
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const data = await res.json();
           inviteUrl = data.invite_url || null;
-          console.log(`[sync-invite-links] ✅ single ${singleGroupId} attempt ${attempt + 1} -> ${inviteUrl}`);
-          break;
+
+          if (inviteUrl) {
+            console.log(`[sync-invite-links] ✅ single ${singleGroupId} attempt ${attempt + 1} -> ${inviteUrl}`);
+            break;
+          }
+
+          // invite_url is null — treat as failure
+          console.log(`[sync-invite-links] ⚠️ single ${singleGroupId} attempt ${attempt + 1}/${maxAttempts} got null invite_url`);
+          if (attempt < maxAttempts - 1) {
+            const delay = 2000 * Math.pow(2, attempt);
+            await sleep(delay);
+          }
         } catch (err: any) {
-          const delay = 2000 * Math.pow(2, attempt); // 2s, 4s, 8s
+          const delay = 2000 * Math.pow(2, attempt);
           console.log(`[sync-invite-links] ❌ single ${singleGroupId} attempt ${attempt + 1}/${maxAttempts} failed: ${err.message}, waiting ${delay}ms...`);
           if (attempt < maxAttempts - 1) {
             await sleep(delay);
@@ -167,27 +177,33 @@ Deno.serve(async (req) => {
       const config = userConfigs[0];
 
       for (const jid of jids) {
-        try {
-          const res = await fetch(`${baileysUrl}/group/inviteCode/${config.instance_name}/${jid}`);
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          const data = await res.json();
-          inviteMap[jid] = data.invite_url || null;
-          if (data.invite_url) {
-            console.log(`[sync-invite-links] ✅ ${jid} -> ${data.invite_url}`);
-          } else {
-            console.log(`[sync-invite-links] ⚠️ ${jid} -> null`);
-          }
-        } catch (err: any) {
-          console.log(`[sync-invite-links] ❌ ${jid} failed: ${err.message}, retrying...`);
-          await sleep(3000);
+        const maxAttempts = 3;
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
           try {
-            const res2 = await fetch(`${baileysUrl}/group/inviteCode/${config.instance_name}/${jid}`);
-            if (!res2.ok) throw new Error(`HTTP ${res2.status}`);
-            const data2 = await res2.json();
-            inviteMap[jid] = data2.invite_url || null;
-          } catch (err2: any) {
+            const res = await fetch(`${baileysUrl}/group/inviteCode/${config.instance_name}/${jid}`);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            inviteMap[jid] = data.invite_url || null;
+
+            if (inviteMap[jid]) {
+              console.log(`[sync-invite-links] ✅ ${jid} attempt ${attempt + 1} -> ${data.invite_url}`);
+              break;
+            }
+
+            console.log(`[sync-invite-links] ⚠️ ${jid} attempt ${attempt + 1}/${maxAttempts} got null invite_url`);
+            if (attempt < maxAttempts - 1) {
+              const delay = 2000 * Math.pow(2, attempt);
+              await sleep(delay);
+            }
+          } catch (err: any) {
+            console.log(`[sync-invite-links] ❌ ${jid} attempt ${attempt + 1}/${maxAttempts} failed: ${err.message}`);
             inviteMap[jid] = null;
-            errors.push(`${jid}: ${err2.message}`);
+            if (attempt < maxAttempts - 1) {
+              const delay = 2000 * Math.pow(2, attempt);
+              await sleep(delay);
+            } else {
+              errors.push(`${jid}: ${err.message}`);
+            }
           }
         }
         totalSynced++;
