@@ -1,0 +1,301 @@
+import { useState, useEffect } from "react";
+import { useAuth } from "@/contexts/AuthContext";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from "@/components/ui/table";
+import { useToast } from "@/hooks/use-toast";
+import { Loader2, Copy, Check, GripVertical, Users } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+
+interface GroupLink {
+  group_id: string;
+  invite_url: string;
+  position: number;
+}
+
+interface Props {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  campaign: any;
+}
+
+export function CampaignLeadsDialog({ open, onOpenChange, campaign }: Props) {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const [slug, setSlug] = useState("");
+  const [maxMembers, setMaxMembers] = useState(200);
+  const [groupLinks, setGroupLinks] = useState<GroupLink[]>([]);
+  const [copied, setCopied] = useState(false);
+
+  const campaignId = campaign?.id;
+  const groupIds: string[] = campaign?.group_ids || [];
+
+  // Fetch existing smart link
+  const { data: smartLink, isLoading: loadingSL } = useQuery({
+    queryKey: ["smart-link", campaignId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("campaign_smart_links")
+        .select("*")
+        .eq("campaign_id", campaignId)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!campaignId && open,
+  });
+
+  // Fetch group stats (latest snapshot per group)
+  const { data: stats, isLoading: loadingStats } = useQuery({
+    queryKey: ["group-stats-latest", groupIds],
+    queryFn: async () => {
+      if (!groupIds.length) return [];
+      const { data, error } = await supabase
+        .from("group_stats")
+        .select("group_id, group_name, member_count, snapshot_date")
+        .in("group_id", groupIds)
+        .order("snapshot_date", { ascending: false });
+      if (error) throw error;
+      // Deduplicate: keep latest per group_id
+      const seen = new Set<string>();
+      return (data || []).filter((s) => {
+        if (seen.has(s.group_id)) return false;
+        seen.add(s.group_id);
+        return true;
+      });
+    },
+    enabled: groupIds.length > 0 && open,
+  });
+
+  // Fetch group names from user_selected_groups
+  const { data: selectedGroups } = useQuery({
+    queryKey: ["selected-groups-names", groupIds],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("user_selected_groups")
+        .select("group_id, group_name")
+        .in("group_id", groupIds);
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: groupIds.length > 0 && open,
+  });
+
+  // Initialize form from existing smart link or defaults
+  useEffect(() => {
+    if (smartLink) {
+      setSlug(smartLink.slug || "");
+      setMaxMembers(smartLink.max_members_per_group || 200);
+      setGroupLinks((smartLink.group_links as any as GroupLink[]) || []);
+    } else if (groupIds.length) {
+      setSlug("");
+      setMaxMembers(200);
+      setGroupLinks(
+        groupIds.map((gid, i) => ({ group_id: gid, invite_url: "", position: i }))
+      );
+    }
+  }, [smartLink, campaignId, open]);
+
+  // Ensure all campaign groups are in groupLinks
+  useEffect(() => {
+    if (!groupIds.length) return;
+    setGroupLinks((prev) => {
+      const existing = new Set(prev.map((g) => g.group_id));
+      const newLinks = [...prev];
+      groupIds.forEach((gid, i) => {
+        if (!existing.has(gid)) {
+          newLinks.push({ group_id: gid, invite_url: "", position: newLinks.length });
+        }
+      });
+      // Remove groups no longer in campaign
+      return newLinks
+        .filter((g) => groupIds.includes(g.group_id))
+        .map((g, i) => ({ ...g, position: i }));
+    });
+  }, [groupIds]);
+
+  const statsMap = Object.fromEntries(
+    (stats || []).map((s) => [s.group_id, s])
+  );
+  const namesMap = Object.fromEntries(
+    (selectedGroups || []).map((g) => [g.group_id, g.group_name])
+  );
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      if (!slug.trim()) throw new Error("Defina um slug para a URL");
+      if (groupLinks.some((g) => !g.invite_url.trim())) {
+        throw new Error("Preencha o link de convite de todos os grupos");
+      }
+
+      const payload = {
+        campaign_id: campaignId,
+        user_id: user!.id,
+        slug: slug.trim().toLowerCase().replace(/[^a-z0-9-]/g, "-"),
+        max_members_per_group: maxMembers,
+        group_links: groupLinks as any,
+        is_active: true,
+      };
+
+      if (smartLink?.id) {
+        const { error } = await supabase
+          .from("campaign_smart_links")
+          .update(payload)
+          .eq("id", smartLink.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from("campaign_smart_links")
+          .insert(payload);
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["smart-link", campaignId] });
+      toast({ title: "Smart Link salvo!" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Erro", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const updateInviteUrl = (groupId: string, url: string) => {
+    setGroupLinks((prev) =>
+      prev.map((g) => (g.group_id === groupId ? { ...g, invite_url: url } : g))
+    );
+  };
+
+  const publicUrl = slug
+    ? `${window.location.origin}/r/${slug.trim().toLowerCase().replace(/[^a-z0-9-]/g, "-")}`
+    : "";
+
+  const copyUrl = () => {
+    navigator.clipboard.writeText(publicUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const isLoading = loadingSL || loadingStats;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Users className="h-5 w-5 text-primary" />
+            Smart Link — {campaign?.name}
+          </DialogTitle>
+          <DialogDescription>
+            Configure o rotacionador de grupos. Quando um grupo atingir o limite, novos leads vão para o próximo.
+          </DialogDescription>
+        </DialogHeader>
+
+        {isLoading ? (
+          <div className="flex justify-center py-10">
+            <Loader2 className="h-6 w-6 animate-spin text-primary" />
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {/* Config */}
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Slug da URL</Label>
+                <Input
+                  placeholder="minha-campanha"
+                  value={slug}
+                  onChange={(e) => setSlug(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Limite de membros por grupo</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  value={maxMembers}
+                  onChange={(e) => setMaxMembers(Number(e.target.value))}
+                />
+              </div>
+            </div>
+
+            {/* Public URL */}
+            {publicUrl && (
+              <div className="flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 p-3">
+                <code className="flex-1 text-sm truncate text-foreground">{publicUrl}</code>
+                <Button size="sm" variant="outline" className="gap-1.5 shrink-0" onClick={copyUrl}>
+                  {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                  {copied ? "Copiado" : "Copiar"}
+                </Button>
+              </div>
+            )}
+
+            {/* Groups table */}
+            <div className="rounded-lg border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-8">#</TableHead>
+                    <TableHead>Grupo</TableHead>
+                    <TableHead className="w-28 text-center">Membros</TableHead>
+                    <TableHead>Link de convite</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {groupLinks.map((gl, idx) => {
+                    const stat = statsMap[gl.group_id];
+                    const name = stat?.group_name || namesMap[gl.group_id] || gl.group_id;
+                    const count = stat?.member_count ?? 0;
+                    const isFull = count >= maxMembers;
+
+                    return (
+                      <TableRow key={gl.group_id}>
+                        <TableCell className="text-muted-foreground text-center">{idx + 1}</TableCell>
+                        <TableCell>
+                          <span className="font-medium text-sm">{name}</span>
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <Badge variant={isFull ? "destructive" : "secondary"} className="text-xs">
+                            {count} / {maxMembers}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Input
+                            placeholder="https://chat.whatsapp.com/..."
+                            className="text-xs h-8"
+                            value={gl.invite_url}
+                            onChange={(e) => updateInviteUrl(gl.group_id, e.target.value)}
+                          />
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+
+            {/* Save */}
+            <div className="flex justify-end">
+              <Button
+                onClick={() => saveMutation.mutate()}
+                disabled={saveMutation.isPending}
+                className="gap-2"
+              >
+                {saveMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                Salvar Smart Link
+              </Button>
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}

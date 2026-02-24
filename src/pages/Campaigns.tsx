@@ -8,11 +8,12 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import {
   Megaphone, Plus, Users, CalendarClock, Loader2, Pencil, Trash2,
-  Zap, ZapOff, Sparkles, MessageSquare, Radio,
+  Zap, ZapOff, Sparkles, MessageSquare, Radio, Link,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { CampaignDialog } from "@/components/campaigns/CampaignDialog";
 import { CampaignMessagesDialog } from "@/components/campaigns/CampaignMessagesDialog";
+import { CampaignLeadsDialog } from "@/components/campaigns/CampaignLeadsDialog";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -26,6 +27,7 @@ export default function Campaigns() {
   const [editingCampaign, setEditingCampaign] = useState<any>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [messagesCampaign, setMessagesCampaign] = useState<any>(null);
+  const [leadsCampaign, setLeadsCampaign] = useState<any>(null);
 
   const { data: campaigns, isLoading } = useQuery({
     queryKey: ["campaigns", user?.id],
@@ -211,6 +213,16 @@ export default function Campaigns() {
                     >
                       <MessageSquare className="h-3 w-3" />Mensagens
                     </Button>
+                    {groupCount > 0 && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="flex-1 gap-1.5 text-xs border-emerald-500/20 text-emerald-600 hover:bg-emerald-500/10 hover:border-emerald-500/30 transition-all"
+                        onClick={() => setLeadsCampaign(c)}
+                      >
+                        <Link className="h-3 w-3" />Leads
+                      </Button>
+                    )}
                     <Button
                       size="sm"
                       variant="ghost"
@@ -229,6 +241,7 @@ export default function Campaigns() {
 
       <CampaignDialog open={dialogOpen} onOpenChange={setDialogOpen} campaign={editingCampaign} />
       <CampaignMessagesDialog open={!!messagesCampaign} onOpenChange={(o) => !o && setMessagesCampaign(null)} campaign={messagesCampaign} />
+      <CampaignLeadsDialog open={!!leadsCampaign} onOpenChange={(o) => !o && setLeadsCampaign(null)} campaign={leadsCampaign} />
 
       <AlertDialog open={!!deletingId} onOpenChange={() => setDeletingId(null)}>
         <AlertDialogContent>
