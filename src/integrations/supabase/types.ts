@@ -50,6 +50,50 @@ export type Database = {
         }
         Relationships: []
       }
+      campaign_smart_links: {
+        Row: {
+          campaign_id: string
+          created_at: string
+          group_links: Json
+          id: string
+          is_active: boolean
+          max_members_per_group: number
+          slug: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          campaign_id: string
+          created_at?: string
+          group_links?: Json
+          id?: string
+          is_active?: boolean
+          max_members_per_group?: number
+          slug: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          campaign_id?: string
+          created_at?: string
+          group_links?: Json
+          id?: string
+          is_active?: boolean
+          max_members_per_group?: number
+          slug?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaign_smart_links_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       campaigns: {
         Row: {
           api_config_id: string | null

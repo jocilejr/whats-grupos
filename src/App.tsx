@@ -27,6 +27,7 @@ const AdminUsers = lazy(() => import("./pages/admin/AdminUsers"));
 const AdminConfig = lazy(() => import("./pages/admin/AdminConfig"));
 const LandingPage = lazy(() => import("./pages/LandingPage"));
 const NotFound = lazy(() => import("./pages/NotFound"));
+const SmartLinkRedirect = lazy(() => import("./pages/SmartLinkRedirect"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -56,6 +57,7 @@ const App = () => (
           <BrowserRouter>
             <Suspense fallback={<PageLoader />}>
               <Routes>
+              <Route path="/r/:slug" element={<SmartLinkRedirect />} />
               <Route path="/landing" element={<LandingPage />} />
                 <Route path="/auth" element={<Auth />} />
                 <Route path="/reset-password" element={<ResetPassword />} />
