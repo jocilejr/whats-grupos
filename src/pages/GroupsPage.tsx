@@ -133,12 +133,17 @@ export default function GroupsPage() {
       if (error) throw error;
 
       let joined = 0, left = 0;
+      const byGroup: Record<string, { joined: number; left: number }> = {};
       for (const ev of data ?? []) {
+        if (!byGroup[ev.group_id]) byGroup[ev.group_id] = { joined: 0, left: 0 };
+        if (ev.action === "add") byGroup[ev.group_id].joined++;
+        else if (ev.action === "remove") byGroup[ev.group_id].left++;
+
         if (selectedGroupIds.size > 0 && !selectedGroupIds.has(ev.group_id)) continue;
         if (ev.action === "add") joined++;
         else if (ev.action === "remove") left++;
       }
-      return { joined, left };
+      return { joined, left, byGroup };
     },
     enabled: !!user,
     refetchInterval: 30000,
@@ -358,18 +363,18 @@ export default function GroupsPage() {
                           {stat.member_count}
                         </TableCell>
                         <TableCell className="text-center">
-                          {stat.joined_today > 0 ? (
+                          {(eventCounts?.byGroup?.[stat.group_id]?.joined ?? 0) > 0 ? (
                             <Badge variant="outline" className="border-[hsl(142_71%_45%/0.3)] text-[hsl(142,71%,45%)]">
-                              +{stat.joined_today}
+                              +{eventCounts.byGroup[stat.group_id].joined}
                             </Badge>
                           ) : (
                             <span className="text-muted-foreground">0</span>
                           )}
                         </TableCell>
                         <TableCell className="text-center">
-                          {stat.left_today > 0 ? (
+                          {(eventCounts?.byGroup?.[stat.group_id]?.left ?? 0) > 0 ? (
                             <Badge variant="outline" className="border-destructive/30 text-destructive">
-                              -{stat.left_today}
+                              -{eventCounts.byGroup[stat.group_id].left}
                             </Badge>
                           ) : (
                             <span className="text-muted-foreground">0</span>
