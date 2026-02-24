@@ -541,6 +541,35 @@ export type Database = {
           },
         ]
       }
+      smart_link_clicks: {
+        Row: {
+          clicked_at: string
+          group_id: string
+          id: string
+          smart_link_id: string
+        }
+        Insert: {
+          clicked_at?: string
+          group_id: string
+          id?: string
+          smart_link_id: string
+        }
+        Update: {
+          clicked_at?: string
+          group_id?: string
+          id?: string
+          smart_link_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "smart_link_clicks_smart_link_id_fkey"
+            columns: ["smart_link_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_smart_links"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_plans: {
         Row: {
           created_at: string

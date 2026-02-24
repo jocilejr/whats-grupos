@@ -12,8 +12,9 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Copy, Check, GripVertical, Users } from "lucide-react";
+import { Loader2, Copy, Check, Users, MousePointerClick, UserPlus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
 
 interface GroupLink {
   group_id: string;
@@ -66,7 +67,6 @@ export function CampaignLeadsDialog({ open, onOpenChange, campaign }: Props) {
         .in("group_id", groupIds)
         .order("snapshot_date", { ascending: false });
       if (error) throw error;
-      // Deduplicate: keep latest per group_id
       const seen = new Set<string>();
       return (data || []).filter((s) => {
         if (seen.has(s.group_id)) return false;
@@ -91,6 +91,47 @@ export function CampaignLeadsDialog({ open, onOpenChange, campaign }: Props) {
     enabled: groupIds.length > 0 && open,
   });
 
+  // Fetch click counts per group
+  const { data: clickCounts } = useQuery({
+    queryKey: ["smart-link-clicks", smartLink?.id],
+    queryFn: async () => {
+      if (!smartLink?.id) return [];
+      const { data, error } = await supabase
+        .from("smart_link_clicks")
+        .select("group_id")
+        .eq("smart_link_id", smartLink.id);
+      if (error) throw error;
+      // Count per group
+      const counts: Record<string, number> = {};
+      (data || []).forEach((r: any) => {
+        counts[r.group_id] = (counts[r.group_id] || 0) + 1;
+      });
+      return counts;
+    },
+    enabled: !!smartLink?.id && open,
+  });
+
+  // Fetch conversions (add events since smart link creation)
+  const { data: joinCounts } = useQuery({
+    queryKey: ["smart-link-joins", groupIds, smartLink?.created_at],
+    queryFn: async () => {
+      if (!groupIds.length || !smartLink?.created_at) return {};
+      const { data, error } = await supabase
+        .from("group_participant_events")
+        .select("group_id")
+        .in("group_id", groupIds)
+        .eq("action", "add")
+        .gte("created_at", smartLink.created_at);
+      if (error) throw error;
+      const counts: Record<string, number> = {};
+      (data || []).forEach((r) => {
+        counts[r.group_id] = (counts[r.group_id] || 0) + 1;
+      });
+      return counts;
+    },
+    enabled: groupIds.length > 0 && !!smartLink?.created_at && open,
+  });
+
   // Initialize form from existing smart link or defaults
   useEffect(() => {
     if (smartLink) {
@@ -112,12 +153,11 @@ export function CampaignLeadsDialog({ open, onOpenChange, campaign }: Props) {
     setGroupLinks((prev) => {
       const existing = new Set(prev.map((g) => g.group_id));
       const newLinks = [...prev];
-      groupIds.forEach((gid, i) => {
+      groupIds.forEach((gid) => {
         if (!existing.has(gid)) {
           newLinks.push({ group_id: gid, invite_url: "", position: newLinks.length });
         }
       });
-      // Remove groups no longer in campaign
       return newLinks
         .filter((g) => groupIds.includes(g.group_id))
         .map((g, i) => ({ ...g, position: i }));
@@ -130,6 +170,11 @@ export function CampaignLeadsDialog({ open, onOpenChange, campaign }: Props) {
   const namesMap = Object.fromEntries(
     (selectedGroups || []).map((g) => [g.group_id, g.group_name])
   );
+  const clicksMap = (clickCounts || {}) as Record<string, number>;
+  const joinsMap = (joinCounts || {}) as Record<string, number>;
+
+  const totalClicks = Object.values(clicksMap).reduce((a, b) => a + b, 0);
+  const totalJoins = Object.values(joinsMap).reduce((a, b) => a + b, 0);
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -206,6 +251,30 @@ export function CampaignLeadsDialog({ open, onOpenChange, campaign }: Props) {
           </div>
         ) : (
           <div className="space-y-6">
+            {/* Summary cards */}
+            {smartLink && (
+              <div className="grid grid-cols-2 gap-4">
+                <Card>
+                  <CardContent className="flex items-center gap-3 p-4">
+                    <MousePointerClick className="h-8 w-8 text-primary" />
+                    <div>
+                      <p className="text-2xl font-bold">{totalClicks}</p>
+                      <p className="text-xs text-muted-foreground">Cliques totais</p>
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="flex items-center gap-3 p-4">
+                    <UserPlus className="h-8 w-8 text-primary" />
+                    <div>
+                      <p className="text-2xl font-bold">{totalJoins}</p>
+                      <p className="text-xs text-muted-foreground">Entradas totais</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+
             {/* Config */}
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
@@ -245,7 +314,9 @@ export function CampaignLeadsDialog({ open, onOpenChange, campaign }: Props) {
                   <TableRow>
                     <TableHead className="w-8">#</TableHead>
                     <TableHead>Grupo</TableHead>
-                    <TableHead className="w-28 text-center">Membros</TableHead>
+                    <TableHead className="w-24 text-center">Membros</TableHead>
+                    <TableHead className="w-20 text-center">Cliques</TableHead>
+                    <TableHead className="w-20 text-center">Entradas</TableHead>
                     <TableHead>Link de convite</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -255,6 +326,8 @@ export function CampaignLeadsDialog({ open, onOpenChange, campaign }: Props) {
                     const name = stat?.group_name || namesMap[gl.group_id] || gl.group_id;
                     const count = stat?.member_count ?? 0;
                     const isFull = count >= maxMembers;
+                    const clicks = clicksMap[gl.group_id] ?? 0;
+                    const joins = joinsMap[gl.group_id] ?? 0;
 
                     return (
                       <TableRow key={gl.group_id}>
@@ -267,6 +340,8 @@ export function CampaignLeadsDialog({ open, onOpenChange, campaign }: Props) {
                             {count} / {maxMembers}
                           </Badge>
                         </TableCell>
+                        <TableCell className="text-center text-sm">{clicks}</TableCell>
+                        <TableCell className="text-center text-sm">{joins}</TableCell>
                         <TableCell>
                           <Input
                             placeholder="https://chat.whatsapp.com/..."
