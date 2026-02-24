@@ -1,36 +1,46 @@
 
 
-## Adicionar retry com backoff exponencial para os ultimos grupos
+## Corrigir: tratar `invite_url: null` como falha e fazer retry
 
-### Problema
-Os ultimos 3 grupos (#4, #8, #5) falham consistentemente mesmo com 1 retry. O WhatsApp aplica rate limit progressivo -- 1 retry com 3s nao e suficiente.
+### Problema raiz
+
+O endpoint do Baileys `/group/inviteCode/:name/:jid` retorna HTTP 200 com `{ invite_url: null }` quando o WhatsApp recusa o invite code (rate limit ou erro temporario). A edge function ve um HTTP 200, nao lanca erro, e nao faz retry -- marcando o grupo como "sem link" mesmo que o bot seja admin.
 
 ### Solucao
 
-Implementar **backoff exponencial** no modo single-group da edge function `sync-invite-links`:
-
-- 3 tentativas no total (em vez de 1 retry)
-- Delays crescentes: 2s, 4s, 8s entre tentativas
-- Logar cada tentativa para debug
+Na edge function `sync-invite-links`, apos receber a resposta com sucesso (HTTP 200), verificar se `invite_url` e `null`. Se for `null`, tratar como falha e continuar o loop de retry com backoff exponencial.
 
 ### Alteracao
 
 **Arquivo:** `supabase/functions/sync-invite-links/index.ts`
 
-Substituir o bloco de single-group (linhas 96-118) por um loop com backoff:
+No bloco single-group (linhas 100-117), adicionar verificacao:
 
 ```text
-Para cada tentativa (max 3):
-  1. Chamar GET /group/inviteCode/:instance/:jid
-  2. Se sucesso -> retornar URL
-  3. Se falhou -> esperar 2s * 2^tentativa (2s, 4s, 8s)
-  4. Se todas falharam -> retornar erro
+for (let attempt = 0; attempt < maxAttempts; attempt++) {
+  const res = await fetch(...)
+  if (!res.ok) throw new Error(...)
+  const data = await res.json()
+  inviteUrl = data.invite_url || null
+
+  if (inviteUrl) {
+    // Sucesso real - tem URL
+    break
+  }
+
+  // invite_url veio null = falha silenciosa, tratar como erro
+  if (attempt < maxAttempts - 1) {
+    await sleep(2000 * 2^attempt)  // retry com backoff
+  }
+  // Se ultima tentativa e ainda null, nao seta error (ja e null)
+}
 ```
 
-### Detalhes tecnicos
+Mesma logica sera aplicada ao modo "all groups" (linhas 169-195).
 
-- Apenas o modo single-group e afetado (chamado pelo frontend grupo a grupo)
-- O modo "all groups" tambem sera atualizado com a mesma logica
-- O frontend ja tem delay de 500ms entre grupos, entao o backoff so se aplica dentro de cada grupo individual
-- Tempo maximo por grupo com falha: ~14s (2+4+8), aceitavel para 15 grupos
+### Impacto
+
+- Grupo #8 agora tera 3 tentativas com delays de 2s, 4s, 8s mesmo quando o Baileys retorna 200 com null
+- Os outros 14 grupos que ja funcionam nao serao afetados (break no primeiro sucesso)
+- Nenhuma alteracao no Baileys server necessaria
 
