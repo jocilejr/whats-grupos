@@ -1,64 +1,45 @@
 
-# Filtrar Eventos Recentes pelos Grupos Selecionados
+
+# Corrigir Contagem de Eventos por Fuso Horario
 
 ## Problema
 
-O componente `RecentEventsSection` mostra eventos de **todos** os grupos da instancia, ignorando a selecao feita pelo usuario em "Gerenciar Grupos". Na screenshot, aparecem eventos de grupos como "Os 7 dias do Milagre de Sao Bento #1" e "#2", que nao estao na lista de grupos monitorados.
+A query `group-event-counts-today` usa `new Date().toISOString().split("T")[0]` para calcular "hoje", o que resulta na data UTC. No Brasil (UTC-3), isso significa que eventos entre meia-noite local e 03:00 UTC sao filtrados para o dia errado, causando divergencia entre o badge "3 hoje" (que usa fuso local) e o card "-2 saidas" (que usa UTC).
 
 ## Solucao
 
-Passar os `selectedGroupIds` para o `RecentEventsSection` e filtrar os eventos exibidos (e o contador "hoje") apenas pelos grupos selecionados.
+Usar meia-noite local convertida para UTC ao filtrar eventos, garantindo que a query capture todos os eventos do dia local do usuario.
 
-## Mudancas Tecnicas
+## Mudanca Tecnica
 
-### 1. `RecentEventsSection.tsx` - Receber e aplicar filtro de grupos
+### `src/pages/GroupsPage.tsx`
 
-- Adicionar `selectedGroupIds: Set<string>` na interface `RecentEventsSectionProps`
-- Filtrar a query de eventos (`group-events-recent`) na queryFn, ou filtrar client-side os resultados
-- Filtrar tambem no handler de Realtime (ignorar eventos de grupos nao selecionados)
-- Atualizar `filteredEvents` e `todayCount` para respeitar o filtro
-
-Abordagem: filtro client-side, pois a query ja retorna no maximo 100 eventos e o filtro por grupo nao e suportado nativamente pelo RLS (a tabela nao tem user_id). Isso mantem a logica simples.
+Substituir o filtro de data baseado em UTC por limites de dia local:
 
 ```typescript
-// Na interface
-interface RecentEventsSectionProps {
-  instanceFilter: string;
-  selectedGroupIds: Set<string>;
-  onRealtimeEvent?: (action: string) => void;
-}
+// Antes (UTC):
+const today = new Date().toISOString().split("T")[0];
+// ...
+.gte("created_at", `${today}T00:00:00`)
+.lt("created_at", `${today}T23:59:59.999`)
 
-// No filtro de eventos (linha ~117)
-const filteredEvents = (events ?? []).filter((e: any) => {
-  if (selectedGroupIds.size > 0 && !selectedGroupIds.has(e.group_id)) return false;
-  if (eventFilter === "all") return true;
-  return e.action === eventFilter;
-});
-
-// No todayCount (linha ~122)
-const todayCount = (events ?? []).filter((e: any) => {
-  if (selectedGroupIds.size > 0 && !selectedGroupIds.has(e.group_id)) return false;
-  const eventDate = new Date(e.created_at).toDateString();
-  return eventDate === new Date().toDateString();
-}).length;
-
-// No handler Realtime (linha ~62), adicionar:
-if (selectedGroupIds.size > 0 && !selectedGroupIds.has(newEvent.group_id)) return;
+// Depois (local):
+const startOfToday = new Date();
+startOfToday.setHours(0, 0, 0, 0);
+const endOfToday = new Date(startOfToday);
+endOfToday.setDate(endOfToday.getDate() + 1);
+// ...
+.gte("created_at", startOfToday.toISOString())
+.lt("created_at", endOfToday.toISOString())
 ```
 
-### 2. `GroupsPage.tsx` - Passar selectedGroupIds ao componente
+A variavel `today` (usada para `snapshot_date` do `group_stats`) permanece inalterada pois o snapshot_date e gerado em UTC pela edge function e deve ser consultado consistentemente em UTC.
 
-```typescript
-<RecentEventsSection
-  instanceFilter={instanceFilter}
-  selectedGroupIds={selectedGroupIds}
-  onRealtimeEvent={() => { ... }}
-/>
-```
+Adicionar novas variaveis `startOfToday` e `endOfToday` apenas para a query de contagem de eventos.
 
 ### Arquivos modificados
 
 | Arquivo | Mudanca |
 |---------|---------|
-| `src/components/groups/RecentEventsSection.tsx` | Adicionar prop `selectedGroupIds`, filtrar eventos e Realtime |
-| `src/pages/GroupsPage.tsx` | Passar `selectedGroupIds` ao componente |
+| `src/pages/GroupsPage.tsx` | Adicionar `startOfToday`/`endOfToday` com fuso local; atualizar filtro da query `group-event-counts-today` |
+
