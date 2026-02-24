@@ -151,6 +151,7 @@ export type Database = {
           openai_api_key: string
           queue_delay_seconds: number
           updated_at: string
+          vps_api_url: string
           whatsapp_provider: string
         }
         Insert: {
@@ -162,6 +163,7 @@ export type Database = {
           openai_api_key?: string
           queue_delay_seconds?: number
           updated_at?: string
+          vps_api_url?: string
           whatsapp_provider?: string
         }
         Update: {
@@ -173,6 +175,7 @@ export type Database = {
           openai_api_key?: string
           queue_delay_seconds?: number
           updated_at?: string
+          vps_api_url?: string
           whatsapp_provider?: string
         }
         Relationships: []
