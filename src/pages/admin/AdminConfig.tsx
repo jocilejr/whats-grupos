@@ -31,6 +31,7 @@ export default function AdminConfig() {
   const [apiKey, setApiKey] = useState("");
   const [openaiKey, setOpenaiKey] = useState("");
   const [provider, setProvider] = useState<string>("evolution");
+  const [vpsApiUrl, setVpsApiUrl] = useState("");
   
   const [testing, setTesting] = useState(false);
   const [testingBaileys, setTestingBaileys] = useState(false);
@@ -43,7 +44,7 @@ export default function AdminConfig() {
     setApiKey(config.evolution_api_key || "");
     setOpenaiKey((config as any).openai_api_key || "");
     setProvider((config as any).whatsapp_provider || "evolution");
-    
+    setVpsApiUrl((config as any).vps_api_url || "");
   }
 
   const save = useMutation({
@@ -53,7 +54,7 @@ export default function AdminConfig() {
         evolution_api_key: apiKey,
         openai_api_key: openaiKey,
         whatsapp_provider: provider,
-        
+        vps_api_url: vpsApiUrl.replace(/\/$/, ""),
       };
       if (!config?.id) {
         const { error } = await supabase.from("global_config").insert(payload);
@@ -214,6 +215,28 @@ export default function AdminConfig() {
               </form>
             </TabsContent>
           </Tabs>
+        </CardContent>
+      </Card>
+
+      {/* VPS API URL Card */}
+      <Card className="border-border/30">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Server className="h-5 w-5 text-primary" />
+            URL da API da VPS
+          </CardTitle>
+          <CardDescription>URL base para chamar edge functions na VPS (sync de grupos, links de convite)</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="space-y-4">
+            <div className="space-y-2">
+              <Label>URL da API da VPS</Label>
+              <Input value={vpsApiUrl} onChange={(e) => setVpsApiUrl(e.target.value)} placeholder="https://api.app.simplificandogrupos.com" />
+            </div>
+            <Button type="submit" disabled={save.isPending}>
+              {save.isPending ? "Salvando..." : "Salvar"}
+            </Button>
+          </form>
         </CardContent>
       </Card>
 

@@ -221,37 +221,42 @@ export function CampaignLeadsDialog({ open, onOpenChange, campaign }: Props) {
   const handleSyncUrls = async () => {
     setSyncing(true);
     try {
-      // Get VPS API URL from user's api_configs
-      const { data: apiConfig } = await supabase
-        .from("api_configs")
-        .select("api_url")
-        .eq("user_id", user!.id)
-        .eq("is_active", true)
+      // Get VPS API URL from global_config
+      const { data: globalCfg } = await supabase
+        .from("global_config")
+        .select("vps_api_url")
         .limit(1)
         .maybeSingle();
 
-      const token = (await supabase.auth.getSession()).data.session?.access_token;
+      const vpsBase = (globalCfg as any)?.vps_api_url?.replace(/\/$/, "");
 
-      if (apiConfig?.api_url) {
-        // Extract VPS domain from api_url (e.g. https://api.domain.com/rest -> https://api.domain.com)
-        const vpsBase = apiConfig.api_url.replace(/\/rest\/?$/, "");
-        const res = await fetch(`${vpsBase}/functions/v1/sync-invite-links`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${token}`,
-          },
-        });
-        const json = await res.json();
-        if (json.error) {
-          toast({ title: "Erro ao sincronizar", description: json.error, variant: "destructive" });
-        } else {
-          toast({ title: "URLs sincronizadas!", description: `${json.synced || 0} grupos processados` });
-          queryClient.invalidateQueries({ queryKey: ["group-stats-latest"] });
-          queryClient.invalidateQueries({ queryKey: ["smart-link", campaignId] });
-        }
+      if (!vpsBase) {
+        toast({ title: "URL da VPS não configurada", description: "Peça ao administrador para configurar a URL da API da VPS em Configurações Globais.", variant: "destructive" });
+        return;
+      }
+
+      const token = (await supabase.auth.getSession()).data.session?.access_token;
+      const headers = {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`,
+      };
+
+      // Call both sync functions on VPS in parallel
+      const [linksRes, statsRes] = await Promise.all([
+        fetch(`${vpsBase}/functions/v1/sync-invite-links`, { method: "POST", headers }),
+        fetch(`${vpsBase}/functions/v1/sync-group-stats`, { method: "POST", headers }),
+      ]);
+
+      const linksJson = await linksRes.json();
+      const statsJson = await statsRes.json();
+
+      if (linksJson.error && statsJson.error) {
+        toast({ title: "Erro ao sincronizar", description: linksJson.error, variant: "destructive" });
       } else {
-        toast({ title: "Erro", description: "Nenhuma configuração de API encontrada. O sync é feito automaticamente a cada 15 minutos na VPS.", variant: "destructive" });
+        const synced = (linksJson.synced || 0) + (statsJson.synced || 0);
+        toast({ title: "Sincronizado!", description: `Links: ${linksJson.synced || 0} | Stats: ${statsJson.synced || 0} grupos` });
+        queryClient.invalidateQueries({ queryKey: ["group-stats-latest"] });
+        queryClient.invalidateQueries({ queryKey: ["smart-link", campaignId] });
       }
     } catch (err: any) {
       toast({ title: "Erro", description: err.message, variant: "destructive" });
