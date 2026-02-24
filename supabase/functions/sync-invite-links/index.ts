@@ -49,9 +49,9 @@ Deno.serve(async (req) => {
       .limit(1)
       .single();
 
-    const baileysUrl = globalConfig?.whatsapp_provider === "baileys"
-      ? "http://baileys-server:3100"
-      : (globalConfig?.baileys_api_url || "http://baileys-server:3100");
+    const baileysUrl = globalConfig?.baileys_api_url && globalConfig.baileys_api_url !== "http://baileys-server:3100"
+      ? globalConfig.baileys_api_url
+      : "http://baileys-server:3100";
 
     // Build config map: user_id -> configs[]
     const configsByUser: Record<string, any[]> = {};
