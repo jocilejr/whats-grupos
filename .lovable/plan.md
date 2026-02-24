@@ -1,81 +1,40 @@
 
 
-## Problema
+## Corrigir erro "Unauthorized" na sync-group-stats
 
-Dois bugs inter-relacionados:
+### Problema
+A edge function `sync-group-stats` nao esta listada no `supabase/config.toml` com `verify_jwt = false`. O gateway rejeita a requisicao antes mesmo de chegar ao codigo da funcao.
 
-1. **Erro "Unexpected token '<'"**: O botao "Sincronizar URLs agora" le `api_configs.api_url` que contem o valor `"global"` (nao e uma URL valida). O codigo transforma isso em uma URL relativa que resolve para o frontend HTML.
+### Solucao
 
-2. **Membros mostrando 0/1000**: A tabela `group_stats` esta completamente vazia. A funcao `sync-group-stats` precisa rodar na VPS (onde o Baileys esta acessivel), mas o frontend tenta chamar a versao do Lovable Cloud que nao consegue acessar o Baileys.
+**Arquivo:** `supabase/config.toml`
 
-## Causa Raiz
+Adicionar a seguinte entrada:
 
-O campo `api_configs.api_url` contem `"global"` em vez de uma URL real da VPS. As edge functions de sync precisam rodar na VPS, nao no Lovable Cloud, pois dependem do Baileys server na rede Docker interna.
-
-## Solucao
-
-Adicionar um campo `vps_api_url` na tabela `global_config` para armazenar a URL base da API da VPS (ex: `https://api.app.simplificandogrupos.com`). O frontend usara esse valor para chamar as edge functions de sync na VPS.
-
-## Mudancas
-
-### 1. Migracao de banco de dados
-
-Adicionar coluna `vps_api_url` na tabela `global_config`:
-
-```sql
-ALTER TABLE global_config 
-ADD COLUMN IF NOT EXISTS vps_api_url text NOT NULL DEFAULT '';
+```toml
+[functions.sync-group-stats]
+verify_jwt = false
 ```
 
-### 2. Atualizar `CampaignLeadsDialog.tsx` - funcao `handleSyncUrls`
+Isso alinha a funcao com todas as outras funcoes do projeto que ja possuem `verify_jwt = false` (como `process-queue`, `send-scheduled-messages`, `group-events-webhook`, etc.).
 
-Substituir a logica que le `api_configs.api_url` por uma que le `global_config.vps_api_url`:
+A autenticacao continua sendo validada dentro do codigo da funcao, que ja verifica o header `Authorization` e chama `supabase.auth.getUser()`.
 
-```text
-// Antes (bugado):
-const { data: apiConfig } = await supabase
-  .from("api_configs")
-  .select("api_url")...
-const vpsBase = apiConfig.api_url.replace(/\/rest\/?$/, "");
+### Apos o deploy
 
-// Depois (corrigido):
-const { data: globalCfg } = await supabase
-  .from("global_config")
-  .select("vps_api_url")
-  .limit(1)
-  .maybeSingle();
-const vpsBase = globalCfg?.vps_api_url;
+Na VPS, sera necessario tambem copiar a funcao atualizada e reiniciar o container de functions. Alem disso, para testar via curl, usar o comando com `grep` para extrair a ANON_KEY corretamente:
+
+```bash
+ANON_KEY=$(grep '^ANON_KEY=' /opt/supabase-docker/docker/.env | cut -d'=' -f2 | tr -d '"' | tr -d "'")
+
+curl -s -X POST "https://api.app.simplificandogrupos.com/functions/v1/sync-group-stats" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $ANON_KEY" | jq
 ```
 
-Se `vps_api_url` estiver vazio, mostrar um toast orientando o admin a configurar a URL da VPS nas configuracoes.
+### Secao tecnica
 
-### 3. Atualizar `handleSyncUrls` para tambem chamar `sync-group-stats`
-
-Apos chamar `sync-invite-links`, fazer uma segunda chamada para `sync-group-stats` na VPS para popular os dados de membros:
-
-```text
-// Chamar sync-group-stats na VPS tambem
-await fetch(`${vpsBase}/functions/v1/sync-group-stats`, {
-  method: "POST",
-  headers: {
-    "Content-Type": "application/json",
-    "Authorization": `Bearer ${token}`,
-  },
-});
-```
-
-### 4. Atualizar pagina de Configuracoes Admin (`AdminConfig.tsx`)
-
-Adicionar campo para o admin configurar a `vps_api_url` na interface de configuracoes globais. Isso garante que o valor seja facilmente editavel sem acesso direto ao banco.
-
-### 5. Configurar valor inicial
-
-Inserir o valor `https://api.app.simplificandogrupos.com` na coluna `vps_api_url` da `global_config` via migracao.
-
-## Secao Tecnica
-
-- A arquitetura tem dois ambientes: Lovable Cloud (frontend + banco) e VPS (Baileys + Kong + edge functions locais)
-- Edge functions que dependem do Baileys (`sync-group-stats`, `sync-invite-links`) precisam ser chamadas via VPS (`api.app.simplificandogrupos.com`)
-- O campo `api_configs.api_url = "global"` indica que a configuracao usa valores globais em vez de URLs por instancia — o codigo precisa tratar esse caso
-- A tabela `group_stats` vazia explica o "0 / 1000" em todos os grupos — ela sera populada quando `sync-group-stats` rodar com sucesso na VPS
+- O `config.toml` e atualizado automaticamente no Lovable Cloud
+- Na VPS self-hosted, apos `git pull` e `sudo ./scripts/deploy.sh`, a configuracao do Kong/gateway precisa ser atualizada manualmente ou via restart do container de functions
+- A funcao ja faz validacao de auth internamente via `supabase.auth.getUser()`, entao desabilitar `verify_jwt` no gateway nao compromete a seguranca
 
