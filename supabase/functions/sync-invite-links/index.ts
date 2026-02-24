@@ -72,11 +72,12 @@ Deno.serve(async (req) => {
     let totalSynced = 0;
     const errors: string[] = [];
 
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
     for (const userId of userIds) {
       const userConfigs = configsByUser[userId] || [];
       if (!userConfigs.length) continue;
 
-      // Get group_ids for this user's smart links
       const userSmartLinks = smartLinks.filter((sl) => sl.user_id === userId);
       const userGroupIds = new Set<string>();
       for (const sl of userSmartLinks) {
@@ -87,44 +88,48 @@ Deno.serve(async (req) => {
       const jids = [...userGroupIds];
       if (!jids.length) continue;
 
-      // Use first active config
       const config = userConfigs[0];
-      try {
-        const batchRes = await fetch(
-          `${baileysUrl}/group/inviteCodeBatch/${config.instance_name}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ jids }),
+
+      for (const jid of jids) {
+        try {
+          const res = await fetch(
+            `${baileysUrl}/group/inviteCode/${config.instance_name}/${jid}`
+          );
+
+          if (!res.ok) {
+            throw new Error(`HTTP ${res.status}`);
           }
-        );
 
-        if (!batchRes.ok) {
-          errors.push(`${config.instance_name}: HTTP ${batchRes.status}`);
-          continue;
+          const data = await res.json();
+          const url = data.invite_url || null;
+          inviteMap[jid] = url;
+
+          if (url) {
+            console.log(`[sync-invite-links] ✅ ${jid} -> ${url}`);
+          } else {
+            console.log(`[sync-invite-links] ⚠️ ${jid} -> null (no URL)`);
+          }
+        } catch (err: any) {
+          console.log(`[sync-invite-links] ❌ ${jid} failed: ${err.message}, retrying in 3s...`);
+          await sleep(3000);
+
+          try {
+            const res2 = await fetch(
+              `${baileysUrl}/group/inviteCode/${config.instance_name}/${jid}`
+            );
+            if (!res2.ok) throw new Error(`HTTP ${res2.status}`);
+            const data2 = await res2.json();
+            inviteMap[jid] = data2.invite_url || null;
+            console.log(`[sync-invite-links] 🔄 ${jid} retry -> ${data2.invite_url || "null"}`);
+          } catch (err2: any) {
+            inviteMap[jid] = null;
+            errors.push(`${jid}: ${err2.message}`);
+            console.log(`[sync-invite-links] ❌ ${jid} retry failed: ${err2.message}`);
+          }
         }
 
-        const batchData = await batchRes.json();
-        console.log(`[sync-invite-links] ${config.instance_name} raw response:`, JSON.stringify(batchData));
-        
-        // Support both old format { jid: url } and new format { results: { jid: url }, errors: { jid: msg } }
-        const resultsObj = batchData.results || batchData;
-        const errorsObj = batchData.errors || {};
-        
-        const failedJids: string[] = [];
-        for (const [jid, url] of Object.entries(resultsObj)) {
-          inviteMap[jid] = url as string | null;
-          if (!url) failedJids.push(jid);
-        }
-        
-        if (failedJids.length > 0) {
-          console.log(`[sync-invite-links] ${config.instance_name} groups without URL:`, failedJids);
-          console.log(`[sync-invite-links] ${config.instance_name} errors:`, JSON.stringify(errorsObj));
-        }
-
-        totalSynced += jids.length;
-      } catch (err: any) {
-        errors.push(`${config.instance_name}: ${err.message}`);
+        totalSynced++;
+        await sleep(1500);
       }
     }
 
