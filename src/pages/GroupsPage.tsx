@@ -32,6 +32,12 @@ export default function GroupsPage() {
 
   const today = new Date().toISOString().split("T")[0];
 
+  // Local day boundaries for event counting (avoids UTC mismatch)
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const endOfToday = new Date(startOfToday);
+  endOfToday.setDate(endOfToday.getDate() + 1);
+
   const { selectedGroups, selectedGroupIds, isLoading: selectionLoading, replaceAll, isReplacing } = useSelectedGroups();
 
   // Query api_configs
@@ -116,8 +122,8 @@ export default function GroupsPage() {
       let query = supabase
         .from("group_participant_events")
         .select("action, group_id")
-        .gte("created_at", `${today}T00:00:00`)
-        .lt("created_at", `${today}T23:59:59.999`);
+        .gte("created_at", startOfToday.toISOString())
+        .lt("created_at", endOfToday.toISOString());
 
       if (instanceFilter !== "all") {
         query = query.eq("instance_name", instanceFilter);
