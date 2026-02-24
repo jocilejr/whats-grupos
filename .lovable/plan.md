@@ -1,46 +1,27 @@
 
+## Endpoint GET publico que retorna URL como texto puro
 
-## Corrigir: tratar `invite_url: null` como falha e fazer retry
+### O que faz
+Nova edge function `smart-link-api` que recebe `?slug=xxx` e retorna **apenas a URL do grupo como texto plano** (content-type `text/plain`), sem JSON, sem redirect, sem registrar clique.
 
-### Problema raiz
+### Exemplo de uso
+```
+GET /functions/v1/smart-link-api?slug=meu-slug
 
-O endpoint do Baileys `/group/inviteCode/:name/:jid` retorna HTTP 200 com `{ invite_url: null }` quando o WhatsApp recusa o invite code (rate limit ou erro temporario). A edge function ve um HTTP 200, nao lanca erro, e nao faz retry -- marcando o grupo como "sem link" mesmo que o bot seja admin.
-
-### Solucao
-
-Na edge function `sync-invite-links`, apos receber a resposta com sucesso (HTTP 200), verificar se `invite_url` e `null`. Se for `null`, tratar como falha e continuar o loop de retry com backoff exponencial.
-
-### Alteracao
-
-**Arquivo:** `supabase/functions/sync-invite-links/index.ts`
-
-No bloco single-group (linhas 100-117), adicionar verificacao:
-
-```text
-for (let attempt = 0; attempt < maxAttempts; attempt++) {
-  const res = await fetch(...)
-  if (!res.ok) throw new Error(...)
-  const data = await res.json()
-  inviteUrl = data.invite_url || null
-
-  if (inviteUrl) {
-    // Sucesso real - tem URL
-    break
-  }
-
-  // invite_url veio null = falha silenciosa, tratar como erro
-  if (attempt < maxAttempts - 1) {
-    await sleep(2000 * 2^attempt)  // retry com backoff
-  }
-  // Se ultima tentativa e ainda null, nao seta error (ja e null)
-}
+Resposta: https://chat.whatsapp.com/ABC123
 ```
 
-Mesma logica sera aplicada ao modo "all groups" (linhas 169-195).
+### Alteracoes
 
-### Impacto
+| Arquivo | Acao |
+|---------|------|
+| `supabase/functions/smart-link-api/index.ts` | Criar nova edge function |
+| `supabase/config.toml` | Adicionar `verify_jwt = false` |
 
-- Grupo #8 agora tera 3 tentativas com delays de 2s, 4s, 8s mesmo quando o Baileys retorna 200 com null
-- Os outros 14 grupos que ja funcionam nao serao afetados (break no primeiro sucesso)
-- Nenhuma alteracao no Baileys server necessaria
+### Detalhes tecnicos
 
+- Reutiliza a mesma logica de selecao de grupo do `smart-link-redirect` (ordenado por position, primeiro com vaga e invite_url valida, fallback pro ultimo com URL)
+- Retorna `Content-Type: text/plain` com apenas a URL no body
+- **Nao registra clique** na tabela `smart_link_clicks`
+- Em caso de erro retorna texto simples com status HTTP apropriado (404, 500)
+- CORS aberto, sem JWT, totalmente publico
