@@ -5,20 +5,28 @@ import { Loader2 } from "lucide-react";
 export default function SmartLinkRedirect() {
   const { slug } = useParams<{ slug: string }>();
   const [error, setError] = useState<string | null>(null);
+  const [plainUrl, setPlainUrl] = useState<string | null>(null);
+
+  const isGetMode = slug?.endsWith("-get") ?? false;
+  const realSlug = isGetMode ? slug!.slice(0, -4) : slug;
 
   useEffect(() => {
-    if (!slug) return;
+    if (!realSlug) return;
 
     const redirect = async () => {
       try {
         const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
         const res = await fetch(
-          `${supabaseUrl}/functions/v1/smart-link-redirect?slug=${encodeURIComponent(slug)}`
+          `${supabaseUrl}/functions/v1/smart-link-redirect?slug=${encodeURIComponent(realSlug)}`
         );
         const json = await res.json();
 
         if (json.redirect_url) {
-          window.location.href = json.redirect_url;
+          if (isGetMode) {
+            setPlainUrl(json.redirect_url);
+          } else {
+            window.location.href = json.redirect_url;
+          }
         } else {
           setError(json.error || "Link não encontrado");
         }
@@ -28,7 +36,14 @@ export default function SmartLinkRedirect() {
     };
 
     redirect();
-  }, [slug]);
+  }, [realSlug, isGetMode]);
+
+  // GET mode: render only the URL as plain text
+  if (isGetMode) {
+    if (error) return <>{error}</>;
+    if (plainUrl) return <>{plainUrl}</>;
+    return <>...</>;
+  }
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background">
