@@ -127,14 +127,6 @@ Deno.serve(async (req) => {
         group_id: selectedGroupId,
       });
 
-    // POST: return JSON with redirect_url; GET: 302 redirect
-    if (req.method === "GET") {
-      return new Response(null, {
-        status: 302,
-        headers: { ...corsHeaders, Location: redirectUrl },
-      });
-    }
-
     return new Response(JSON.stringify({ redirect_url: redirectUrl }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
