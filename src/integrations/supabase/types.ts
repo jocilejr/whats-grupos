@@ -217,6 +217,7 @@ export type Database = {
           group_name: string
           id: string
           instance_name: string
+          invite_url: string | null
           joined_today: number
           left_today: number
           member_count: number
@@ -229,6 +230,7 @@ export type Database = {
           group_name: string
           id?: string
           instance_name: string
+          invite_url?: string | null
           joined_today?: number
           left_today?: number
           member_count?: number
@@ -241,6 +243,7 @@ export type Database = {
           group_name?: string
           id?: string
           instance_name?: string
+          invite_url?: string | null
           joined_today?: number
           left_today?: number
           member_count?: number

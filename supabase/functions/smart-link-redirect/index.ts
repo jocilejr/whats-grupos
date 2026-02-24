@@ -22,13 +22,13 @@ Deno.serve(async (req) => {
       });
     }
 
-    const supabase = createClient(
+    const serviceSupabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_ANON_KEY")!
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
     // Fetch the smart link by slug
-    const { data: smartLink, error: slError } = await supabase
+    const { data: smartLink, error: slError } = await serviceSupabase
       .from("campaign_smart_links")
       .select("*")
       .eq("slug", slug)
@@ -59,50 +59,64 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Get latest member counts from group_stats using service role
-    const serviceSupabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-    );
-
     const groupIds = groupLinks.map((g) => g.group_id);
 
-    // Get the most recent snapshot for each group
+    // Get latest member counts AND invite_url from group_stats
     const { data: stats } = await serviceSupabase
       .from("group_stats")
-      .select("group_id, member_count, snapshot_date")
+      .select("group_id, member_count, snapshot_date, invite_url")
       .in("group_id", groupIds)
       .order("snapshot_date", { ascending: false });
 
-    // Build a map of group_id -> latest member_count
+    // Build maps: group_id -> latest member_count, group_id -> invite_url
     const memberCounts: Record<string, number> = {};
+    const inviteUrls: Record<string, string | null> = {};
     if (stats) {
       for (const s of stats) {
         if (!(s.group_id in memberCounts)) {
           memberCounts[s.group_id] = s.member_count;
+          inviteUrls[s.group_id] = (s as any).invite_url || null;
         }
       }
     }
 
-    // Find first group with available space
+    // Find first group with available space AND a valid invite_url
     const maxMembers = smartLink.max_members_per_group;
     let redirectUrl: string | null = null;
     let selectedGroupId: string | null = null;
 
     for (const gl of groupLinks) {
+      const url = inviteUrls[gl.group_id];
+      if (!url) continue; // Skip groups without invite URL (bot not admin)
+      
       const count = memberCounts[gl.group_id] ?? 0;
       if (count < maxMembers) {
-        redirectUrl = gl.invite_url;
+        redirectUrl = url;
         selectedGroupId = gl.group_id;
         break;
       }
     }
 
-    // Fallback to last group if all are full
+    // Fallback: last group with a valid URL
     if (!redirectUrl) {
-      const last = groupLinks[groupLinks.length - 1];
-      redirectUrl = last.invite_url;
-      selectedGroupId = last.group_id;
+      for (let i = groupLinks.length - 1; i >= 0; i--) {
+        const url = inviteUrls[groupLinks[i].group_id];
+        if (url) {
+          redirectUrl = url;
+          selectedGroupId = groupLinks[i].group_id;
+          break;
+        }
+      }
+    }
+
+    if (!redirectUrl || !selectedGroupId) {
+      return new Response(
+        JSON.stringify({ error: "No available groups with invite links" }),
+        {
+          status: 404,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
     }
 
     // Record the click
@@ -113,11 +127,19 @@ Deno.serve(async (req) => {
         group_id: selectedGroupId,
       });
 
+    // POST: return JSON with redirect_url; GET: 302 redirect
+    if (req.method === "GET") {
+      return new Response(null, {
+        status: 302,
+        headers: { ...corsHeaders, Location: redirectUrl },
+      });
+    }
+
     return new Response(JSON.stringify({ redirect_url: redirectUrl }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
-  } catch (err) {
+  } catch (err: any) {
     return new Response(JSON.stringify({ error: err.message }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
