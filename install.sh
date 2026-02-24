@@ -445,7 +445,7 @@ FUNCTIONS_DIR="${SUPABASE_DIR}/docker/volumes/functions"
 mkdir -p "$FUNCTIONS_DIR"
 
 # Lista de todas as edge functions do projeto
-EDGE_FUNCTIONS="evolution-api send-scheduled-messages admin-api backup-export generate-ai-message process-queue"
+EDGE_FUNCTIONS="evolution-api send-scheduled-messages admin-api backup-export generate-ai-message process-queue sync-group-stats group-events-webhook smart-link-redirect"
 
 for FUNC_NAME in $EDGE_FUNCTIONS; do
   if [ -d "${PROJECT_DIR}/supabase/functions/${FUNC_NAME}" ]; then
