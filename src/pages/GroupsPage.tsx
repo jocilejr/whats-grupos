@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -8,7 +8,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Users, RefreshCw, Loader2, BarChart3, Settings } from "lucide-react";
+import { Users, RefreshCw, Loader2, BarChart3, Settings, ListChecks } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -18,6 +18,8 @@ import {
 } from "recharts";
 import GroupSummaryCards from "@/components/groups/GroupSummaryCards";
 import RecentEventsSection from "@/components/groups/RecentEventsSection";
+import GroupSelectionDialog from "@/components/groups/GroupSelectionDialog";
+import { useSelectedGroups } from "@/hooks/useSelectedGroups";
 import { useNavigate } from "react-router-dom";
 
 export default function GroupsPage() {
@@ -25,10 +27,14 @@ export default function GroupsPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [selectedConfigId, setSelectedConfigId] = useState<string>("all");
+  const [selectionOpen, setSelectionOpen] = useState(false);
+  const autoSyncDone = useRef(false);
 
   const today = new Date().toISOString().split("T")[0];
 
-  // Query api_configs to always show instance selector
+  const { selectedGroups, selectedGroupIds, isLoading: selectionLoading, replaceAll, isReplacing } = useSelectedGroups();
+
+  // Query api_configs
   const { data: apiConfigs, isLoading: configsLoading } = useQuery({
     queryKey: ["api-configs-active", user?.id],
     queryFn: async () => {
@@ -43,6 +49,7 @@ export default function GroupsPage() {
     enabled: !!user,
   });
 
+  // All stats for today (auto-refresh every 30s)
   const { data: todayStats, isLoading } = useQuery({
     queryKey: ["group-stats-today", user?.id, today],
     queryFn: async () => {
@@ -56,21 +63,73 @@ export default function GroupsPage() {
       return (data ?? []) as any[];
     },
     enabled: !!user,
+    refetchInterval: 30000,
   });
 
-  // Derive instance filter from selected config
-  const selectedConfig = apiConfigs?.find(c => c.id === selectedConfigId);
+  // Auto-sync on first load if no data today
+  const syncMutation = useMutation({
+    mutationFn: async () => {
+      const body: any = {};
+      if (selectedConfigId !== "all") body.configId = selectedConfigId;
+      const { data, error } = await supabase.functions.invoke("sync-group-stats", {
+        headers: { Authorization: `Bearer ${session?.access_token}` },
+        body,
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (data) => {
+      if (data.errors?.length) {
+        toast.error(`Erros na sincronização: ${data.errors.join("; ")}`);
+      } else {
+        toast.success(`Sincronização concluída! ${data.synced} grupos atualizados`);
+      }
+      queryClient.invalidateQueries({ queryKey: ["group-stats-today"] });
+      queryClient.invalidateQueries({ queryKey: ["group-stats-history"] });
+      queryClient.invalidateQueries({ queryKey: ["group-events-recent"] });
+    },
+    onError: (err: any) => {
+      toast.error(`Erro ao sincronizar: ${err.message}`);
+    },
+  });
+
+  // Auto-sync if no data today
+  useEffect(() => {
+    if (autoSyncDone.current || isLoading || !todayStats || !session) return;
+    if (todayStats.length === 0 && (apiConfigs?.length ?? 0) > 0) {
+      autoSyncDone.current = true;
+      syncMutation.mutate();
+    } else {
+      autoSyncDone.current = true;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [todayStats, isLoading, session, apiConfigs]);
+
+  // Derive instance filter
+  const selectedConfig = apiConfigs?.find((c) => c.id === selectedConfigId);
   const instanceFilter = selectedConfigId === "all" ? "all" : (selectedConfig?.instance_name ?? "all");
 
-  const filteredStats = instanceFilter === "all"
-    ? (todayStats ?? [])
-    : (todayStats ?? []).filter((s: any) => s.instance_name === instanceFilter);
+  // Filter stats: by instance AND by selected groups
+  const filteredStats = (todayStats ?? []).filter((s: any) => {
+    if (instanceFilter !== "all" && s.instance_name !== instanceFilter) return false;
+    if (selectedGroupIds.size > 0 && !selectedGroupIds.has(s.group_id)) return false;
+    return true;
+  });
 
   const totalGroups = filteredStats.length;
   const totalMembers = filteredStats.reduce((sum: number, s: any) => sum + s.member_count, 0);
   const totalJoined = filteredStats.reduce((sum: number, s: any) => sum + s.joined_today, 0);
   const totalLeft = filteredStats.reduce((sum: number, s: any) => sum + s.left_today, 0);
 
+  // Available groups for selection dialog (all today stats)
+  const availableGroups = (todayStats ?? []).map((s: any) => ({
+    group_id: s.group_id,
+    group_name: s.group_name,
+    instance_name: s.instance_name,
+    member_count: s.member_count,
+  }));
+
+  // Historical data (auto-refresh 30s)
   const { data: historicalData } = useQuery({
     queryKey: ["group-stats-history", user?.id],
     queryFn: async () => {
@@ -78,13 +137,15 @@ export default function GroupsPage() {
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
       const { data, error } = await (supabase
         .from("group_stats" as any)
-        .select("snapshot_date, member_count, joined_today, left_today")
+        .select("snapshot_date, member_count, joined_today, left_today, group_id")
         .eq("user_id", user!.id)
         .gte("snapshot_date", thirtyDaysAgo.toISOString().split("T")[0])
         .order("snapshot_date", { ascending: true }) as any);
       if (error) throw error;
       const byDate: Record<string, { members: number; joined: number; left: number }> = {};
       for (const row of (data ?? []) as any[]) {
+        // If user has selected groups, filter historical data too
+        if (selectedGroupIds.size > 0 && !selectedGroupIds.has(row.group_id)) continue;
         const d = row.snapshot_date;
         if (!byDate[d]) byDate[d] = { members: 0, joined: 0, left: 0 };
         byDate[d].members += row.member_count;
@@ -99,35 +160,7 @@ export default function GroupsPage() {
       }));
     },
     enabled: !!user,
-  });
-
-  const syncMutation = useMutation({
-    mutationFn: async () => {
-      const body: any = {};
-      if (selectedConfigId !== "all") {
-        body.configId = selectedConfigId;
-      }
-      const { data, error } = await supabase.functions.invoke("sync-group-stats", {
-        headers: { Authorization: `Bearer ${session?.access_token}` },
-        body,
-      });
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: (data) => {
-      if (data.errors?.length) {
-        toast.error(`Erros na sincronização: ${data.errors.join("; ")}`);
-      } else {
-        toast.success(`Sincronização concluída! ${data.synced} grupos, +${data.joined} entradas, -${data.left} saídas`);
-      }
-      queryClient.invalidateQueries({ queryKey: ["group-stats-today"] });
-      queryClient.invalidateQueries({ queryKey: ["group-stats-history"] });
-      queryClient.invalidateQueries({ queryKey: ["group-stats-dashboard"] });
-      queryClient.invalidateQueries({ queryKey: ["group-events-recent"] });
-    },
-    onError: (err: any) => {
-      toast.error(`Erro ao sincronizar: ${err.message}`);
-    },
+    refetchInterval: 30000,
   });
 
   function CustomTooltip({ active, payload, label }: any) {
@@ -181,7 +214,7 @@ export default function GroupsPage() {
       {/* Header */}
       <div className="relative">
         <div className="absolute -top-4 -left-4 w-32 h-32 bg-primary/5 rounded-full blur-3xl" />
-        <div className="relative flex items-center justify-between">
+        <div className="relative flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
             <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20 shadow-[0_0_25px_hsl(210_75%_52%/0.15)]">
               <Users className="h-7 w-7 text-primary" />
@@ -195,10 +228,10 @@ export default function GroupsPage() {
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 flex-wrap">
             <Select value={selectedConfigId} onValueChange={setSelectedConfigId}>
-              <SelectTrigger className="w-[200px]">
-                <SelectValue placeholder="Selecione a instância" />
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="Instância" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todas instâncias</SelectItem>
@@ -207,16 +240,25 @@ export default function GroupsPage() {
                 ))}
               </SelectContent>
             </Select>
+            <Button variant="outline" onClick={() => setSelectionOpen(true)}>
+              <ListChecks className="h-4 w-4 mr-2" />
+              Gerenciar Grupos
+              {selectedGroupIds.size > 0 && (
+                <Badge variant="secondary" className="ml-2 text-[10px]">{selectedGroupIds.size}</Badge>
+              )}
+            </Button>
             <Button
+              variant="secondary"
               onClick={() => syncMutation.mutate()}
               disabled={syncMutation.isPending}
+              size="sm"
             >
               {syncMutation.isPending ? (
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
               ) : (
                 <RefreshCw className="h-4 w-4 mr-2" />
               )}
-              Sincronizar Agora
+              Sincronizar
             </Button>
           </div>
         </div>
@@ -230,13 +272,98 @@ export default function GroupsPage() {
         totalLeft={totalLeft}
       />
 
-      {/* Recent Events */}
-      <RecentEventsSection
-        instanceFilter={instanceFilter}
-        onRealtimeEvent={(action) => {
-          // Realtime events automatically invalidate queries via the component
-        }}
-      />
+      {/* Two-column layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+        {/* Left column: Table (3/5) */}
+        <div className="lg:col-span-3 space-y-6">
+          <Card className="border-border/30">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
+                {selectedGroupIds.size > 0 ? "Grupos Monitorados" : "Todos os Grupos"} — Hoje
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {isLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : filteredStats.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">
+                  <Users className="h-10 w-10 mx-auto mb-3 opacity-30" />
+                  {selectedGroupIds.size > 0 ? (
+                    <p className="text-sm">Nenhum dado para os grupos selecionados. Aguarde a próxima sincronização.</p>
+                  ) : (
+                    <div>
+                      <p className="text-sm mb-4">Nenhum dado encontrado. Clique em "Gerenciar Grupos" para selecionar os grupos que deseja monitorar.</p>
+                      <Button variant="outline" onClick={() => setSelectionOpen(true)}>
+                        <ListChecks className="h-4 w-4 mr-2" />
+                        Gerenciar Grupos
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Grupo</TableHead>
+                      <TableHead className="text-center">Membros</TableHead>
+                      <TableHead className="text-center">Entradas</TableHead>
+                      <TableHead className="text-center">Saídas</TableHead>
+                      <TableHead>Instância</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredStats.map((stat: any) => (
+                      <TableRow key={stat.id}>
+                        <TableCell className="font-medium max-w-[250px] truncate">
+                          {stat.group_name}
+                        </TableCell>
+                        <TableCell className="text-center font-semibold">
+                          {stat.member_count}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          {stat.joined_today > 0 ? (
+                            <Badge variant="outline" className="border-[hsl(142_71%_45%/0.3)] text-[hsl(142,71%,45%)]">
+                              +{stat.joined_today}
+                            </Badge>
+                          ) : (
+                            <span className="text-muted-foreground">0</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          {stat.left_today > 0 ? (
+                            <Badge variant="outline" className="border-destructive/30 text-destructive">
+                              -{stat.left_today}
+                            </Badge>
+                          ) : (
+                            <span className="text-muted-foreground">0</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="secondary" className="text-xs">
+                            {stat.instance_name}
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Right column: Events (2/5) */}
+        <div className="lg:col-span-2">
+          <RecentEventsSection
+            instanceFilter={instanceFilter}
+            onRealtimeEvent={() => {
+              queryClient.invalidateQueries({ queryKey: ["group-stats-today"] });
+            }}
+          />
+        </div>
+      </div>
 
       {/* Chart */}
       {(historicalData?.length ?? 0) > 1 && (
@@ -271,73 +398,15 @@ export default function GroupsPage() {
         </Card>
       )}
 
-      {/* Groups Table */}
-      <Card className="border-border/30">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
-            Grupos — Dados de Hoje
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {isLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-            </div>
-          ) : filteredStats.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground">
-              <Users className="h-10 w-10 mx-auto mb-3 opacity-30" />
-              <p className="text-sm">Nenhum dado encontrado. Selecione uma instância e clique em "Sincronizar Agora".</p>
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Grupo</TableHead>
-                  <TableHead className="text-center">Membros</TableHead>
-                  <TableHead className="text-center">Entradas</TableHead>
-                  <TableHead className="text-center">Saídas</TableHead>
-                  <TableHead>Instância</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredStats.map((stat: any) => (
-                  <TableRow key={stat.id}>
-                    <TableCell className="font-medium max-w-[250px] truncate">
-                      {stat.group_name}
-                    </TableCell>
-                    <TableCell className="text-center font-semibold">
-                      {stat.member_count}
-                    </TableCell>
-                    <TableCell className="text-center">
-                      {stat.joined_today > 0 ? (
-                        <Badge variant="outline" className="border-[hsl(142_71%_45%/0.3)] text-[hsl(142,71%,45%)]">
-                          +{stat.joined_today}
-                        </Badge>
-                      ) : (
-                        <span className="text-muted-foreground">0</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-center">
-                      {stat.left_today > 0 ? (
-                        <Badge variant="outline" className="border-destructive/30 text-destructive">
-                          -{stat.left_today}
-                        </Badge>
-                      ) : (
-                        <span className="text-muted-foreground">0</span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="secondary" className="text-xs">
-                        {stat.instance_name}
-                      </Badge>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+      {/* Selection Dialog */}
+      <GroupSelectionDialog
+        open={selectionOpen}
+        onOpenChange={setSelectionOpen}
+        availableGroups={availableGroups}
+        selectedGroupIds={selectedGroupIds}
+        onConfirm={replaceAll}
+        isLoading={isReplacing}
+      />
     </div>
   );
 }

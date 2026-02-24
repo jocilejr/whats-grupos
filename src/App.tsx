@@ -14,7 +14,7 @@ import { Loader2 } from "lucide-react";
 // Lazy-loaded pages
 const Auth = lazy(() => import("./pages/Auth"));
 const ResetPassword = lazy(() => import("./pages/ResetPassword"));
-const Dashboard = lazy(() => import("./pages/Dashboard"));
+
 const Messages = lazy(() => import("./pages/Messages"));
 const Templates = lazy(() => import("./pages/Templates"));
 const Campaigns = lazy(() => import("./pages/Campaigns"));
@@ -66,12 +66,12 @@ const App = () => (
                     </ProtectedRoute>
                   }
                 >
-                  <Route path="/" element={<Dashboard />} />
+                  <Route path="/" element={<GroupsPage />} />
                   <Route path="/messages" element={<Messages />} />
                   <Route path="/campaigns" element={<Campaigns />} />
                   <Route path="/templates" element={<Templates />} />
                   <Route path="/queue" element={<QueuePage />} />
-                  <Route path="/groups" element={<GroupsPage />} />
+
                   <Route path="/settings" element={<SettingsPage />} />
                   <Route path="/backup" element={<BackupPage />} />
                   <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
