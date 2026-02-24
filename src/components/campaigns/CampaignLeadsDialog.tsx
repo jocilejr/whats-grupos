@@ -407,6 +407,7 @@ export function CampaignLeadsDialog({ open, onOpenChange, campaign }: Props) {
                     <TableHead className="w-24 text-center">Membros</TableHead>
                     <TableHead className="w-20 text-center">Cliques</TableHead>
                     <TableHead className="w-20 text-center">Entradas</TableHead>
+                    <TableHead className="w-44">URL</TableHead>
                     <TableHead>Status do Link</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -447,6 +448,26 @@ export function CampaignLeadsDialog({ open, onOpenChange, campaign }: Props) {
                         </TableCell>
                         <TableCell className="text-center text-sm">{clicks}</TableCell>
                         <TableCell className="text-center text-sm">{joins}</TableCell>
+                        <TableCell>
+                          {inviteUrl ? (
+                            <div className="flex items-center gap-1 max-w-[10rem]">
+                              <span className="text-xs truncate text-muted-foreground" title={inviteUrl}>{inviteUrl}</span>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-5 w-5 shrink-0"
+                                onClick={() => {
+                                  navigator.clipboard.writeText(inviteUrl);
+                                  toast({ title: "URL copiada!" });
+                                }}
+                              >
+                                <Copy className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
                         <TableCell>
                           {syncStatus[gl.group_id] === "syncing" ? (
                             <Badge variant="outline" className="text-xs gap-1 text-primary border-primary/30 bg-primary/10">
