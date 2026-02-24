@@ -253,8 +253,11 @@ export function CampaignLeadsDialog({ open, onOpenChange, campaign }: Props) {
       if (linksJson.error && statsJson.error) {
         toast({ title: "Erro ao sincronizar", description: linksJson.error, variant: "destructive" });
       } else {
-        const synced = (linksJson.synced || 0) + (statsJson.synced || 0);
-        toast({ title: "Sincronizado!", description: `Links: ${linksJson.synced || 0} | Stats: ${statsJson.synced || 0} grupos` });
+        const failedCount = linksJson.failed_groups?.length || 0;
+        const linksPart = failedCount > 0
+          ? `Links: ${linksJson.synced || 0} (${failedCount} falharam)`
+          : `Links: ${linksJson.synced || 0}`;
+        toast({ title: "Sincronizado!", description: `${linksPart} | Stats: ${statsJson.synced || 0} grupos` });
         queryClient.invalidateQueries({ queryKey: ["group-stats-latest"] });
         queryClient.invalidateQueries({ queryKey: ["smart-link", campaignId] });
       }

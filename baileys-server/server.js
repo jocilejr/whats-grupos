@@ -523,6 +523,7 @@ app.get('/group/inviteCode/:name/:jid', async (req, res) => {
 
 // POST /group/inviteCodeBatch/:name - Get invite codes for multiple groups
 app.post('/group/inviteCodeBatch/:name', async (req, res) => {
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   try {
     const session = await getSession(req.params.name);
     if (!session || !session.connected) {
@@ -535,17 +536,41 @@ app.post('/group/inviteCodeBatch/:name', async (req, res) => {
     }
 
     const result = {};
+    const errors = {};
+
+    // First pass with 500ms delay between calls
     for (const jid of jids) {
       try {
         const code = await session.sock.groupInviteCode(jid);
         result[jid] = `https://chat.whatsapp.com/${code}`;
       } catch (err) {
         console.log(`[inviteCodeBatch] Failed for ${jid}: ${err.message}`);
+        errors[jid] = err.message;
         result[jid] = null;
+      }
+      await sleep(500);
+    }
+
+    // Retry failed ones after 2s pause
+    const failedJids = Object.keys(errors);
+    if (failedJids.length > 0) {
+      console.log(`[inviteCodeBatch] Retrying ${failedJids.length} failed groups after 2s...`);
+      await sleep(2000);
+      for (const jid of failedJids) {
+        try {
+          const code = await session.sock.groupInviteCode(jid);
+          result[jid] = `https://chat.whatsapp.com/${code}`;
+          delete errors[jid];
+          console.log(`[inviteCodeBatch] Retry success for ${jid}`);
+        } catch (err) {
+          console.log(`[inviteCodeBatch] Retry failed for ${jid}: ${err.message}`);
+          errors[jid] = err.message;
+        }
+        await sleep(500);
       }
     }
 
-    res.json(result);
+    res.json({ results: result, errors: Object.keys(errors).length > 0 ? errors : undefined });
   } catch (e) {
     console.error('[inviteCodeBatch]', e);
     res.status(500).json({ error: e.message });
