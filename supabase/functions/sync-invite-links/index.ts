@@ -95,25 +95,24 @@ Deno.serve(async (req) => {
 
       let inviteUrl: string | null = null;
       let error: string | null = null;
+      const maxAttempts = 3;
 
-      try {
-        const res = await fetch(`${baileysUrl}/group/inviteCode/${config.instance_name}/${singleGroupId}`);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
-        inviteUrl = data.invite_url || null;
-        console.log(`[sync-invite-links] ✅ single ${singleGroupId} -> ${inviteUrl}`);
-      } catch (err: any) {
-        console.log(`[sync-invite-links] ❌ single ${singleGroupId} failed: ${err.message}, retrying...`);
-        await sleep(3000);
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
         try {
-          const res2 = await fetch(`${baileysUrl}/group/inviteCode/${config.instance_name}/${singleGroupId}`);
-          if (!res2.ok) throw new Error(`HTTP ${res2.status}`);
-          const data2 = await res2.json();
-          inviteUrl = data2.invite_url || null;
-          console.log(`[sync-invite-links] 🔄 single ${singleGroupId} retry -> ${inviteUrl}`);
-        } catch (err2: any) {
-          error = err2.message;
-          console.log(`[sync-invite-links] ❌ single ${singleGroupId} retry failed: ${err2.message}`);
+          const res = await fetch(`${baileysUrl}/group/inviteCode/${config.instance_name}/${singleGroupId}`);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const data = await res.json();
+          inviteUrl = data.invite_url || null;
+          console.log(`[sync-invite-links] ✅ single ${singleGroupId} attempt ${attempt + 1} -> ${inviteUrl}`);
+          break;
+        } catch (err: any) {
+          const delay = 2000 * Math.pow(2, attempt); // 2s, 4s, 8s
+          console.log(`[sync-invite-links] ❌ single ${singleGroupId} attempt ${attempt + 1}/${maxAttempts} failed: ${err.message}, waiting ${delay}ms...`);
+          if (attempt < maxAttempts - 1) {
+            await sleep(delay);
+          } else {
+            error = err.message;
+          }
         }
       }
 
