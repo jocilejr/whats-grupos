@@ -1,22 +1,32 @@
 
 
-## Adicionar coluna "URL" na tabela de Leads
+## Remover coluna URL da tabela e adicionar URL do GET
 
-A tabela na aba de Leads atualmente mostra #, Grupo, Membros, Cliques, Entradas e Status do Link, mas nao exibe a URL de convite do grupo. A alteracao vai adicionar uma coluna "URL" que mostra a invite_url de cada grupo.
+### O que muda
 
-### Alteracao
+1. **Remover a coluna "URL"** (invite_url de cada grupo) da tabela de Leads -- foi adicionada no ultimo commit
+2. **Adicionar uma segunda URL copiavel** acima da tabela, ao lado da URL principal de redirect, mostrando a URL do endpoint GET que retorna apenas texto
 
-**Arquivo:** `src/components/campaigns/CampaignLeadsDialog.tsx`
+### Exemplo visual
 
-1. Adicionar uma nova coluna "URL" no `TableHeader` entre "Entradas" e "Status do Link"
-2. Adicionar a `TableCell` correspondente no body da tabela
-3. A URL sera exibida de forma truncada (text-xs, truncate) com um botao pequeno para copiar
-4. Se nao houver URL, mostrar um texto "—" cinza
+A area de URLs ficara assim:
+
+- URL de redirect: `https://app.simplificandogrupos.com/r/comunidade-rosana` (ja existe)
+- URL do GET: `https://app.simplificandogrupos.com/r/comunidade-rosana-get` (nova)
+
+Ambas com botao de copiar.
 
 ### Detalhes tecnicos
 
-- A variavel `inviteUrl` ja existe na linha 421 do componente, basta exibi-la
-- A coluna tera largura fixa (`w-44`) com overflow truncado para nao quebrar o layout
-- Um botao de copiar inline ao lado da URL permitira copiar rapidamente
-- Sem alteracao de banco de dados — os dados ja estao disponiveis via `group_stats.invite_url`
+**Arquivo:** `src/components/campaigns/CampaignLeadsDialog.tsx`
+
+1. Remover `<TableHead className="w-44">URL</TableHead>` (linha 410)
+2. Remover o bloco `<TableCell>` com inviteUrl e botao Copy (linhas 451-470)
+3. Na secao "Public URL" (linhas 372-381), adicionar uma segunda linha mostrando a URL do GET, usando o padrao `slug + "-get"` como sufixo. Exemplo: `/r/comunidade-rosana` para redirect e `/r/comunidade-rosana-get` para o GET
+
+A URL do GET apontara para a mesma rota do frontend (`/r/slug-get`) que o componente `SmartLinkRedirect` ja captura via `useParams`. O baileys-server na VPS tambem ja tem o endpoint `/smart-link/:slug` que pode ser chamado diretamente.
+
+Como o endpoint GET roda no baileys-server da VPS (nao no frontend), a URL exibida sera construida usando a `baileys_api_url` da configuracao ou, mais simplesmente, usando o mesmo dominio com o sufixo `-get` no slug -- a mesma logica de redirect do frontend buscara esse slug separado.
+
+**Abordagem mais simples:** Exibir a URL do GET como o endpoint do baileys-server diretamente. Mas como o usuario quer `www.site.com/r/slug-get`, vamos manter o padrao do frontend adicionando o sufixo `-get` ao slug na URL exibida.
 
