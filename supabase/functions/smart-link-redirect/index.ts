@@ -87,19 +87,31 @@ Deno.serve(async (req) => {
     // Find first group with available space
     const maxMembers = smartLink.max_members_per_group;
     let redirectUrl: string | null = null;
+    let selectedGroupId: string | null = null;
 
     for (const gl of groupLinks) {
       const count = memberCounts[gl.group_id] ?? 0;
       if (count < maxMembers) {
         redirectUrl = gl.invite_url;
+        selectedGroupId = gl.group_id;
         break;
       }
     }
 
     // Fallback to last group if all are full
     if (!redirectUrl) {
-      redirectUrl = groupLinks[groupLinks.length - 1].invite_url;
+      const last = groupLinks[groupLinks.length - 1];
+      redirectUrl = last.invite_url;
+      selectedGroupId = last.group_id;
     }
+
+    // Record the click
+    await serviceSupabase
+      .from("smart_link_clicks")
+      .insert({
+        smart_link_id: smartLink.id,
+        group_id: selectedGroupId,
+      });
 
     return new Response(JSON.stringify({ redirect_url: redirectUrl }), {
       status: 200,
