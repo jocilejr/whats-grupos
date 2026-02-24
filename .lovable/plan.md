@@ -1,27 +1,38 @@
 
 
-## Corrigir URL da API saindo do container
+## Simplificar exibicao das URLs no Smart Link
 
 ### Problema
 
-A URL longa de "URL de Retorno (Texto)" esta ultrapassando os limites do container porque o elemento `code` nao esta respeitando o overflow corretamente.
+As URLs longas estao saindo do container mesmo com `overflow-hidden`. O usuario nao precisa ver a URL completa — apenas precisa do botao de copiar.
 
 ### Solucao
 
-**Arquivo:** `src/components/campaigns/CampaignLeadsDialog.tsx` (linhas 385-398)
+Redesenhar os dois blocos de URL para mostrar apenas o label, uma versao curta/truncada da URL, e o botao de copiar. Usar `max-w-0` + `overflow-hidden` no container de texto com flex para garantir que o texto nunca force o layout.
 
-Adicionar `overflow-hidden` ao container e garantir que o `code` tenha `overflow-hidden text-ellipsis` para truncar o texto longo corretamente:
+**Arquivo:** `src/components/campaigns/CampaignLeadsDialog.tsx` (linhas 374-399)
 
-1. No `div` container (linha 385): adicionar `overflow-hidden`
-2. No elemento `code` (linha 388): adicionar `overflow-hidden` para garantir que o texto longo seja cortado
+Substituir os dois blocos de URL por um layout compacto:
 
-Alteracao na linha 385:
-- De: `<div className="flex items-center gap-2 rounded-lg border border-muted bg-muted/30 p-3">`
-- Para: `<div className="flex items-center gap-2 rounded-lg border border-muted bg-muted/30 p-3 overflow-hidden">`
+```tsx
+{/* URL de Redirecionamento */}
+<div className="flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 p-3">
+  <div className="flex-1 min-w-0 overflow-hidden">
+    <p className="text-xs text-muted-foreground mb-0.5">URL de Redirecionamento</p>
+    <code className="text-sm block text-foreground truncate">{publicUrl}</code>
+  </div>
+  <Button ...>Copiar</Button>
+</div>
 
-Alteracao na linha 388:
-- De: `<code className="text-sm truncate block text-foreground">`
-- Para: `<code className="text-sm truncate block text-foreground overflow-hidden">`
+{/* URL de Retorno */}
+<div className="flex items-center gap-2 rounded-lg border border-muted bg-muted/30 p-3">
+  <div className="flex-1 min-w-0 overflow-hidden">
+    <p className="text-xs text-muted-foreground mb-0.5">URL de Retorno (Texto)</p>
+    <code className="text-sm block text-foreground truncate">{getUrl}</code>
+  </div>
+  <Button ...>Copiar</Button>
+</div>
+```
 
-Isso garante que a URL longa sera truncada com reticencias (...) em vez de ultrapassar o container.
+A chave e garantir que o `div` pai do texto tenha `min-w-0 overflow-hidden` (ambos), e o `code` tenha `truncate` (que inclui `overflow-hidden`, `text-overflow: ellipsis`, `white-space: nowrap`). O `min-w-0` e essencial em flex children para permitir que o elemento encolha abaixo do tamanho do conteudo.
 
