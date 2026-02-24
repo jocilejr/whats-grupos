@@ -1,114 +1,106 @@
 
 
-# Smart Link - Rotacionador de Grupos por Campanha
+# Contagem de Cliques e Conversoes no Smart Link
 
 ## Resumo
 
-Um sistema de "link inteligente" por campanha que distribui leads entre os grupos automaticamente. Voce cria uma URL unica para a campanha, define o limite maximo de membros por grupo, e quando alguem acessa o link, e redirecionado para o link de convite do grupo que ainda tem vaga. Quando um grupo lota, o proximo grupo da lista recebe os novos leads.
-
-## Como vai funcionar
-
-1. Na campanha, um novo botao "Leads" aparece quando ha grupos selecionados
-2. Ao clicar, abre um dialog mostrando cada grupo com seu numero atual de membros (via API do WhatsApp)
-3. Nesse dialog, voce configura:
-   - O link de convite de cada grupo (ex: `https://chat.whatsapp.com/ABC123`)
-   - O limite maximo de membros por grupo
-   - Um slug unico para gerar a URL publica (ex: `minha-campanha`)
-4. Uma URL publica e gerada (ex: `https://.../r/minha-campanha`)
-5. Quando alguem acessa essa URL, uma edge function verifica o member_count dos grupos e redireciona para o primeiro grupo que ainda nao atingiu o limite
+Adicionar rastreamento de cliques (quantas vezes a URL foi acessada) e conversoes (quantas pessoas efetivamente entraram no grupo) ao sistema de Smart Link. Os dados serao exibidos na tabela do dialog de configuracao.
 
 ## Mudancas
 
-### 1. Nova tabela: `campaign_smart_links`
+### 1. Nova tabela: `smart_link_clicks`
+
+Registra cada clique individual no smart link, incluindo qual grupo foi direcionado.
 
 | Coluna | Tipo | Descricao |
 |---|---|---|
 | id | uuid | PK |
-| campaign_id | uuid | FK para campaigns |
-| user_id | uuid | Dono |
-| slug | text (unique) | Identificador na URL |
-| max_members_per_group | integer | Limite para rotacionar |
-| group_links | jsonb | Array de `{group_id, invite_url, position}` |
-| is_active | boolean | Ativo/inativo |
-| created_at | timestamptz | Criacao |
-| updated_at | timestamptz | Atualizacao |
+| smart_link_id | uuid | FK para campaign_smart_links |
+| group_id | text | Grupo para o qual foi redirecionado |
+| clicked_at | timestamptz | Momento do clique |
+| ip_hash | text (nullable) | Hash do IP para deduplicacao (opcional) |
 
-RLS: usuarios gerenciam apenas os proprios registros.
+RLS: leitura pelo dono do smart link, insercao publica (via service role na edge function).
 
-### 2. Nova edge function: `smart-link-redirect`
+### 2. Contagem de conversoes (entradas no grupo)
 
-- Rota publica (sem JWT)
-- Recebe o slug como parametro
-- Busca o smart link e os group_ids associados
-- Consulta `group_stats` para obter o `member_count` atual de cada grupo (ultimo snapshot)
-- Percorre os grupos na ordem definida (`position`)
-- Redireciona (HTTP 302) para o `invite_url` do primeiro grupo que ainda nao atingiu `max_members_per_group`
-- Se todos estiverem lotados, redireciona para o ultimo grupo (ou mostra mensagem)
+As conversoes serao calculadas a partir da tabela `group_participant_events` ja existente. Para cada grupo do smart link, contamos os eventos de `action = 'add'` que ocorreram apos a criacao do smart link. Isso da uma estimativa de quantas pessoas entraram no grupo desde que o link foi ativado.
 
-### 3. Nova pagina publica: rota `/r/:slug`
+Nao e necessario criar tabela nova para isso -- reutilizamos dados que ja existem.
 
-- Rota simples no React Router (fora do ProtectedRoute)
-- Mostra um loading enquanto chama a edge function
-- Redireciona o usuario para o link de convite do WhatsApp
+### 3. Edge function `smart-link-redirect` -- registrar clique
 
-### 4. Novo componente: `CampaignLeadsDialog`
+Ao processar um redirecionamento, a edge function insere um registro em `smart_link_clicks` com o `smart_link_id` e o `group_id` escolhido, antes de retornar a URL.
 
-Dialog que abre ao clicar no botao "Leads" da campanha. Conteudo:
+### 4. Dialog `CampaignLeadsDialog` -- exibir metricas
 
-- **Tabela de grupos**: nome do grupo, membros atuais (buscado da `group_stats`), link de convite (editavel), posicao na fila
-- **Configuracoes**: slug da URL, limite maximo de membros por grupo
-- **URL gerada**: campo copiavel com a URL publica final
-- **Botao salvar**: persiste no `campaign_smart_links`
+Adicionar duas colunas novas na tabela de grupos:
 
-### 5. Botao "Leads" no card da campanha
+| # | Grupo | Membros | Cliques | Entradas | Link de convite |
+|---|---|---|---|---|---|
+| 1 | Grupo A | 150/200 | 45 | 32 | https://... |
 
-- Aparece apenas quando `c.group_ids?.length > 0`
-- Icone: `BarChart3` ou `Link`
-- Posicionado entre "Mensagens" e o botao de excluir
+- **Cliques**: total de registros em `smart_link_clicks` para aquele `group_id` + `smart_link_id`
+- **Entradas**: total de eventos `add` em `group_participant_events` para aquele `group_id` desde a criacao do smart link
 
-## Arquivos criados/modificados
-
-| Arquivo | Acao |
-|---|---|
-| Migracao SQL | Criar tabela `campaign_smart_links` |
-| `supabase/functions/smart-link-redirect/index.ts` | Nova edge function |
-| `src/components/campaigns/CampaignLeadsDialog.tsx` | Novo componente |
-| `src/pages/Campaigns.tsx` | Adicionar botao "Leads" + state para o dialog |
-| `src/pages/SmartLinkRedirect.tsx` | Nova pagina publica de redirect |
-| `src/App.tsx` | Adicionar rota `/r/:slug` |
-| `supabase/config.toml` | `verify_jwt = false` para smart-link-redirect |
+Tambem adicionar cards de resumo no topo:
+- Total de cliques (todos os grupos)
+- Total de entradas (todos os grupos)
 
 ## Detalhes tecnicos
 
-### Edge function `smart-link-redirect`
+### Tabela `smart_link_clicks`
 
 ```text
-GET /smart-link-redirect?slug=minha-campanha
+CREATE TABLE smart_link_clicks (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  smart_link_id uuid NOT NULL REFERENCES campaign_smart_links(id) ON DELETE CASCADE,
+  group_id text NOT NULL,
+  clicked_at timestamptz NOT NULL DEFAULT now()
+);
 
-1. Busca campaign_smart_links onde slug = parametro e is_active = true
-2. Extrai group_links (array ordenado por position)
-3. Para cada group_id, busca member_count mais recente em group_stats
-4. Primeiro grupo com member_count < max_members_per_group -> redireciona para invite_url
-5. Se todos lotados -> redireciona para o ultimo
+-- Indice para consultas rapidas
+CREATE INDEX idx_smart_link_clicks_link_group ON smart_link_clicks(smart_link_id, group_id);
+
+-- RLS: dono do smart link pode ler
+-- Insercao apenas via service role (edge function)
 ```
 
-### Fluxo do usuario
+### Edge function -- trecho de registro de clique
 
 ```text
-Campanha -> Botao "Leads" -> Dialog abre
-  -> Ve tabela com grupos e membros atuais
-  -> Cola link de convite em cada grupo
-  -> Define limite (ex: 200)
-  -> Define slug (ex: "promo-2026")
-  -> Salva
-  -> Copia URL: https://whats-grupos.lovable.app/r/promo-2026
-  -> Compartilha essa URL
-  -> Pessoas acessam -> redirecionadas para grupo com vaga
+// Apos determinar o grupo de destino:
+await serviceSupabase
+  .from("smart_link_clicks")
+  .insert({
+    smart_link_id: smartLink.id,
+    group_id: selectedGroupId
+  });
 ```
 
-### Fonte de dados para member_count
+### Dialog -- consulta de cliques
 
-Os member counts vem da tabela `group_stats` (populada pela edge function `sync-group-stats` que ja roda periodicamente). A edge function de redirect usa o snapshot mais recente de cada grupo. Nao faz chamada direta a API do WhatsApp para manter a resposta rapida.
+```text
+-- Cliques por grupo
+SELECT group_id, COUNT(*) as clicks
+FROM smart_link_clicks
+WHERE smart_link_id = :id
+GROUP BY group_id
 
-No dialog, para exibir dados atualizados, disparamos um `sync-group-stats` ao abrir e depois lemos de `group_stats`.
+-- Entradas por grupo (desde criacao do smart link)
+SELECT group_id, COUNT(*) as joins
+FROM group_participant_events
+WHERE group_id IN (:group_ids)
+  AND action = 'add'
+  AND created_at >= :smart_link_created_at
+GROUP BY group_id
+```
+
+### Arquivos criados/modificados
+
+| Arquivo | Acao |
+|---|---|
+| Migracao SQL | Criar tabela `smart_link_clicks` com RLS |
+| `supabase/functions/smart-link-redirect/index.ts` | Adicionar insert de clique |
+| `src/components/campaigns/CampaignLeadsDialog.tsx` | Adicionar colunas de cliques/entradas + cards de resumo |
 
