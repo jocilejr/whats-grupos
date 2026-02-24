@@ -3,7 +3,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useRole } from "@/hooks/useRole";
 import { useNavigate, useLocation } from "react-router-dom";
 import {
-  LayoutDashboard,
+  
   Send,
   Megaphone,
   FileText,
@@ -35,12 +35,11 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 const menuItemClasses = "transition-all duration-300 ease-out group/menu-item-custom";
 
 const userMenuItems = [
-  { title: "Dashboard", icon: LayoutDashboard, path: "/" },
+  { title: "Monitoramento", icon: Users, path: "/" },
   { title: "Enviar Mensagem", icon: Send, path: "/messages" },
   { title: "Campanhas", icon: Megaphone, path: "/campaigns" },
   { title: "Templates", icon: FileText, path: "/templates" },
   { title: "Fila", icon: ListOrdered, path: "/queue" },
-  { title: "Grupos", icon: Users, path: "/groups" },
   { title: "Backup", icon: DatabaseBackup, path: "/backup" },
   { title: "Configurações", icon: Settings, path: "/settings" },
 ];

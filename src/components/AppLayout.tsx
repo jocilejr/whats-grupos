@@ -4,7 +4,7 @@ import { AppSidebar } from "@/components/AppSidebar";
 import { Outlet, useLocation } from "react-router-dom";
 
 const pageTitles: Record<string, string> = {
-  "/": "Dashboard",
+  "/": "Monitoramento de Grupos",
   "/messages": "Enviar Mensagem",
   "/campaigns": "Campanhas",
   "/templates": "Templates",

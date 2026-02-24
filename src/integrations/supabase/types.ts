@@ -551,6 +551,33 @@ export type Database = {
         }
         Relationships: []
       }
+      user_selected_groups: {
+        Row: {
+          created_at: string | null
+          group_id: string
+          group_name: string | null
+          id: string
+          instance_name: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          group_id: string
+          group_name?: string | null
+          id?: string
+          instance_name?: string | null
+          user_id?: string
+        }
+        Update: {
+          created_at?: string | null
+          group_id?: string
+          group_name?: string | null
+          id?: string
+          instance_name?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
