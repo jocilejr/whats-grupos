@@ -1,74 +1,37 @@
+## Corrigir CORS no redirecionamento e overflow na UI
 
+### Problema 1: CORS bloqueia o redirecionamento
 
-## Corrigir 3 problemas do Smart Link
+**Causa raiz:** O frontend faz `fetch()` (GET) para o edge function. O edge function retorna `302 redirect` para `https://chat.whatsapp.com/...`. O `fetch()` do browser segue o redirect automaticamente e tenta acessar o WhatsApp, que nao tem headers CORS -- resultado: bloqueado.
 
-### 1. Apenas 10 de 15 grupos com invite URL
+**Correcao:** Remover a logica de `302` do edge function. Sempre retornar JSON com `redirect_url`, independente do metodo HTTP. O frontend ja trata isso corretamente com `window.location.href = json.redirect_url`.
 
-O problema esta na funcao `sync-invite-links`. Ela roda no Lovable Cloud, mas o Baileys server esta na VPS (acessivel apenas via rede Docker interna `http://baileys-server:3100`). O fallback no codigo forca esse endereco interno, que nao e acessivel a partir do Lovable Cloud.
+**Arquivo:** `supabase/functions/smart-link-redirect/index.ts`
 
-Na VPS o mesmo problema ocorre se o `baileys_api_url` no `global_config` estiver configurado como o endereco interno Docker. A funcao precisa usar o endereco correto para alcançar o Baileys.
-
-Porem, como a funcao ja retornou `"No active smart links"` (tabela vazia no Cloud), o sync de fato so roda na VPS. O erro de "Sem permissao" mostrado na UI vem do fato de que o `invite_url` esta vazio no `group_stats` para esses 5 grupos. Isso pode significar que o endpoint batch do Baileys retornou `null` para esses grupos.
-
-**Correcao:** Adicionar logs detalhados na `sync-invite-links` para registrar quais grupos retornaram `null` do Baileys, e tratar o caso em que o Baileys retorna erro parcial (alguns grupos com URL, outros sem). Tambem exibir na UI a mensagem correta: "Sem URL" em vez de "Sem permissao", ja que o bot pode ser admin mas o Baileys falhou por outro motivo.
-
-**Arquivo:** `supabase/functions/sync-invite-links/index.ts`
-- Adicionar log com `console.log` mostrando a resposta bruta do Baileys
-- Retornar no response os `group_ids` que falharam (sem URL)
-
-**Arquivo:** `src/components/campaigns/CampaignLeadsDialog.tsx`
-- Mudar label de "Sem permissao" para "Sem link" (mais generico e correto)
+- Remover o bloco `if (req.method === "GET") { return 302 }` (linhas 131-136)
+- Sempre retornar JSON com `redirect_url`
 
 ---
 
-### 2. Pagina de redirecionamento nao funciona
+### Problema 2: Tabela e URLs saindo da caixa do dialog
 
-O `SmartLinkRedirect.tsx` constroi a URL usando `VITE_SUPABASE_PROJECT_ID`, que aponta para o Lovable Cloud (`wkixerhufxvcmegorjqc.supabase.co`). Na VPS, a tabela `campaign_smart_links` esta vazia no Cloud, entao o redirect sempre falha.
+**Causa raiz:** A coluna "Status do Link" mostra a URL completa do WhatsApp (`https://chat.whatsapp.com/...`) ao lado do badge "Disponivel". Mesmo com `truncate` e `max-w-[150px]`, o layout nao tem `overflow-hidden` no container da tabela, e a tabela nao tem `table-fixed` para respeitar as larguras.
 
-**Correcao:** Usar `VITE_SUPABASE_URL` que na VPS aponta para `https://api.app.simplificandogrupos.com`.
+**Correcao no arquivo:** `src/components/campaigns/CampaignLeadsDialog.tsx`
 
-**Arquivo:** `src/pages/SmartLinkRedirect.tsx`
-
-Trocar:
-```typescript
-const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
-const res = await fetch(
-  `https://${projectId}.supabase.co/functions/v1/smart-link-redirect?slug=${encodeURIComponent(slug)}`
-);
-```
-
-Por:
-```typescript
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const res = await fetch(
-  `${supabaseUrl}/functions/v1/smart-link-redirect?slug=${encodeURIComponent(slug)}`
-);
-```
+- Remover a exibicao da URL completa na coluna "Status do Link" (manter apenas o badge "Disponivel" ou "Sem link")
+- Adicionar `overflow-x-auto` no container da tabela
+- Adicionar `table-layout: fixed` na tabela para respeitar larguras das colunas  
+  
+  
+CORRIGIR O PROBLEMA DE NÃO ESTAR BUSCANDO TODAS AS URL DE TODOS OS GRUPOS. APENAS 10 DOS 15 GRUPOS ESTÃO COM URL DISPONÍVEIS.
 
 ---
 
-### 3. Indicador de "grupo ativo" (para qual grupo o link redireciona)
+### Resumo de alteracoes
 
-Nao ha indicacao visual de qual grupo e o alvo atual do redirecionamento.
 
-**Correcao:** Adicionar badge "Ativo" na tabela do `CampaignLeadsDialog.tsx`.
-
-**Arquivo:** `src/components/campaigns/CampaignLeadsDialog.tsx`
-
-A logica e a mesma do edge function `smart-link-redirect`:
-- Percorrer `groupLinks` em ordem de `position`
-- O primeiro grupo que tem `invite_url` valida E `member_count < maxMembers` recebe o badge verde "Ativo"
-- Adicionar uma coluna "Direcionamento" ou usar o badge na coluna do nome
-
----
-
-### Resumo de arquivos a modificar
-
-| Arquivo | Alteracao |
-|---------|-----------|
-| `src/pages/SmartLinkRedirect.tsx` | Trocar `VITE_SUPABASE_PROJECT_ID` por `VITE_SUPABASE_URL` |
-| `src/components/campaigns/CampaignLeadsDialog.tsx` | Adicionar badge "Ativo" no grupo-alvo; mudar "Sem permissao" para "Sem link" |
-| `supabase/functions/sync-invite-links/index.ts` | Adicionar logs detalhados da resposta do Baileys e retornar grupos sem URL no response |
-
-Nenhuma alteracao de banco de dados necessaria.
-
+| Arquivo                                            | Alteracao                                                   |
+| -------------------------------------------------- | ----------------------------------------------------------- |
+| `supabase/functions/smart-link-redirect/index.ts`  | Remover 302 redirect; sempre retornar JSON                  |
+| `src/components/campaigns/CampaignLeadsDialog.tsx` | Remover URL inline; adicionar overflow-x-auto e table-fixed |
