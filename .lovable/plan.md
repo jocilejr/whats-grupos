@@ -1,55 +1,81 @@
 
 
-# Correcao: URLs ja salvas no banco + Sync via VPS
-
 ## Problema
 
-O botao "Sincronizar URLs agora" esta chamando a edge function no Lovable Cloud, mas essa funcao precisa acessar o servidor Baileys que so esta disponivel na rede Docker da VPS. Por isso da "Failed to fetch".
+Dois bugs inter-relacionados:
 
-Alem disso, o usuario quer que ao abrir o dialog os links ja estejam carregados do banco - sem necessidade de sync manual.
+1. **Erro "Unexpected token '<'"**: O botao "Sincronizar URLs agora" le `api_configs.api_url` que contem o valor `"global"` (nao e uma URL valida). O codigo transforma isso em uma URL relativa que resolve para o frontend HTML.
+
+2. **Membros mostrando 0/1000**: A tabela `group_stats` esta completamente vazia. A funcao `sync-group-stats` precisa rodar na VPS (onde o Baileys esta acessivel), mas o frontend tenta chamar a versao do Lovable Cloud que nao consegue acessar o Baileys.
+
+## Causa Raiz
+
+O campo `api_configs.api_url` contem `"global"` em vez de uma URL real da VPS. As edge functions de sync precisam rodar na VPS, nao no Lovable Cloud, pois dependem do Baileys server na rede Docker interna.
 
 ## Solucao
 
-### 1. Remover sync manual do frontend
+Adicionar um campo `vps_api_url` na tabela `global_config` para armazenar a URL base da API da VPS (ex: `https://api.app.simplificandogrupos.com`). O frontend usara esse valor para chamar as edge functions de sync na VPS.
 
-O botao "Sincronizar URLs agora" sera alterado para chamar a API da VPS em vez do Lovable Cloud. A URL sera construida a partir da `api_url` salva na `api_configs` do usuario (que aponta para o dominio da VPS).
+## Mudancas
 
-No `CampaignLeadsDialog.tsx`:
-- Buscar a `api_configs` do usuario para obter o dominio da VPS
-- Chamar `https://api.DOMINIO/functions/v1/sync-invite-links` em vez de `https://PROJECT_ID.supabase.co/functions/v1/sync-invite-links`
-- Manter o botao como opcao secundaria, pois o cron ja roda a cada 15 minutos
+### 1. Migracao de banco de dados
 
-### 2. Exibir dados do banco diretamente
+Adicionar coluna `vps_api_url` na tabela `global_config`:
 
-O dialog ja busca `group_stats` com `invite_url` - isso esta correto. O problema e que os dados ainda nao foram populados pelo cron na VPS. Uma vez que o cron rode pela primeira vez, os dados aparecerao automaticamente.
+```sql
+ALTER TABLE global_config 
+ADD COLUMN IF NOT EXISTS vps_api_url text NOT NULL DEFAULT '';
+```
 
-### 3. Ajustar a edge function sync-invite-links para funcionar tambem no Lovable Cloud
+### 2. Atualizar `CampaignLeadsDialog.tsx` - funcao `handleSyncUrls`
 
-A edge function `sync-invite-links` precisa resolver a URL do Baileys de forma mais robusta:
-- Buscar `baileys_api_url` da `global_config`
-- Usar essa URL para chamar o Baileys (que esta na VPS)
+Substituir a logica que le `api_configs.api_url` por uma que le `global_config.vps_api_url`:
 
-O problema atual e que a funcao usa `http://baileys-server:3100` que so funciona dentro da rede Docker da VPS.
+```text
+// Antes (bugado):
+const { data: apiConfig } = await supabase
+  .from("api_configs")
+  .select("api_url")...
+const vpsBase = apiConfig.api_url.replace(/\/rest\/?$/, "");
 
-## Detalhes Tecnicos
+// Depois (corrigido):
+const { data: globalCfg } = await supabase
+  .from("global_config")
+  .select("vps_api_url")
+  .limit(1)
+  .maybeSingle();
+const vpsBase = globalCfg?.vps_api_url;
+```
 
-### Arquivo: `src/components/campaigns/CampaignLeadsDialog.tsx`
+Se `vps_api_url` estiver vazio, mostrar um toast orientando o admin a configurar a URL da VPS nas configuracoes.
 
-Alterar `handleSyncUrls` para:
-1. Buscar a URL base da API da VPS a partir de `global_config` ou `api_configs`
-2. Usar `supabase.functions.invoke('sync-invite-links')` como fallback
-3. Tratar erros de forma mais amigavel
+### 3. Atualizar `handleSyncUrls` para tambem chamar `sync-group-stats`
 
-### Arquivo: `supabase/functions/sync-invite-links/index.ts`
+Apos chamar `sync-invite-links`, fazer uma segunda chamada para `sync-group-stats` na VPS para popular os dados de membros:
 
-Ajustar a resolucao da URL do Baileys:
-- Se `whatsapp_provider === 'baileys'`, usar `baileys_api_url` da global_config (que pode ser o IP/dominio publico da VPS)
-- Fallback para `http://baileys-server:3100` apenas se nao houver URL configurada
+```text
+// Chamar sync-group-stats na VPS tambem
+await fetch(`${vpsBase}/functions/v1/sync-group-stats`, {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    "Authorization": `Bearer ${token}`,
+  },
+});
+```
 
-## Arquivos modificados
+### 4. Atualizar pagina de Configuracoes Admin (`AdminConfig.tsx`)
 
-| Arquivo | Acao |
-|---|---|
-| src/components/campaigns/CampaignLeadsDialog.tsx | Usar supabase.functions.invoke em vez de fetch direto |
-| supabase/functions/sync-invite-links/index.ts | Melhorar resolucao da URL do Baileys |
+Adicionar campo para o admin configurar a `vps_api_url` na interface de configuracoes globais. Isso garante que o valor seja facilmente editavel sem acesso direto ao banco.
+
+### 5. Configurar valor inicial
+
+Inserir o valor `https://api.app.simplificandogrupos.com` na coluna `vps_api_url` da `global_config` via migracao.
+
+## Secao Tecnica
+
+- A arquitetura tem dois ambientes: Lovable Cloud (frontend + banco) e VPS (Baileys + Kong + edge functions locais)
+- Edge functions que dependem do Baileys (`sync-group-stats`, `sync-invite-links`) precisam ser chamadas via VPS (`api.app.simplificandogrupos.com`)
+- O campo `api_configs.api_url = "global"` indica que a configuracao usa valores globais em vez de URLs por instancia — o codigo precisa tratar esse caso
+- A tabela `group_stats` vazia explica o "0 / 1000" em todos os grupos — ela sera populada quando `sync-group-stats` rodar com sucesso na VPS
 
