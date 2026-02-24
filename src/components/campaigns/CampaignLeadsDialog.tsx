@@ -221,24 +221,37 @@ export function CampaignLeadsDialog({ open, onOpenChange, campaign }: Props) {
   const handleSyncUrls = async () => {
     setSyncing(true);
     try {
-      const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
-      const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/sync-invite-links`,
-        {
+      // Get VPS API URL from user's api_configs
+      const { data: apiConfig } = await supabase
+        .from("api_configs")
+        .select("api_url")
+        .eq("user_id", user!.id)
+        .eq("is_active", true)
+        .limit(1)
+        .maybeSingle();
+
+      const token = (await supabase.auth.getSession()).data.session?.access_token;
+
+      if (apiConfig?.api_url) {
+        // Extract VPS domain from api_url (e.g. https://api.domain.com/rest -> https://api.domain.com)
+        const vpsBase = apiConfig.api_url.replace(/\/rest\/?$/, "");
+        const res = await fetch(`${vpsBase}/functions/v1/sync-invite-links`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "Authorization": `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+            "Authorization": `Bearer ${token}`,
           },
+        });
+        const json = await res.json();
+        if (json.error) {
+          toast({ title: "Erro ao sincronizar", description: json.error, variant: "destructive" });
+        } else {
+          toast({ title: "URLs sincronizadas!", description: `${json.synced || 0} grupos processados` });
+          queryClient.invalidateQueries({ queryKey: ["group-stats-latest"] });
+          queryClient.invalidateQueries({ queryKey: ["smart-link", campaignId] });
         }
-      );
-      const json = await res.json();
-      if (json.error) {
-        toast({ title: "Erro ao sincronizar", description: json.error, variant: "destructive" });
       } else {
-        toast({ title: "URLs sincronizadas!", description: `${json.synced || 0} grupos processados` });
-        queryClient.invalidateQueries({ queryKey: ["group-stats-latest"] });
-        queryClient.invalidateQueries({ queryKey: ["smart-link", campaignId] });
+        toast({ title: "Erro", description: "Nenhuma configuração de API encontrada. O sync é feito automaticamente a cada 15 minutos na VPS.", variant: "destructive" });
       }
     } catch (err: any) {
       toast({ title: "Erro", description: err.message, variant: "destructive" });
