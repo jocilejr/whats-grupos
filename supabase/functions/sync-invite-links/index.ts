@@ -6,6 +6,8 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -15,6 +17,17 @@ Deno.serve(async (req) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, serviceKey);
+
+    // Check if a single group_id was requested
+    let singleGroupId: string | null = null;
+    if (req.method === "POST") {
+      try {
+        const body = await req.json();
+        singleGroupId = body.group_id || null;
+      } catch {
+        // no body or invalid JSON, proceed with all groups
+      }
+    }
 
     // Fetch all active smart links
     const { data: smartLinks, error: slError } = await supabase
@@ -60,19 +73,83 @@ Deno.serve(async (req) => {
       configsByUser[cfg.user_id].push(cfg);
     }
 
-    // Collect all group_ids from all smart links
-    const allGroupIds = new Set<string>();
-    for (const sl of smartLinks) {
-      const links = (sl.group_links as any[]) || [];
-      links.forEach((g) => allGroupIds.add(g.group_id));
+    // ── SINGLE GROUP MODE ──
+    if (singleGroupId) {
+      // Find the user/config that owns this group
+      let config: any = null;
+      for (const sl of smartLinks) {
+        const links = (sl.group_links as any[]) || [];
+        if (links.some((g) => g.group_id === singleGroupId)) {
+          const userConfigs = configsByUser[sl.user_id] || [];
+          if (userConfigs.length) config = userConfigs[0];
+          break;
+        }
+      }
+
+      if (!config) {
+        return new Response(
+          JSON.stringify({ success: false, group_id: singleGroupId, error: "No config found" }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      let inviteUrl: string | null = null;
+      let error: string | null = null;
+
+      try {
+        const res = await fetch(`${baileysUrl}/group/inviteCode/${config.instance_name}/${singleGroupId}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        inviteUrl = data.invite_url || null;
+        console.log(`[sync-invite-links] ✅ single ${singleGroupId} -> ${inviteUrl}`);
+      } catch (err: any) {
+        console.log(`[sync-invite-links] ❌ single ${singleGroupId} failed: ${err.message}, retrying...`);
+        await sleep(3000);
+        try {
+          const res2 = await fetch(`${baileysUrl}/group/inviteCode/${config.instance_name}/${singleGroupId}`);
+          if (!res2.ok) throw new Error(`HTTP ${res2.status}`);
+          const data2 = await res2.json();
+          inviteUrl = data2.invite_url || null;
+          console.log(`[sync-invite-links] 🔄 single ${singleGroupId} retry -> ${inviteUrl}`);
+        } catch (err2: any) {
+          error = err2.message;
+          console.log(`[sync-invite-links] ❌ single ${singleGroupId} retry failed: ${err2.message}`);
+        }
+      }
+
+      // Update group_stats
+      const today = new Date().toISOString().split("T")[0];
+      if (inviteUrl) {
+        await supabase
+          .from("group_stats")
+          .update({ invite_url: inviteUrl } as any)
+          .eq("group_id", singleGroupId)
+          .eq("snapshot_date", today);
+      }
+
+      // Update smart link group_links
+      for (const sl of smartLinks) {
+        const links = (sl.group_links as any[]) || [];
+        const idx = links.findIndex((g: any) => g.group_id === singleGroupId);
+        if (idx >= 0 && inviteUrl) {
+          links[idx].invite_url = inviteUrl;
+          await supabase
+            .from("campaign_smart_links")
+            .update({ group_links: links as any })
+            .eq("id", sl.id);
+        }
+      }
+
+      return new Response(
+        JSON.stringify({ success: !error, group_id: singleGroupId, invite_url: inviteUrl, error }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
-    // For each user, call batch endpoint
+    // ── ALL GROUPS MODE (existing behavior) ──
     const inviteMap: Record<string, string | null> = {};
     let totalSynced = 0;
     const errors: string[] = [];
-
-    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
     for (const userId of userIds) {
       const userConfigs = configsByUser[userId] || [];
@@ -92,48 +169,34 @@ Deno.serve(async (req) => {
 
       for (const jid of jids) {
         try {
-          const res = await fetch(
-            `${baileysUrl}/group/inviteCode/${config.instance_name}/${jid}`
-          );
-
-          if (!res.ok) {
-            throw new Error(`HTTP ${res.status}`);
-          }
-
+          const res = await fetch(`${baileysUrl}/group/inviteCode/${config.instance_name}/${jid}`);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const data = await res.json();
-          const url = data.invite_url || null;
-          inviteMap[jid] = url;
-
-          if (url) {
-            console.log(`[sync-invite-links] ✅ ${jid} -> ${url}`);
+          inviteMap[jid] = data.invite_url || null;
+          if (data.invite_url) {
+            console.log(`[sync-invite-links] ✅ ${jid} -> ${data.invite_url}`);
           } else {
-            console.log(`[sync-invite-links] ⚠️ ${jid} -> null (no URL)`);
+            console.log(`[sync-invite-links] ⚠️ ${jid} -> null`);
           }
         } catch (err: any) {
-          console.log(`[sync-invite-links] ❌ ${jid} failed: ${err.message}, retrying in 3s...`);
+          console.log(`[sync-invite-links] ❌ ${jid} failed: ${err.message}, retrying...`);
           await sleep(3000);
-
           try {
-            const res2 = await fetch(
-              `${baileysUrl}/group/inviteCode/${config.instance_name}/${jid}`
-            );
+            const res2 = await fetch(`${baileysUrl}/group/inviteCode/${config.instance_name}/${jid}`);
             if (!res2.ok) throw new Error(`HTTP ${res2.status}`);
             const data2 = await res2.json();
             inviteMap[jid] = data2.invite_url || null;
-            console.log(`[sync-invite-links] 🔄 ${jid} retry -> ${data2.invite_url || "null"}`);
           } catch (err2: any) {
             inviteMap[jid] = null;
             errors.push(`${jid}: ${err2.message}`);
-            console.log(`[sync-invite-links] ❌ ${jid} retry failed: ${err2.message}`);
           }
         }
-
         totalSynced++;
         await sleep(1500);
       }
     }
 
-    // Update group_stats with invite_url (latest snapshot per group)
+    // Update group_stats
     const today = new Date().toISOString().split("T")[0];
     for (const [groupId, inviteUrl] of Object.entries(inviteMap)) {
       await supabase
@@ -143,7 +206,7 @@ Deno.serve(async (req) => {
         .eq("snapshot_date", today);
     }
 
-    // Update campaign_smart_links.group_links with new URLs
+    // Update campaign_smart_links
     for (const sl of smartLinks) {
       const links = (sl.group_links as any[]) || [];
       let changed = false;
@@ -155,7 +218,6 @@ Deno.serve(async (req) => {
         }
         return g;
       });
-
       if (changed) {
         await supabase
           .from("campaign_smart_links")
