@@ -370,8 +370,8 @@ export function CampaignLeadsDialog({ open, onOpenChange, campaign }: Props) {
             </div>
 
             {/* Groups table */}
-            <div className="rounded-lg border">
-              <Table>
+            <div className="rounded-lg border overflow-x-auto">
+              <Table className="table-fixed">
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-8">#</TableHead>
@@ -421,15 +421,10 @@ export function CampaignLeadsDialog({ open, onOpenChange, campaign }: Props) {
                         <TableCell className="text-center text-sm">{joins}</TableCell>
                         <TableCell>
                           {hasUrl ? (
-                            <div className="flex items-center gap-2">
                               <Badge variant="outline" className="text-xs gap-1 text-green-600 border-green-300 bg-green-50">
                                 <Link2 className="h-3 w-3" />
                                 Disponível
                               </Badge>
-                              <span className="text-xs text-muted-foreground truncate max-w-[150px]" title={inviteUrl}>
-                                {inviteUrl}
-                              </span>
-                            </div>
                           ) : (
                              <Badge variant="outline" className="text-xs gap-1 text-destructive border-destructive/30 bg-destructive/5">
                                <Link2Off className="h-3 w-3" />
