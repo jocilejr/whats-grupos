@@ -12,7 +12,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Copy, Check, Users, MousePointerClick, UserPlus } from "lucide-react";
+import { Loader2, Copy, Check, Users, MousePointerClick, UserPlus, RefreshCw, Link2, Link2Off } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 
@@ -37,6 +37,7 @@ export function CampaignLeadsDialog({ open, onOpenChange, campaign }: Props) {
   const [maxMembers, setMaxMembers] = useState(200);
   const [groupLinks, setGroupLinks] = useState<GroupLink[]>([]);
   const [copied, setCopied] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   const campaignId = campaign?.id;
   const groupIds: string[] = campaign?.group_ids || [];
@@ -56,14 +57,14 @@ export function CampaignLeadsDialog({ open, onOpenChange, campaign }: Props) {
     enabled: !!campaignId && open,
   });
 
-  // Fetch group stats (latest snapshot per group)
+  // Fetch group stats (latest snapshot per group) including invite_url
   const { data: stats, isLoading: loadingStats } = useQuery({
     queryKey: ["group-stats-latest", groupIds],
     queryFn: async () => {
       if (!groupIds.length) return [];
       const { data, error } = await supabase
         .from("group_stats")
-        .select("group_id, group_name, member_count, snapshot_date")
+        .select("group_id, group_name, member_count, snapshot_date, invite_url")
         .in("group_id", groupIds)
         .order("snapshot_date", { ascending: false });
       if (error) throw error;
@@ -101,7 +102,6 @@ export function CampaignLeadsDialog({ open, onOpenChange, campaign }: Props) {
         .select("group_id")
         .eq("smart_link_id", smartLink.id);
       if (error) throw error;
-      // Count per group
       const counts: Record<string, number> = {};
       (data || []).forEach((r: any) => {
         counts[r.group_id] = (counts[r.group_id] || 0) + 1;
@@ -179,16 +179,20 @@ export function CampaignLeadsDialog({ open, onOpenChange, campaign }: Props) {
   const saveMutation = useMutation({
     mutationFn: async () => {
       if (!slug.trim()) throw new Error("Defina um slug para a URL");
-      if (groupLinks.some((g) => !g.invite_url.trim())) {
-        throw new Error("Preencha o link de convite de todos os grupos");
-      }
+
+      // Update group_links with latest invite_urls from stats
+      const updatedLinks = groupLinks.map((gl) => {
+        const stat = statsMap[gl.group_id];
+        const inviteUrl = (stat as any)?.invite_url || gl.invite_url || "";
+        return { ...gl, invite_url: inviteUrl };
+      });
 
       const payload = {
         campaign_id: campaignId,
         user_id: user!.id,
         slug: slug.trim().toLowerCase().replace(/[^a-z0-9-]/g, "-"),
         max_members_per_group: maxMembers,
-        group_links: groupLinks as any,
+        group_links: updatedLinks as any,
         is_active: true,
       };
 
@@ -214,10 +218,33 @@ export function CampaignLeadsDialog({ open, onOpenChange, campaign }: Props) {
     },
   });
 
-  const updateInviteUrl = (groupId: string, url: string) => {
-    setGroupLinks((prev) =>
-      prev.map((g) => (g.group_id === groupId ? { ...g, invite_url: url } : g))
-    );
+  const handleSyncUrls = async () => {
+    setSyncing(true);
+    try {
+      const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
+      const res = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/sync-invite-links`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+          },
+        }
+      );
+      const json = await res.json();
+      if (json.error) {
+        toast({ title: "Erro ao sincronizar", description: json.error, variant: "destructive" });
+      } else {
+        toast({ title: "URLs sincronizadas!", description: `${json.synced || 0} grupos processados` });
+        queryClient.invalidateQueries({ queryKey: ["group-stats-latest"] });
+        queryClient.invalidateQueries({ queryKey: ["smart-link", campaignId] });
+      }
+    } catch (err: any) {
+      toast({ title: "Erro", description: err.message, variant: "destructive" });
+    } finally {
+      setSyncing(false);
+    }
   };
 
   const publicUrl = slug
@@ -241,7 +268,7 @@ export function CampaignLeadsDialog({ open, onOpenChange, campaign }: Props) {
             Smart Link — {campaign?.name}
           </DialogTitle>
           <DialogDescription>
-            Configure o rotacionador de grupos. Quando um grupo atingir o limite, novos leads vão para o próximo.
+            Configure o rotacionador de grupos. URLs de convite são buscadas automaticamente via Baileys.
           </DialogDescription>
         </DialogHeader>
 
@@ -307,6 +334,23 @@ export function CampaignLeadsDialog({ open, onOpenChange, campaign }: Props) {
               </div>
             )}
 
+            {/* Sync button */}
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-muted-foreground">
+                URLs buscadas automaticamente a cada 15 minutos
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={handleSyncUrls}
+                disabled={syncing}
+              >
+                <RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} />
+                Sincronizar URLs agora
+              </Button>
+            </div>
+
             {/* Groups table */}
             <div className="rounded-lg border">
               <Table>
@@ -317,7 +361,7 @@ export function CampaignLeadsDialog({ open, onOpenChange, campaign }: Props) {
                     <TableHead className="w-24 text-center">Membros</TableHead>
                     <TableHead className="w-20 text-center">Cliques</TableHead>
                     <TableHead className="w-20 text-center">Entradas</TableHead>
-                    <TableHead>Link de convite</TableHead>
+                    <TableHead>Status do Link</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -328,6 +372,8 @@ export function CampaignLeadsDialog({ open, onOpenChange, campaign }: Props) {
                     const isFull = count >= maxMembers;
                     const clicks = clicksMap[gl.group_id] ?? 0;
                     const joins = joinsMap[gl.group_id] ?? 0;
+                    const inviteUrl = (stat as any)?.invite_url || gl.invite_url || null;
+                    const hasUrl = !!inviteUrl;
 
                     return (
                       <TableRow key={gl.group_id}>
@@ -343,12 +389,22 @@ export function CampaignLeadsDialog({ open, onOpenChange, campaign }: Props) {
                         <TableCell className="text-center text-sm">{clicks}</TableCell>
                         <TableCell className="text-center text-sm">{joins}</TableCell>
                         <TableCell>
-                          <Input
-                            placeholder="https://chat.whatsapp.com/..."
-                            className="text-xs h-8"
-                            value={gl.invite_url}
-                            onChange={(e) => updateInviteUrl(gl.group_id, e.target.value)}
-                          />
+                          {hasUrl ? (
+                            <div className="flex items-center gap-2">
+                              <Badge variant="outline" className="text-xs gap-1 text-green-600 border-green-300 bg-green-50">
+                                <Link2 className="h-3 w-3" />
+                                Disponível
+                              </Badge>
+                              <span className="text-xs text-muted-foreground truncate max-w-[150px]" title={inviteUrl}>
+                                {inviteUrl}
+                              </span>
+                            </div>
+                          ) : (
+                            <Badge variant="outline" className="text-xs gap-1 text-destructive border-destructive/30 bg-destructive/5">
+                              <Link2Off className="h-3 w-3" />
+                              Sem permissão
+                            </Badge>
+                          )}
                         </TableCell>
                       </TableRow>
                     );

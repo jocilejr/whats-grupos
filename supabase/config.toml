@@ -17,3 +17,6 @@ verify_jwt = false
 
 [functions.smart-link-redirect]
 verify_jwt = false
+
+[functions.sync-invite-links]
+verify_jwt = false

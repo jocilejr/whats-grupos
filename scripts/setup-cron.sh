@@ -52,6 +52,24 @@ SELECT cron.schedule(
   ) AS request_id;
   \$\$
 );
+
+-- Remove cron job anterior do sync-invite-links se existir
+SELECT cron.unschedule('sync-invite-links') WHERE EXISTS (
+  SELECT 1 FROM cron.job WHERE jobname = 'sync-invite-links'
+);
+
+-- Cria cron job para sincronizar URLs de convite - dispara a cada 15 minutos
+SELECT cron.schedule(
+  'sync-invite-links',
+  '*/15 * * * *',
+  \$\$
+  SELECT net.http_post(
+    url := 'https://${API_DOMAIN}/functions/v1/sync-invite-links',
+    headers := '{"Content-Type":"application/json","Authorization":"Bearer ${ANON_KEY}"}'::jsonb,
+    body := concat('{"time":"', now(), '"}')::jsonb
+  ) AS request_id;
+  \$\$
+);
 SQL
 
 if [ $? -ne 0 ]; then

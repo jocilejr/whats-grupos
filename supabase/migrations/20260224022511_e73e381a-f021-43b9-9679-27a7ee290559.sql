@@ -1,0 +1,1 @@
+ALTER TABLE public.group_stats ADD COLUMN IF NOT EXISTS invite_url text;

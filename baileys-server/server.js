@@ -499,6 +499,59 @@ app.post('/message/sendPoll/:name', async (req, res) => {
   }
 });
 
+// GET /group/inviteCode/:name/:jid - Get invite code for a single group
+app.get('/group/inviteCode/:name/:jid', async (req, res) => {
+  try {
+    const session = await getSession(req.params.name);
+    if (!session || !session.connected) {
+      return res.status(400).json({ error: 'Instance not connected' });
+    }
+
+    const jid = decodeURIComponent(req.params.jid);
+    try {
+      const code = await session.sock.groupInviteCode(jid);
+      res.json({ invite_url: `https://chat.whatsapp.com/${code}` });
+    } catch (err) {
+      console.log(`[inviteCode] Failed for ${jid}: ${err.message}`);
+      res.json({ invite_url: null });
+    }
+  } catch (e) {
+    console.error('[inviteCode]', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /group/inviteCodeBatch/:name - Get invite codes for multiple groups
+app.post('/group/inviteCodeBatch/:name', async (req, res) => {
+  try {
+    const session = await getSession(req.params.name);
+    if (!session || !session.connected) {
+      return res.status(400).json({ error: 'Instance not connected' });
+    }
+
+    const { jids } = req.body;
+    if (!Array.isArray(jids)) {
+      return res.status(400).json({ error: 'jids must be an array' });
+    }
+
+    const result = {};
+    for (const jid of jids) {
+      try {
+        const code = await session.sock.groupInviteCode(jid);
+        result[jid] = `https://chat.whatsapp.com/${code}`;
+      } catch (err) {
+        console.log(`[inviteCodeBatch] Failed for ${jid}: ${err.message}`);
+        result[jid] = null;
+      }
+    }
+
+    res.json(result);
+  } catch (e) {
+    console.error('[inviteCodeBatch]', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', sessions: sessions.size });
