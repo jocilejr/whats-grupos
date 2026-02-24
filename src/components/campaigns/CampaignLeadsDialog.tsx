@@ -371,12 +371,30 @@ export function CampaignLeadsDialog({ open, onOpenChange, campaign }: Props) {
 
             {/* Public URL */}
             {publicUrl && (
-              <div className="flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 p-3">
-                <code className="flex-1 text-sm truncate text-foreground">{publicUrl}</code>
-                <Button size="sm" variant="outline" className="gap-1.5 shrink-0" onClick={copyUrl}>
-                  {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-                  {copied ? "Copiado" : "Copiar"}
-                </Button>
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 p-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-muted-foreground mb-0.5">URL de Redirecionamento</p>
+                    <code className="text-sm truncate block text-foreground">{publicUrl}</code>
+                  </div>
+                  <Button size="sm" variant="outline" className="gap-1.5 shrink-0" onClick={copyUrl}>
+                    {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                    {copied ? "Copiado" : "Copiar"}
+                  </Button>
+                </div>
+                <div className="flex items-center gap-2 rounded-lg border border-muted bg-muted/30 p-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-muted-foreground mb-0.5">URL de Retorno (Texto)</p>
+                    <code className="text-sm truncate block text-foreground">{publicUrl}-get</code>
+                  </div>
+                  <Button size="sm" variant="outline" className="gap-1.5 shrink-0" onClick={() => {
+                    navigator.clipboard.writeText(`${publicUrl}-get`);
+                    toast({ title: "URL GET copiada!" });
+                  }}>
+                    <Copy className="h-3.5 w-3.5" />
+                    Copiar
+                  </Button>
+                </div>
               </div>
             )}
 
@@ -407,7 +425,6 @@ export function CampaignLeadsDialog({ open, onOpenChange, campaign }: Props) {
                     <TableHead className="w-24 text-center">Membros</TableHead>
                     <TableHead className="w-20 text-center">Cliques</TableHead>
                     <TableHead className="w-20 text-center">Entradas</TableHead>
-                    <TableHead className="w-44">URL</TableHead>
                     <TableHead>Status do Link</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -448,26 +465,6 @@ export function CampaignLeadsDialog({ open, onOpenChange, campaign }: Props) {
                         </TableCell>
                         <TableCell className="text-center text-sm">{clicks}</TableCell>
                         <TableCell className="text-center text-sm">{joins}</TableCell>
-                        <TableCell>
-                          {inviteUrl ? (
-                            <div className="flex items-center gap-1 max-w-[10rem]">
-                              <span className="text-xs truncate text-muted-foreground" title={inviteUrl}>{inviteUrl}</span>
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                className="h-5 w-5 shrink-0"
-                                onClick={() => {
-                                  navigator.clipboard.writeText(inviteUrl);
-                                  toast({ title: "URL copiada!" });
-                                }}
-                              >
-                                <Copy className="h-3 w-3" />
-                              </Button>
-                            </div>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">—</span>
-                          )}
-                        </TableCell>
                         <TableCell>
                           {syncStatus[gl.group_id] === "syncing" ? (
                             <Badge variant="outline" className="text-xs gap-1 text-primary border-primary/30 bg-primary/10">
