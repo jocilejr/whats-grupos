@@ -1,32 +1,36 @@
 
 
-## Remover coluna URL da tabela e adicionar URL do GET
+## Expor a URL do GET publicamente via rota `-get`
 
-### O que muda
+### Problema
 
-1. **Remover a coluna "URL"** (invite_url de cada grupo) da tabela de Leads -- foi adicionada no ultimo commit
-2. **Adicionar uma segunda URL copiavel** acima da tabela, ao lado da URL principal de redirect, mostrando a URL do endpoint GET que retorna apenas texto
+Quando o usuario acessa `app.simplificandogrupos.com/r/comunidade-rosana-get`, o componente `SmartLinkRedirect` envia o slug completo `comunidade-rosana-get` para a edge function, que procura um smart link com esse slug exato no banco. Como o slug real e `comunidade-rosana`, retorna "Link not found or inactive".
 
-### Exemplo visual
+### Solucao
 
-A area de URLs ficara assim:
+Modificar o `SmartLinkRedirect` para detectar slugs terminados em `-get` e tratar de forma diferente:
 
-- URL de redirect: `https://app.simplificandogrupos.com/r/comunidade-rosana` (ja existe)
-- URL do GET: `https://app.simplificandogrupos.com/r/comunidade-rosana-get` (nova)
+1. Se o slug termina em `-get`, remover o sufixo e buscar o slug real
+2. Em vez de redirecionar o usuario, exibir a URL em texto puro na pagina (para que sistemas externos possam fazer GET e obter a URL)
 
-Ambas com botao de copiar.
+### Alteracao
+
+**Arquivo:** `src/pages/SmartLinkRedirect.tsx`
+
+1. No `useEffect`, verificar se o slug termina com `-get`
+2. Se sim: remover o sufixo `-get`, chamar a edge function com o slug real, e em vez de fazer `window.location.href`, exibir a URL retornada como texto puro na tela (sem layout, sem estilo -- apenas o texto da URL como resposta)
+3. Se nao: manter o comportamento atual de redirecionamento
+
+### Comportamento esperado
+
+- `/r/comunidade-rosana` -> redireciona o usuario para o grupo do WhatsApp (comportamento atual)
+- `/r/comunidade-rosana-get` -> exibe apenas a URL do WhatsApp como texto puro na pagina, para que sistemas externos possam fazer fetch e obter a URL
 
 ### Detalhes tecnicos
 
-**Arquivo:** `src/components/campaigns/CampaignLeadsDialog.tsx`
-
-1. Remover `<TableHead className="w-44">URL</TableHead>` (linha 410)
-2. Remover o bloco `<TableCell>` com inviteUrl e botao Copy (linhas 451-470)
-3. Na secao "Public URL" (linhas 372-381), adicionar uma segunda linha mostrando a URL do GET, usando o padrao `slug + "-get"` como sufixo. Exemplo: `/r/comunidade-rosana` para redirect e `/r/comunidade-rosana-get` para o GET
-
-A URL do GET apontara para a mesma rota do frontend (`/r/slug-get`) que o componente `SmartLinkRedirect` ja captura via `useParams`. O baileys-server na VPS tambem ja tem o endpoint `/smart-link/:slug` que pode ser chamado diretamente.
-
-Como o endpoint GET roda no baileys-server da VPS (nao no frontend), a URL exibida sera construida usando a `baileys_api_url` da configuracao ou, mais simplesmente, usando o mesmo dominio com o sufixo `-get` no slug -- a mesma logica de redirect do frontend buscara esse slug separado.
-
-**Abordagem mais simples:** Exibir a URL do GET como o endpoint do baileys-server diretamente. Mas como o usuario quer `www.site.com/r/slug-get`, vamos manter o padrao do frontend adicionando o sufixo `-get` ao slug na URL exibida.
+- O componente detecta `-get` via `slug.endsWith("-get")`
+- Remove o sufixo: `slug.slice(0, -4)` para obter o slug real
+- Chama a mesma edge function `smart-link-redirect` com o slug real
+- Em vez de redirecionar, renderiza apenas o texto da URL (sem HTML extra, usando `document.write` ou renderizando um elemento minimo com apenas a URL)
+- Para que o response seja o mais limpo possivel para consumo por APIs externas, a pagina mostrara apenas a URL sem nenhum wrapper visual
 
