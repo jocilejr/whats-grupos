@@ -577,6 +577,111 @@ app.post('/group/inviteCodeBatch/:name', async (req, res) => {
   }
 });
 
+// GET /smart-link/:slug - Smart link resolver (returns group invite URL as plain text)
+app.get('/smart-link/:slug', async (req, res) => {
+  try {
+    const slug = req.params.slug;
+    if (!slug) {
+      return res.status(400).type('text/plain').send('slug is required');
+    }
+
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.SUPABASE_FUNCTIONS_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!supabaseUrl || !supabaseKey) {
+      console.error('[smart-link] Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
+      return res.status(500).type('text/plain').send('Server misconfigured');
+    }
+
+    // 1. Fetch smart link by slug
+    const slRes = await fetch(
+      `${supabaseUrl}/rest/v1/campaign_smart_links?slug=eq.${encodeURIComponent(slug)}&is_active=eq.true&limit=1`,
+      {
+        headers: {
+          'apikey': supabaseKey,
+          'Authorization': `Bearer ${supabaseKey}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+    const smartLinks = await slRes.json();
+    if (!smartLinks || smartLinks.length === 0) {
+      return res.status(404).type('text/plain').send('Link not found or inactive');
+    }
+
+    const smartLink = smartLinks[0];
+    const groupLinks = (smartLink.group_links || []).sort(
+      (a, b) => (a.position ?? 0) - (b.position ?? 0)
+    );
+
+    if (!groupLinks.length) {
+      return res.status(404).type('text/plain').send('No groups configured');
+    }
+
+    const groupIds = groupLinks.map(g => g.group_id);
+
+    // 2. Fetch latest group_stats for these groups
+    const groupIdsFilter = groupIds.map(id => `"${id}"`).join(',');
+    const statsRes = await fetch(
+      `${supabaseUrl}/rest/v1/group_stats?group_id=in.(${groupIdsFilter})&order=snapshot_date.desc`,
+      {
+        headers: {
+          'apikey': supabaseKey,
+          'Authorization': `Bearer ${supabaseKey}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+    const stats = await statsRes.json();
+
+    const memberCounts = {};
+    const inviteUrls = {};
+    if (Array.isArray(stats)) {
+      for (const s of stats) {
+        if (!(s.group_id in memberCounts)) {
+          memberCounts[s.group_id] = s.member_count;
+          inviteUrls[s.group_id] = s.invite_url || null;
+        }
+      }
+    }
+
+    // 3. Select group by position + capacity
+    const maxMembers = smartLink.max_members_per_group;
+    let redirectUrl = null;
+
+    for (const gl of groupLinks) {
+      const u = inviteUrls[gl.group_id];
+      if (!u) continue;
+      const count = memberCounts[gl.group_id] ?? 0;
+      if (count < maxMembers) {
+        redirectUrl = u;
+        break;
+      }
+    }
+
+    // Fallback: last group with a URL
+    if (!redirectUrl) {
+      for (let i = groupLinks.length - 1; i >= 0; i--) {
+        const u = inviteUrls[groupLinks[i].group_id];
+        if (u) {
+          redirectUrl = u;
+          break;
+        }
+      }
+    }
+
+    if (!redirectUrl) {
+      return res.status(404).type('text/plain').send('No available groups with invite links');
+    }
+
+    console.log(`[smart-link] slug=${slug} -> ${redirectUrl}`);
+    res.type('text/plain').send(redirectUrl);
+  } catch (e) {
+    console.error('[smart-link]', e);
+    res.status(500).type('text/plain').send('Internal server error');
+  }
+});
+
 // Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', sessions: sessions.size });
