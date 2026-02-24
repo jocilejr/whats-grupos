@@ -1,106 +1,36 @@
 
 
-# Contagem de Cliques e Conversoes no Smart Link
+# Deploy do Smart Link na VPS
 
 ## Resumo
 
-Adicionar rastreamento de cliques (quantas vezes a URL foi acessada) e conversoes (quantas pessoas efetivamente entraram no grupo) ao sistema de Smart Link. Os dados serao exibidos na tabela do dialog de configuracao.
+Duas mudancas necessarias para que o Smart Link funcione no ambiente self-hosted.
 
-## Mudancas
+## 1. Atualizar `scripts/deploy.sh`
 
-### 1. Nova tabela: `smart_link_clicks`
+Adicionar `smart-link-redirect` na lista de Edge Functions que sao copiadas para o servidor (linha 24). Atualmente a lista inclui apenas as funcoes anteriores e a nova funcao nao esta sendo deployada.
 
-Registra cada clique individual no smart link, incluindo qual grupo foi direcionado.
-
-| Coluna | Tipo | Descricao |
-|---|---|---|
-| id | uuid | PK |
-| smart_link_id | uuid | FK para campaign_smart_links |
-| group_id | text | Grupo para o qual foi redirecionado |
-| clicked_at | timestamptz | Momento do clique |
-| ip_hash | text (nullable) | Hash do IP para deduplicacao (opcional) |
-
-RLS: leitura pelo dono do smart link, insercao publica (via service role na edge function).
-
-### 2. Contagem de conversoes (entradas no grupo)
-
-As conversoes serao calculadas a partir da tabela `group_participant_events` ja existente. Para cada grupo do smart link, contamos os eventos de `action = 'add'` que ocorreram apos a criacao do smart link. Isso da uma estimativa de quantas pessoas entraram no grupo desde que o link foi ativado.
-
-Nao e necessario criar tabela nova para isso -- reutilizamos dados que ja existem.
-
-### 3. Edge function `smart-link-redirect` -- registrar clique
-
-Ao processar um redirecionamento, a edge function insere um registro em `smart_link_clicks` com o `smart_link_id` e o `group_id` escolhido, antes de retornar a URL.
-
-### 4. Dialog `CampaignLeadsDialog` -- exibir metricas
-
-Adicionar duas colunas novas na tabela de grupos:
-
-| # | Grupo | Membros | Cliques | Entradas | Link de convite |
-|---|---|---|---|---|---|
-| 1 | Grupo A | 150/200 | 45 | 32 | https://... |
-
-- **Cliques**: total de registros em `smart_link_clicks` para aquele `group_id` + `smart_link_id`
-- **Entradas**: total de eventos `add` em `group_participant_events` para aquele `group_id` desde a criacao do smart link
-
-Tambem adicionar cards de resumo no topo:
-- Total de cliques (todos os grupos)
-- Total de entradas (todos os grupos)
-
-## Detalhes tecnicos
-
-### Tabela `smart_link_clicks`
+A linha atualizada ficara:
 
 ```text
-CREATE TABLE smart_link_clicks (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  smart_link_id uuid NOT NULL REFERENCES campaign_smart_links(id) ON DELETE CASCADE,
-  group_id text NOT NULL,
-  clicked_at timestamptz NOT NULL DEFAULT now()
-);
-
--- Indice para consultas rapidas
-CREATE INDEX idx_smart_link_clicks_link_group ON smart_link_clicks(smart_link_id, group_id);
-
--- RLS: dono do smart link pode ler
--- Insercao apenas via service role (edge function)
+for FUNC in evolution-api send-scheduled-messages admin-api backup-export generate-ai-message process-queue sync-group-stats group-events-webhook smart-link-redirect; do
 ```
 
-### Edge function -- trecho de registro de clique
+## 2. Executar migracoes SQL no banco self-hosted
+
+As duas migracoes criadas (tabela `campaign_smart_links` e tabela `smart_link_clicks`) precisam ser aplicadas no banco Postgres da VPS. O comando na VPS sera:
 
 ```text
-// Apos determinar o grupo de destino:
-await serviceSupabase
-  .from("smart_link_clicks")
-  .insert({
-    smart_link_id: smartLink.id,
-    group_id: selectedGroupId
-  });
+sudo ./scripts/run-migrations.sh supabase/migrations <db_password>
 ```
 
-### Dialog -- consulta de cliques
+Isso aplicara todas as migracoes pendentes, incluindo as duas novas tabelas com suas politicas RLS.
 
-```text
--- Cliques por grupo
-SELECT group_id, COUNT(*) as clicks
-FROM smart_link_clicks
-WHERE smart_link_id = :id
-GROUP BY group_id
-
--- Entradas por grupo (desde criacao do smart link)
-SELECT group_id, COUNT(*) as joins
-FROM group_participant_events
-WHERE group_id IN (:group_ids)
-  AND action = 'add'
-  AND created_at >= :smart_link_created_at
-GROUP BY group_id
-```
-
-### Arquivos criados/modificados
+## Arquivos modificados
 
 | Arquivo | Acao |
 |---|---|
-| Migracao SQL | Criar tabela `smart_link_clicks` com RLS |
-| `supabase/functions/smart-link-redirect/index.ts` | Adicionar insert de clique |
-| `src/components/campaigns/CampaignLeadsDialog.tsx` | Adicionar colunas de cliques/entradas + cards de resumo |
+| `scripts/deploy.sh` | Adicionar `smart-link-redirect` na lista de funcoes (linha 24) |
+
+Nenhum outro arquivo precisa ser alterado. Apos o deploy (`sudo ./scripts/deploy.sh`), a funcao estara disponivel e acessivel publicamente via `https://api.DOMINIO/functions/v1/smart-link-redirect?slug=SEU_SLUG`.
 
