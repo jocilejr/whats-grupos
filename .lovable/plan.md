@@ -1,37 +1,89 @@
-## Corrigir CORS no redirecionamento e overflow na UI
-
-### Problema 1: CORS bloqueia o redirecionamento
-
-**Causa raiz:** O frontend faz `fetch()` (GET) para o edge function. O edge function retorna `302 redirect` para `https://chat.whatsapp.com/...`. O `fetch()` do browser segue o redirect automaticamente e tenta acessar o WhatsApp, que nao tem headers CORS -- resultado: bloqueado.
-
-**Correcao:** Remover a logica de `302` do edge function. Sempre retornar JSON com `redirect_url`, independente do metodo HTTP. O frontend ja trata isso corretamente com `window.location.href = json.redirect_url`.
-
-**Arquivo:** `supabase/functions/smart-link-redirect/index.ts`
-
-- Remover o bloco `if (req.method === "GET") { return 302 }` (linhas 131-136)
-- Sempre retornar JSON com `redirect_url`
-
----
-
-### Problema 2: Tabela e URLs saindo da caixa do dialog
-
-**Causa raiz:** A coluna "Status do Link" mostra a URL completa do WhatsApp (`https://chat.whatsapp.com/...`) ao lado do badge "Disponivel". Mesmo com `truncate` e `max-w-[150px]`, o layout nao tem `overflow-hidden` no container da tabela, e a tabela nao tem `table-fixed` para respeitar as larguras.
-
-**Correcao no arquivo:** `src/components/campaigns/CampaignLeadsDialog.tsx`
-
-- Remover a exibicao da URL completa na coluna "Status do Link" (manter apenas o badge "Disponivel" ou "Sem link")
-- Adicionar `overflow-x-auto` no container da tabela
-- Adicionar `table-layout: fixed` na tabela para respeitar larguras das colunas  
-  
-  
-CORRIGIR O PROBLEMA DE NÃO ESTAR BUSCANDO TODAS AS URL DE TODOS OS GRUPOS. APENAS 10 DOS 15 GRUPOS ESTÃO COM URL DISPONÍVEIS.
-
----
-
-### Resumo de alteracoes
 
 
-| Arquivo                                            | Alteracao                                                   |
-| -------------------------------------------------- | ----------------------------------------------------------- |
-| `supabase/functions/smart-link-redirect/index.ts`  | Remover 302 redirect; sempre retornar JSON                  |
-| `src/components/campaigns/CampaignLeadsDialog.tsx` | Remover URL inline; adicionar overflow-x-auto e table-fixed |
+## Corrigir busca de invite links falhando para 5 grupos
+
+### Diagnostico
+
+O endpoint `inviteCodeBatch` no Baileys server chama `groupInviteCode()` para cada grupo sequencialmente sem nenhum delay. O WhatsApp aplica rate limit apos muitas chamadas seguidas, fazendo as ultimas falharem silenciosamente. Com 15 grupos, as primeiras 10 passam e as 5 finais sao bloqueadas.
+
+Alem disso, o erro especifico de cada grupo nao e retornado ao frontend -- o toast so mostra "Links: 15" mas nao diz quais falharam nem por que.
+
+### Solucao
+
+#### 1. Adicionar delay entre chamadas no Baileys server
+
+**Arquivo:** `baileys-server/server.js` (endpoint `inviteCodeBatch`)
+
+- Adicionar um `await sleep(500)` entre cada chamada a `groupInviteCode()` para evitar rate limit do WhatsApp
+- Retornar o motivo do erro para cada grupo que falhar no JSON de resposta (campo `errors`)
+- Adicionar retry automatico (1 tentativa extra com delay de 2s) para grupos que falharem na primeira tentativa
+
+```javascript
+// Antes (sem delay):
+for (const jid of jids) {
+  const code = await session.sock.groupInviteCode(jid);
+  result[jid] = `https://chat.whatsapp.com/${code}`;
+}
+
+// Depois (com delay + retry):
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const errors = {};
+for (const jid of jids) {
+  try {
+    const code = await session.sock.groupInviteCode(jid);
+    result[jid] = `https://chat.whatsapp.com/${code}`;
+  } catch (err) {
+    errors[jid] = err.message;
+    result[jid] = null;
+  }
+  await sleep(500);
+}
+// Retry failed ones
+const failedJids = Object.keys(errors);
+if (failedJids.length > 0) {
+  await sleep(2000);
+  for (const jid of failedJids) {
+    try {
+      const code = await session.sock.groupInviteCode(jid);
+      result[jid] = `https://chat.whatsapp.com/${code}`;
+      delete errors[jid];
+    } catch (err) {
+      errors[jid] = err.message;
+    }
+    await sleep(500);
+  }
+}
+res.json({ results: result, errors });
+```
+
+#### 2. Atualizar sync-invite-links para o novo formato de resposta
+
+**Arquivo:** `supabase/functions/sync-invite-links/index.ts`
+
+- Adaptar o parsing para aceitar tanto o formato antigo `{ jid: url }` quanto o novo `{ results: { jid: url }, errors: { jid: msg } }`
+- Incluir os erros por grupo no response final da edge function
+
+#### 3. Mostrar grupos com falha e motivo no toast
+
+**Arquivo:** `src/components/campaigns/CampaignLeadsDialog.tsx`
+
+- Quando o sync retornar `failed_groups`, mostrar quantos falharam no toast
+- Exemplo: "Links: 15 (5 falharam) | Stats: 24 grupos"
+
+### Arquivos a modificar
+
+| Arquivo | Alteracao |
+|---------|-----------|
+| `baileys-server/server.js` | Delay de 500ms entre chamadas, retry automatico, retornar erros por grupo |
+| `supabase/functions/sync-invite-links/index.ts` | Adaptar parsing para novo formato com retry errors |
+| `src/components/campaigns/CampaignLeadsDialog.tsx` | Mostrar quantidade de falhas no toast |
+
+### Nota importante
+
+Apos o deploy na VPS, voce precisara rebuildar o container do Baileys:
+```bash
+cd /opt/whats-grupos
+docker compose build baileys-server
+docker service update --force whats-grupos_baileys-server
+```
+
