@@ -1,39 +1,61 @@
 
 
-## Buscar invite links individualmente (1 por vez)
+## Indicador de progresso por grupo durante o sync
 
 ### Problema
-
-O endpoint batch do Baileys ainda falha para 3 grupos mesmo com delay e retry. O rate limit do WhatsApp e mais agressivo do que o esperado.
+Ao clicar "Sincronizar URLs agora", o usuario nao sabe qual grupo esta sendo processado. Quer ver em tempo real: "Buscando...", "Link atualizado", "Falhou" para cada grupo na tabela.
 
 ### Solucao
 
-Substituir a chamada batch por chamadas individuais ao endpoint `/group/inviteCode/:name/:jid` (que ja existe no Baileys server), com delay de 1.5s entre cada chamada e retry automatico para falhas.
+Mudar a logica de sync no frontend para chamar a edge function **1 grupo por vez**, atualizando o estado visual de cada linha da tabela em tempo real.
 
-### Alteracao
+### Alteracoes
+
+#### 1. Edge function `sync-invite-links` -- aceitar grupo unico
 
 **Arquivo:** `supabase/functions/sync-invite-links/index.ts`
 
-- Remover a chamada ao endpoint `inviteCodeBatch`
-- Para cada grupo, chamar `GET /group/inviteCode/:name/:jid` individualmente
-- Esperar 1.5 segundos entre cada chamada
-- Se falhar, esperar 3 segundos e tentar novamente (1 retry)
-- Logar cada sucesso/falha individualmente
+- Aceitar campo opcional `group_id` no body do POST
+- Quando presente, sincronizar apenas esse grupo (sem loop, sem delay)
+- Retornar resultado individual: `{ success, group_id, invite_url, error }`
+- Manter comportamento atual (todos os grupos) quando `group_id` nao for enviado
 
-### Fluxo
+#### 2. Frontend -- sync sequencial com status por grupo
+
+**Arquivo:** `src/components/campaigns/CampaignLeadsDialog.tsx`
+
+- Adicionar estado `syncStatus`: `Record<string, "syncing" | "success" | "error">`
+- No `handleSyncUrls`, iterar por cada `groupId` da campanha:
+  1. Setar `syncStatus[groupId] = "syncing"` (mostra spinner + "Buscando...")
+  2. Chamar `POST sync-invite-links` com `{ group_id: groupId }` na VPS
+  3. Se sucesso e tem URL: setar `"success"` (mostra check verde + "Atualizado")
+  4. Se falhou: setar `"error"` (mostra X + "Falhou")
+  5. Esperar 500ms antes do proximo grupo
+- Na coluna "Status do Link", durante o sync, mostrar o estado em vez do badge estatico:
+  - `syncing`: Loader2 animado + "Buscando..."
+  - `success`: Check verde + "Atualizado"  
+  - `error`: X vermelho + "Falhou"
+- Apos 5 segundos do fim, limpar `syncStatus` e voltar aos badges normais
+- Chamar `sync-group-stats` em paralelo no inicio (nao precisa ser sequencial)
+- Invalidar queries ao final
+
+#### Fluxo visual na tabela durante sync
 
 ```text
-Para cada grupo (JID):
-  1. GET /group/inviteCode/:instance/:jid
-  2. Se sucesso -> salvar URL
-  3. Se falhou -> esperar 3s -> retry 1x
-  4. Esperar 1.5s antes do proximo grupo
+#  | Grupo                  | Status do Link
+1  | Comunidade #13         | [check] Atualizado
+2  | Comunidade #6          | [check] Atualizado  
+3  | Comunidade #11         | [spinner] Buscando...
+4  | Comunidade #2          | (aguardando)
+...
+14 | Comunidade #8          | (aguardando)
+15 | Comunidade #5          | (aguardando)
 ```
 
-### Detalhes tecnicos
+### Arquivos a modificar
 
-- O endpoint individual `/group/inviteCode/:name/:jid` ja existe no `baileys-server/server.js` e retorna `{ invite_url: "https://chat.whatsapp.com/..." }` ou `{ invite_url: null }`
-- Nenhuma alteracao necessaria no Baileys server
-- Apenas a edge function `sync-invite-links` sera modificada
-- O delay de 1.5s entre chamadas garante que o WhatsApp nao aplique rate limit (total ~22s para 15 grupos, aceitavel)
+| Arquivo | Alteracao |
+|---------|-----------|
+| `supabase/functions/sync-invite-links/index.ts` | Aceitar `group_id` opcional para sync individual |
+| `src/components/campaigns/CampaignLeadsDialog.tsx` | Loop sequencial com `syncStatus` por grupo na UI |
 
