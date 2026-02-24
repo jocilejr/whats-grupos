@@ -1,50 +1,34 @@
 
 
-## Adicionar CORS no Nginx para rotas /r/ (Smart Links)
+## Corrigir erro de boot da Edge Function `smart-link-api`
 
 ### Problema
 
-O site externo (`grupo.comunidademeire.online`) faz fetch para `https://app.simplificandogrupos.com/r/comunidade-rosana-get` via JavaScript. O nginx que serve o frontend nao envia headers CORS, entao o navegador bloqueia a requisicao.
-
-A edge function `smart-link-api` ja tem CORS configurado e funciona, mas exigiria que o usuario atualizasse todas as URLs externas. Uma solucao complementar e adicionar CORS diretamente no nginx para as rotas `/r/`.
-
-### Solucao (duas frentes)
-
-#### 1. Nginx - Adicionar headers CORS para rotas `/r/`
-
-Atualizar os arquivos de configuracao do nginx para adicionar um bloco `location` especifico para `/r/` com headers CORS:
-
-**Arquivos:** `nginx/spa.conf` e `nginx/frontend.conf.template`
-
-Adicionar antes do `location /` existente:
-
-```text
-location /r/ {
-    add_header Access-Control-Allow-Origin "*" always;
-    add_header Access-Control-Allow-Methods "GET, OPTIONS" always;
-    add_header Access-Control-Allow-Headers "Content-Type" always;
-
-    if ($request_method = OPTIONS) {
-        return 204;
-    }
-
-    try_files $uri $uri/ /index.html;
-}
+A edge function `smart-link-api` esta retornando erro 500 com a mensagem:
+```
+"InvalidWorkerCreation: worker boot error: failed to bootstrap runtime: could not find an appropriate entrypoint"
 ```
 
-Isso garante que qualquer requisicao fetch para `/r/slug-get` receba os headers CORS necessarios.
+Isso acontece tanto no Supabase self-hosted (VPS) quanto no Lovable Cloud (onde a funcao nem esta deployada).
 
-#### 2. Manter a URL da edge function como alternativa
+### Causa raiz
 
-A "URL de Retorno (Texto)" no CampaignLeadsDialog continuara apontando para a edge function (ja implementado), que e a opcao mais robusta para integracao com sistemas externos.
+O import `https://esm.sh/@supabase/supabase-js@2` pode causar falhas de bootstrap no edge runtime. O formato recomendado e usar `npm:` specifier que e mais estavel.
 
-### Resultado
+### Solucao
 
-- URLs existentes como `https://app.simplificandogrupos.com/r/slug-get` passarao a funcionar com CORS (apos deploy do nginx atualizado)
-- A URL da edge function continua disponivel como alternativa mais confiavel
-- O usuario nao precisa atualizar URLs ja configuradas em sites externos
+**Arquivo:** `supabase/functions/smart-link-api/index.ts`
 
-### Nota importante
+1. Trocar o import de `https://esm.sh/@supabase/supabase-js@2` para `npm:@supabase/supabase-js@2`
+2. Fazer deploy automatico da funcao no Lovable Cloud
 
-Apos implementar, o usuario precisara fazer o deploy da nova configuracao do nginx no servidor de producao para que as mudancas tenham efeito.
+Isso resolve o problema de boot e tambem garante que a funcao esteja disponivel no Lovable Cloud. Para o servidor VPS, o usuario precisara fazer o deploy manualmente apos o pull das mudancas.
+
+### Alteracao tecnica
+
+Linha 1 do arquivo:
+- De: `import { createClient } from "https://esm.sh/@supabase/supabase-js@2";`
+- Para: `import { createClient } from "npm:@supabase/supabase-js@2";`
+
+Tambem verificar e atualizar a edge function `smart-link-redirect` que pode ter o mesmo problema de import.
 
