@@ -20,3 +20,6 @@ verify_jwt = false
 
 [functions.sync-invite-links]
 verify_jwt = false
+
+[functions.sync-group-stats]
+verify_jwt = false
