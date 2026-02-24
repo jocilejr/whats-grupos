@@ -107,14 +107,19 @@ Deno.serve(async (req) => {
         const batchData = await batchRes.json();
         console.log(`[sync-invite-links] ${config.instance_name} raw response:`, JSON.stringify(batchData));
         
+        // Support both old format { jid: url } and new format { results: { jid: url }, errors: { jid: msg } }
+        const resultsObj = batchData.results || batchData;
+        const errorsObj = batchData.errors || {};
+        
         const failedJids: string[] = [];
-        for (const [jid, url] of Object.entries(batchData)) {
+        for (const [jid, url] of Object.entries(resultsObj)) {
           inviteMap[jid] = url as string | null;
           if (!url) failedJids.push(jid);
         }
         
         if (failedJids.length > 0) {
           console.log(`[sync-invite-links] ${config.instance_name} groups without URL:`, failedJids);
+          console.log(`[sync-invite-links] ${config.instance_name} errors:`, JSON.stringify(errorsObj));
         }
 
         totalSynced += jids.length;
