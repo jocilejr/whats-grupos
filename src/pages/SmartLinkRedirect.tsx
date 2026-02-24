@@ -42,7 +42,7 @@ export default function SmartLinkRedirect() {
   if (isGetMode) {
     if (error) return <>{error}</>;
     if (plainUrl) return <>{plainUrl}</>;
-    return <>...</>;
+    return null;
   }
 
   return (
