@@ -109,6 +109,35 @@ export default function GroupsPage() {
   const selectedConfig = apiConfigs?.find((c) => c.id === selectedConfigId);
   const instanceFilter = selectedConfigId === "all" ? "all" : (selectedConfig?.instance_name ?? "all");
 
+  // Count events directly from group_participant_events (source of truth)
+  const { data: eventCounts } = useQuery({
+    queryKey: ["group-event-counts-today", user?.id, today, instanceFilter, Array.from(selectedGroupIds)],
+    queryFn: async () => {
+      let query = supabase
+        .from("group_participant_events")
+        .select("action, group_id")
+        .gte("created_at", `${today}T00:00:00`)
+        .lt("created_at", `${today}T23:59:59.999`);
+
+      if (instanceFilter !== "all") {
+        query = query.eq("instance_name", instanceFilter);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+
+      let joined = 0, left = 0;
+      for (const ev of data ?? []) {
+        if (selectedGroupIds.size > 0 && !selectedGroupIds.has(ev.group_id)) continue;
+        if (ev.action === "add") joined++;
+        else if (ev.action === "remove") left++;
+      }
+      return { joined, left };
+    },
+    enabled: !!user,
+    refetchInterval: 30000,
+  });
+
   // Filter stats: by instance AND by selected groups
   const filteredStats = (todayStats ?? []).filter((s: any) => {
     if (instanceFilter !== "all" && s.instance_name !== instanceFilter) return false;
@@ -118,8 +147,8 @@ export default function GroupsPage() {
 
   const totalGroups = filteredStats.length;
   const totalMembers = filteredStats.reduce((sum: number, s: any) => sum + s.member_count, 0);
-  const totalJoined = filteredStats.reduce((sum: number, s: any) => sum + s.joined_today, 0);
-  const totalLeft = filteredStats.reduce((sum: number, s: any) => sum + s.left_today, 0);
+  const totalJoined = eventCounts?.joined ?? 0;
+  const totalLeft = eventCounts?.left ?? 0;
 
   // Available groups for selection dialog (all today stats)
   const availableGroups = (todayStats ?? []).map((s: any) => ({
@@ -360,6 +389,7 @@ export default function GroupsPage() {
             instanceFilter={instanceFilter}
             onRealtimeEvent={() => {
               queryClient.invalidateQueries({ queryKey: ["group-stats-today"] });
+              queryClient.invalidateQueries({ queryKey: ["group-event-counts-today"] });
             }}
           />
         </div>
