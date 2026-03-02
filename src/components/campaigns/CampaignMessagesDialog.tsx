@@ -3,8 +3,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CampaignMessageList } from "./CampaignMessageList";
 import { ScheduledMessageForm } from "./ScheduledMessageForm";
-import { CalendarClock, Clock, CalendarDays, Calendar, Plus, Settings2 } from "lucide-react";
+import { CalendarClock, Clock, CalendarDays, Calendar, Plus, Settings2, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 const WEEKDAYS = [
@@ -23,6 +24,7 @@ export function CampaignMessagesDialog({ open, onOpenChange, campaign }: Campaig
   const [formScheduleType, setFormScheduleType] = useState("once");
   const [editingMsg, setEditingMsg] = useState<any>(null);
   const [weekdayFilter, setWeekdayFilter] = useState<number | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
 
   if (!campaign) return null;
 
@@ -77,6 +79,27 @@ export function CampaignMessagesDialog({ open, onOpenChange, campaign }: Campaig
                   <Settings2 className="h-3.5 w-3.5" />Avançado
                 </TabsTrigger>
               </TabsList>
+            </div>
+
+            {/* Search bar shared across tabs */}
+            <div className="px-6 pt-3 pb-0 shrink-0">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                <Input
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Buscar por conteúdo..."
+                  className="h-9 pl-9 pr-8 text-xs bg-secondary/40 border-border/30"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery("")}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
             </div>
 
             {["once", "daily", "weekly", "monthly", "custom"].map((type) => (
@@ -146,6 +169,7 @@ export function CampaignMessagesDialog({ open, onOpenChange, campaign }: Campaig
                     scheduleType={type}
                     onEdit={handleEdit}
                     weekdayFilter={type === "weekly" ? weekdayFilter : undefined}
+                    searchQuery={searchQuery}
                   />
                 </div>
               </TabsContent>

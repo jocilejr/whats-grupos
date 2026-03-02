@@ -23,6 +23,7 @@ interface CampaignMessageListProps {
   scheduleType: string;
   onEdit: (msg: any) => void;
   weekdayFilter?: number | null;
+  searchQuery?: string;
 }
 
 const typeIcons: Record<string, any> = {
@@ -39,7 +40,7 @@ const typeLabels: Record<string, string> = {
 
 const DAYS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
-export function CampaignMessageList({ campaignId, apiConfigId, instanceName, groupIds, scheduleType, onEdit, weekdayFilter }: CampaignMessageListProps) {
+export function CampaignMessageList({ campaignId, apiConfigId, instanceName, groupIds, scheduleType, onEdit, weekdayFilter, searchQuery }: CampaignMessageListProps) {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -142,23 +143,36 @@ export function CampaignMessageList({ campaignId, apiConfigId, instanceName, gro
     );
   }
 
-  const filteredMessages = weekdayFilter != null
+  let filteredMessages = weekdayFilter != null
     ? (messages || []).filter((msg) => {
         const wd = (msg.content as any)?.weekDays as number[] | undefined;
         return wd?.includes(weekdayFilter);
       })
     : messages || [];
 
+  // Apply search filter
+  if (searchQuery?.trim()) {
+    const q = searchQuery.trim().toLowerCase();
+    filteredMessages = filteredMessages.filter((msg) => {
+      const c = msg.content as any || {};
+      const fields = [c.text, c.caption, c.pollName, c.listTitle, c.contactName, c.fileName, c.name, c.address, c.listDescription];
+      return fields.some((f) => typeof f === "string" && f.toLowerCase().includes(q));
+    });
+  }
+
   if (!filteredMessages.length) {
+    const hasSearch = !!searchQuery?.trim();
     return (
       <div className="py-12 text-center">
         <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted mx-auto mb-3">
           <AlertCircle className="h-7 w-7 text-muted-foreground" />
         </div>
         <p className="text-sm font-medium text-foreground">
-          {weekdayFilter != null ? "Nenhuma mensagem neste dia" : "Nenhuma mensagem agendada"}
+          {hasSearch ? "Nenhuma mensagem encontrada" : weekdayFilter != null ? "Nenhuma mensagem neste dia" : "Nenhuma mensagem agendada"}
         </p>
-        <p className="text-xs text-muted-foreground mt-1">Clique em "Adicionar Mensagem" para criar uma.</p>
+        <p className="text-xs text-muted-foreground mt-1">
+          {hasSearch ? "Tente buscar por outro termo." : "Clique em \"Adicionar Mensagem\" para criar uma."}
+        </p>
       </div>
     );
   }
