@@ -200,11 +200,8 @@ function AdminApiDocs() {
   async function loadData() {
     setLoading(true);
     try {
-      const { data: config } = await supabase
-        .from("global_config")
-        .select("baileys_api_url, baileys_api_key")
-        .limit(1)
-        .maybeSingle();
+      const { data: rows } = await supabase.rpc("get_admin_global_config");
+      const config = rows?.[0];
       if (config?.baileys_api_url) {
         setBaseUrl(config.baileys_api_url);
       }

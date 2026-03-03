@@ -17,13 +17,9 @@ export default function AdminConfig() {
   const { data: config, isLoading } = useQuery({
     queryKey: ["global-config"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("global_config")
-        .select("id, baileys_api_key, openai_api_key, queue_delay_seconds")
-        .limit(1)
-        .maybeSingle();
+      const { data, error } = await supabase.rpc("get_admin_global_config");
       if (error) throw error;
-      return data;
+      return data?.[0] ?? null;
     },
   });
 
@@ -42,17 +38,11 @@ export default function AdminConfig() {
 
   const save = useMutation({
     mutationFn: async () => {
-      const payload = {
-        openai_api_key: openaiKey,
-        baileys_api_key: baileysApiKey,
-      };
-      if (!config?.id) {
-        const { error } = await supabase.from("global_config").insert(payload);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.from("global_config").update(payload).eq("id", config.id);
-        if (error) throw error;
-      }
+      const { error } = await supabase.rpc("set_admin_global_config", {
+        _openai_api_key: openaiKey,
+        _baileys_api_key: baileysApiKey,
+      });
+      if (error) throw error;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["global-config"] });
