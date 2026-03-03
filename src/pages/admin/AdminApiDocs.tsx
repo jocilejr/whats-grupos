@@ -200,11 +200,11 @@ function AdminApiDocs() {
     try {
       const { data: config } = await supabase
         .from("global_config")
-        .select("baileys_api_url")
+        .select("vps_api_url")
         .limit(1)
         .single();
-      if (config?.baileys_api_url) {
-        setBaseUrl(config.baileys_api_url);
+      if (config?.vps_api_url) {
+        setBaseUrl(config.vps_api_url);
       }
 
       const { data: wh } = await supabase
@@ -316,7 +316,7 @@ function AdminApiDocs() {
             {baseUrl || "http://localhost:3100"}
           </code>
           <p className="text-xs text-muted-foreground mt-2">
-            Configurável em Config Global → URL API Baileys. As requisições vão direto ao servidor sem passar pela fila ou logs da aplicação.
+            Configurável em Config Global → URL da API da VPS. Esta é a URL pública para requisições externas.
           </p>
         </CardContent>
       </Card>
