@@ -1,71 +1,17 @@
 
 
-## Plano: API Externa Autônoma + Webhooks + Documentação Admin
+## Plano: Corrigir Base URL dos Endpoints
 
-### Conceito
+### Problema
+A página busca `baileys_api_url` do `global_config`, que contém a URL interna Docker (`http://baileys-server:3100`). Para integrações externas, deve usar `vps_api_url`.
 
-A API externa será um canal **totalmente independente** da aplicação principal. Requisições externas vão direto ao Baileys Server sem passar pela `message_queue` nem registrar em `message_logs`. O integrador externo é responsável por seu próprio controle de fluxo.
+### Alteração
 
-### O que será feito
+**Arquivo: `src/pages/admin/AdminApiDocs.tsx`**
 
-**1. Baileys Server (`baileys-server/server.js`)**
+1. Na função `loadData()` (linha 203): trocar `.select("baileys_api_url")` por `.select("vps_api_url")`
+2. Linha 206-208: ler `config?.vps_api_url` em vez de `config?.baileys_api_url`
+3. Linha 317/319: atualizar o fallback e o texto explicativo para referenciar "Config Global → URL da API da VPS"
 
-- Adicionar listener `messages.upsert` no `createSession()` para capturar mensagens recebidas e enviar via webhook
-- O servidor consultará `webhook_configs` via REST do Supabase para saber quais URLs disparar
-- Payload do webhook:
-  ```text
-  {
-    event: "message.received",
-    instanceName, from, participant, messageType,
-    content, timestamp, isGroup
-  }
-  ```
-- Também disparar webhook para `connection.update` (status da conexão mudou)
-
-**2. Tabela `webhook_configs`**
-
-| Coluna | Tipo |
-|--------|------|
-| id | uuid PK |
-| user_id | uuid |
-| webhook_url | text |
-| events | text[] |
-| is_active | boolean |
-| secret | text (token de validação) |
-| created_at | timestamptz |
-
-RLS: usuários gerenciam os próprios; admins gerenciam todos.
-
-**3. Página Admin `src/pages/admin/AdminApiDocs.tsx`**
-
-Duas abas:
-
-- **Endpoints**: Documentação dos endpoints do Baileys (instâncias, grupos, mensagens) com método, rota, body de exemplo e botão "Copiar cURL". Base URL preenchida via `global_config.baileys_api_url`.
-- **Webhooks**: Formulário para cadastrar URLs, selecionar eventos (checkboxes), ativar/desativar, e testar envio.
-
-**4. Rota e Navegação**
-
-- Rota `/admin/api-docs` em `App.tsx` protegida por `AdminRoute`
-- Item "API & Webhooks" no menu admin em `AppSidebar.tsx` com ícone `Code`
-
-### Fluxo da API Externa
-
-```text
-Sistema externo (n8n, CRM, etc.)
-        │
-        ▼
-  POST /message/sendText/:name  ──► Baileys Server ──► WhatsApp (direto)
-        │
-        └── Sem fila, sem logs, sem delay da aplicação
-
-WhatsApp ──► Baileys (messages.upsert) ──► POST webhook_url (message.received)
-```
-
-### Eventos de webhook disponíveis
-
-| Evento | Descrição |
-|--------|-----------|
-| `message.received` | Mensagem recebida em qualquer conversa |
-| `group.participant.update` | Entrada/saída de participante (já existe) |
-| `connection.update` | Status da conexão mudou |
+Resultado: os cURLs e a Base URL exibida usarão a URL pública (ex: `https://api.app.simplificandogrupos.com`).
 
