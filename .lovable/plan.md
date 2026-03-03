@@ -1,71 +1,48 @@
 
+# Correção direta: QR Code não gera em nenhuma instância
 
-## Problema real identificado
+## Diagnóstico do código atual
 
-O 405 não é um problema de retry storm -- é um problema **arquitetural**. O Baileys Server faz coisas demais automaticamente:
+Analisando o `baileys-server/server.js`, identifiquei **3 problemas concretos** que impedem a geração de QR Code:
 
-1. **`restoreSessions()` no startup** reconecta TODAS as sessões simultaneamente. Cada uma recebe 405, e o WhatsApp bloqueia o IP.
-2. **`/instance/create` abre WebSocket imediatamente** -- deveria apenas registrar a instância.
-3. **`reconnectInstance`** faz delete → create (que conecta) → connect = 2+ conexões em sequência.
+### Problema 1: Auto-reconnect cria loop infinito
+Linhas 220-225 — quando ocorre um disconnect NÃO-terminal (ex: timeout de rede), o servidor automaticamente tenta reconectar após 3s. Isso cria um ciclo que acumula tentativas e bloqueia o IP no WhatsApp:
+```javascript
+if (shouldReconnect) {
+  setTimeout(() => {
+    sessions.delete(instanceName);
+    createSession(instanceName).catch(console.error); // LOOP!
+  }, 3000);
+}
+```
 
-O resultado: o IP do servidor fica bloqueado pelo WhatsApp antes mesmo de você conseguir escanear um QR Code.
+### Problema 2: Race condition na geração de QR
+O `_doCreateSession` abre o WebSocket e retorna. O endpoint `/instance/connect` faz polling por 15s esperando o QR. Mas se o WhatsApp responde com 405 antes do QR chegar, a `connection.update` callback deleta a sessão do Map, e o polling detecta `session_expired` — o QR nunca chega ao frontend.
 
-## Correção estrutural (2 arquivos)
+### Problema 3: Sessões residuais no disco
+O `/instance/create` cria o diretório vazio. Se houve uma tentativa anterior que falhou, podem existir arquivos de auth corrompidos no disco (mesmo após o cleanup do 405), causando rejeição imediata pelo WhatsApp em vez de gerar QR novo.
 
-### 1. `baileys-server/server.js`
+## Correções (apenas `baileys-server/server.js`)
 
-- **Remover `restoreSessions()` do startup** -- não reconectar automaticamente. Instâncias só conectam quando o usuário pedir.
-- **Separar create de connect**: `/instance/create` apenas cria o diretório de sessão e retorna `{ status: 'created' }`, sem abrir WebSocket.
-- **Só `/instance/connect/:name` abre WebSocket** e gera QR Code.
-- **Aumentar cooldown para 60s** e adicionar **backoff global** (máximo 1 conexão por vez no servidor inteiro, com 5s entre conexões diferentes).
+### A. Remover completamente o auto-reconnect
+Substituir o `setTimeout → createSession` por apenas limpar a sessão e logar. O usuário reconecta manualmente quando quiser.
 
-### 2. `supabase/functions/evolution-api/index.ts`
+### B. Limpar sessões residuais no startup
+No boot do servidor, remover TODOS os diretórios de sessão existentes. Isso garante que toda conexão começa do zero, sem credenciais antigas que causam 405.
 
-- **`reconnectInstance`**: delete → esperar 5s → connect (não create+connect). Sem retry.
-- **`createInstance`**: apenas chama `/instance/create` (que agora não conecta). Sem polling de QR.
-- **Remover retry do `connectInstance`** -- uma única chamada, sem "single retry after 3s".
+### C. Garantir limpeza antes de cada createSession
+Antes de chamar `useMultiFileAuthState`, deletar o diretório de sessão se existir, forçando geração de novas chaves e QR Code limpo.
 
-### Fluxo corrigido
+### D. Reduzir cooldown para 10s
+O cooldown de 60s é excessivo para novas instâncias. Reduzir para 10s permite tentar novamente mais rápido após uma falha transitória.
 
 ```text
-Antes:
-  Startup → restoreSessions() → 5 sockets simultâneos → 5x 405 → IP bloqueado
-  Criar instância → abre socket → 405 → session_expired
-
-Depois:
-  Startup → nada (só inicia o Express)
-  Criar instância → registra nome → retorna OK
-  Conectar instância → abre 1 socket → gera QR ou 405 com cooldown 60s
-  Reconectar → delete + wait 5s + connect (1 socket)
+Fluxo corrigido:
+  Startup → limpa TODAS as sessões do disco → servidor pronto
+  Connect → deleta dir antigo → useMultiFileAuthState (fresh) → WebSocket → QR
+  Disconnect terminal → limpa sessão + dir, cooldown 10s
+  Disconnect não-terminal → limpa sessão, NÃO reconecta automaticamente
 ```
 
-### Detalhes técnicos
-
-**`server.js` - create sem conectar:**
-```javascript
-app.post('/instance/create', async (req, res) => {
-  const { instanceName } = req.body;
-  // Apenas cria o diretório, NÃO abre WebSocket
-  const sessionDir = path.join(SESSIONS_DIR, instanceName);
-  if (!fs.existsSync(sessionDir)) fs.mkdirSync(sessionDir, { recursive: true });
-  res.json({ instance: { instanceName, status: 'created' } });
-});
-```
-
-**`server.js` - mutex global (1 conexão por vez):**
-```javascript
-let globalConnectLock = null;
-// Antes de cada createSession, aguarda lock global + 5s entre conexões
-```
-
-**Edge function - reconnect simplificado:**
-```javascript
-case "reconnectInstance":
-  await fetch(`${apiUrl}/instance/delete/${instanceName}`, ...);
-  await new Promise(r => setTimeout(r, 5000));
-  // Vai direto para connect, sem create intermediário
-  const resp = await fetch(`${apiUrl}/instance/connect/${instanceName}`, ...);
-  result = await resp.json();
-  break;
-```
-
+## Arquivos alterados
+- `baileys-server/server.js` — todas as 4 correções acima
