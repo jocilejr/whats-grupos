@@ -136,27 +136,41 @@ Deno.serve(async (req) => {
       case "connectInstance": {
         const connectUrl = `${apiUrl}/instance/connect/${instanceName}`;
         console.log(`[connectInstance] URL: ${connectUrl}`);
-        let resp = await fetch(connectUrl, { headers });
-        let rawText = await resp.text();
+        const resp = await fetch(connectUrl, { headers });
+        
+        // Detect cooldown immediately
+        if (resp.status === 429) {
+          result = await resp.json();
+          break;
+        }
+        
+        const rawText = await resp.text();
         console.log(`[connectInstance] Status: ${resp.status}, Response: ${rawText.substring(0, 500)}`);
         
-        // If no QR in response, retry up to 2 times with 3s delay
         try {
           const parsed = JSON.parse(rawText);
-          if (!parsed?.base64 && !parsed?.code && !parsed?.qrcode) {
-            for (let retry = 0; retry < 2; retry++) {
-              console.log(`[connectInstance] No QR, retry ${retry + 1}/2 after 3s...`);
-              await new Promise(r => setTimeout(r, 3000));
-              resp = await fetch(connectUrl, { headers });
-              rawText = await resp.text();
-              console.log(`[connectInstance] Retry ${retry + 1} Status: ${resp.status}, Response: ${rawText.substring(0, 500)}`);
-              const retryParsed = JSON.parse(rawText);
-              if (retryParsed?.base64 || retryParsed?.code || retryParsed?.qrcode) break;
-            }
+          // Stop on cooldown/session_expired — no retries
+          if (parsed?.error === 'session_expired' || parsed?.error === 'cooldown') {
+            result = parsed;
+            break;
           }
-        } catch {}
-        
-        try { result = JSON.parse(rawText); } catch { result = { raw: rawText }; }
+          
+          // If no QR, single retry after 3s
+          if (!parsed?.base64 && !parsed?.code && !parsed?.qrcode) {
+            console.log(`[connectInstance] No QR, single retry after 3s...`);
+            await new Promise(r => setTimeout(r, 3000));
+            const retryResp = await fetch(connectUrl, { headers });
+            if (retryResp.status === 429) {
+              result = await retryResp.json();
+              break;
+            }
+            const retryText = await retryResp.text();
+            console.log(`[connectInstance] Retry Status: ${retryResp.status}, Response: ${retryText.substring(0, 500)}`);
+            try { result = JSON.parse(retryText); } catch { result = parsed; }
+          } else {
+            result = parsed;
+          }
+        } catch { result = { raw: rawText }; }
         break;
       }
 
@@ -179,38 +193,47 @@ Deno.serve(async (req) => {
             qrcode: true,
           }),
         });
+        
+        // Detect cooldown/session_expired immediately
+        if (createResp.status === 429) {
+          result = await createResp.json();
+          break;
+        }
+        
         const createResult = await createResp.json();
         console.log(`[reconnectInstance] Create status: ${createResp.status}, has qrcode: ${!!createResult?.qrcode}`);
+        
+        // Stop immediately on session_expired or cooldown
+        if (createResult?.error === 'session_expired' || createResult?.error === 'cooldown') {
+          result = createResult;
+          break;
+        }
         
         if (createResult?.qrcode) {
           result = createResult;
         } else {
-          // Poll for QR using the dedicated qrcode endpoint with retries
-          for (let retry = 0; retry < 3; retry++) {
-            console.log(`[reconnectInstance] QR polling attempt ${retry + 1}/3...`);
-            await new Promise(r => setTimeout(r, 3000));
-            const qrResp = await fetch(`${apiUrl}/instance/qrcode/${instanceName}?timeout=10`, { headers });
-            const qrText = await qrResp.text();
-            console.log(`[reconnectInstance] QR poll ${retry + 1} Response: ${qrText.substring(0, 500)}`);
-            try {
-              const qrParsed = JSON.parse(qrText);
-              if (qrParsed?.base64 || qrParsed?.code) {
-                result = qrParsed;
-                break;
-              }
-              if (qrParsed?.instance?.state === 'open') {
-                result = qrParsed;
-                break;
-              }
-            } catch {}
+          // Single QR poll attempt (reduced from 3)
+          console.log(`[reconnectInstance] QR polling attempt 1/1...`);
+          await new Promise(r => setTimeout(r, 3000));
+          const qrResp = await fetch(`${apiUrl}/instance/connect/${instanceName}`, { headers });
+          
+          if (qrResp.status === 429) {
+            result = await qrResp.json();
+            break;
           }
-          if (!result) {
-            // Final fallback: try connect endpoint
-            const connResp = await fetch(`${apiUrl}/instance/connect/${instanceName}`, { headers });
-            const connText = await connResp.text();
-            console.log(`[reconnectInstance] Final connect Status: ${connResp.status}, Response: ${connText.substring(0, 500)}`);
-            try { result = JSON.parse(connText); } catch { result = { raw: connText }; }
-          }
+          
+          const qrText = await qrResp.text();
+          console.log(`[reconnectInstance] QR poll Response: ${qrText.substring(0, 500)}`);
+          try {
+            const qrParsed = JSON.parse(qrText);
+            if (qrParsed?.error === 'session_expired' || qrParsed?.error === 'cooldown') {
+              result = qrParsed;
+            } else if (qrParsed?.base64 || qrParsed?.code || qrParsed?.instance?.state === 'open') {
+              result = qrParsed;
+            } else {
+              result = qrParsed;
+            }
+          } catch { result = { raw: qrText }; }
         }
         break;
       }

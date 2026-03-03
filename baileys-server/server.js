@@ -85,7 +85,7 @@ const sessionLocks = new Map();
 
 // Cooldown after terminal disconnects (405 etc) — prevents rapid reconnect flood
 const sessionCooldowns = new Map();
-const COOLDOWN_MS = 5000;
+const COOLDOWN_MS = 30000;
 
 // Ensure sessions dir exists
 if (!fs.existsSync(SESSIONS_DIR)) {
@@ -110,13 +110,13 @@ async function createSession(instanceName) {
     if (existing) return existing;
   }
 
-  // Check cooldown after terminal disconnect
+  // Check cooldown after terminal disconnect — REJECT immediately instead of waiting
   const lastCooldown = sessionCooldowns.get(instanceName) || 0;
   const elapsed = Date.now() - lastCooldown;
   if (elapsed < COOLDOWN_MS) {
-    const waitMs = COOLDOWN_MS - elapsed;
-    console.log(`[${instanceName}] Cooldown active, waiting ${waitMs}ms before creating session...`);
-    await new Promise(r => setTimeout(r, waitMs));
+    const remainingSec = Math.ceil((COOLDOWN_MS - elapsed) / 1000);
+    console.log(`[${instanceName}] Cooldown active, rejecting. Retry after ${remainingSec}s`);
+    throw new Error(`COOLDOWN:${remainingSec}`);
   }
 
   // Create a lock promise with external resolve
@@ -305,6 +305,12 @@ async function restoreSessions() {
     fs.statSync(path.join(SESSIONS_DIR, d)).isDirectory()
   );
   for (const name of dirs) {
+    // Skip instances currently in cooldown
+    const lastCd = sessionCooldowns.get(name) || 0;
+    if (Date.now() - lastCd < COOLDOWN_MS) {
+      console.log(`[startup] Skipping ${name} (in cooldown)`);
+      continue;
+    }
     try {
       console.log(`[startup] Restoring session: ${name}`);
       await createSession(name);
@@ -329,7 +335,15 @@ app.post('/instance/create', async (req, res) => {
       return res.json({ instance: { instanceName, status: session.connected ? 'open' : 'connecting' } });
     }
 
-    session = await createSession(instanceName);
+    try {
+      session = await createSession(instanceName);
+    } catch (e) {
+      if (e.message?.startsWith('COOLDOWN:')) {
+        const retryAfter = parseInt(e.message.split(':')[1]) || 30;
+        return res.status(429).json({ error: 'cooldown', retryAfter, message: `Aguarde ${retryAfter}s antes de tentar novamente.` });
+      }
+      throw e;
+    }
 
     // Poll for QR to be generated (up to 8s, check every 500ms)
     for (let i = 0; i < 16; i++) {
@@ -365,7 +379,15 @@ app.get('/instance/connect/:name', async (req, res) => {
     let session = await getSession(name);
 
     if (!session) {
-      session = await createSession(name);
+      try {
+        session = await createSession(name);
+      } catch (e) {
+        if (e.message?.startsWith('COOLDOWN:')) {
+          const retryAfter = parseInt(e.message.split(':')[1]) || 30;
+          return res.status(429).json({ error: 'cooldown', retryAfter, message: `Aguarde ${retryAfter}s antes de tentar novamente.` });
+        }
+        throw e;
+      }
     }
 
     if (session.connected) {

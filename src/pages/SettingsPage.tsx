@@ -122,10 +122,13 @@ export default function SettingsPage() {
       toast({ title: "Instância criada!" });
 
       const qrResult = await callWhatsAppApi("connectInstance", newConfig.id);
-      const qrCode = qrResult?.base64 || qrResult?.qrcode?.base64 || qrResult?.qrcode || qrResult?.code;
-      if (qrCode && typeof qrCode === "string" && qrCode.length > 50) {
-        const src = qrCode.startsWith("data:") ? qrCode : `data:image/png;base64,${qrCode}`;
-        setQrCodeData({ name: newInstanceName, qrcode: src });
+      // Don't retry on cooldown during creation
+      if (qrResult?.error !== "cooldown" && qrResult?.error !== "session_expired") {
+        const qrCode = qrResult?.base64 || qrResult?.qrcode?.base64 || qrResult?.qrcode || qrResult?.code;
+        if (qrCode && typeof qrCode === "string" && qrCode.length > 50) {
+          const src = qrCode.startsWith("data:") ? qrCode : `data:image/png;base64,${qrCode}`;
+          setQrCodeData({ name: newInstanceName, qrcode: src });
+        }
       }
     } catch (e: any) {
       toast({ title: "Erro", description: e.message, variant: "destructive" });
@@ -174,31 +177,26 @@ export default function SettingsPage() {
 
   const showQrCode = async (configId: string, name: string) => {
     try {
-      let qr: string | null = null;
+      const result = await callWhatsAppApi("connectInstance", configId);
+      console.log("connectInstance response:", JSON.stringify(result));
       
-      for (let attempt = 0; attempt < 3; attempt++) {
-        if (attempt > 0) {
-          toast({ title: "Aguardando QR Code...", description: `Tentativa ${attempt + 1}/3...` });
-          await new Promise(r => setTimeout(r, 3000));
-        }
-        
-        const result = await callWhatsAppApi("connectInstance", configId);
-        console.log(`connectInstance attempt ${attempt + 1}:`, JSON.stringify(result));
-        
-        qr = result?.base64 || result?.qrcode?.base64 || result?.qrcode || result?.code;
-        if (qr && typeof qr === "string" && qr.length > 50) break;
-        qr = null;
-        
-        // Check if already connected
-        const state = result?.instance?.state;
-        if (state === "open") {
-          toast({ title: "Instância conectada!", description: "Já está ativa, não precisa de QR Code." });
-          setConnectionStates((prev) => ({ ...prev, [configId]: result }));
-          return;
-        }
+      // Detect cooldown/session_expired — stop immediately
+      if (result?.error === "cooldown" || result?.error === "session_expired") {
+        const retryAfter = result?.retryAfter || 30;
+        toast({ title: "Aguarde", description: `Tente novamente em ${retryAfter}s.`, variant: "destructive" });
+        return;
       }
       
-      if (qr) {
+      // Check if already connected
+      const state = result?.instance?.state;
+      if (state === "open") {
+        toast({ title: "Instância conectada!", description: "Já está ativa, não precisa de QR Code." });
+        setConnectionStates((prev) => ({ ...prev, [configId]: result }));
+        return;
+      }
+      
+      const qr = result?.base64 || result?.qrcode?.base64 || result?.qrcode || result?.code;
+      if (qr && typeof qr === "string" && qr.length > 50) {
         const src = qr.startsWith("data:") ? qr : `data:image/png;base64,${qr}`;
         setQrCodeData({ name, qrcode: src });
       } else {
@@ -219,20 +217,14 @@ export default function SettingsPage() {
       const result = await callWhatsAppApi("reconnectInstance", configId);
       console.log("reconnectInstance response:", JSON.stringify(result));
       
-      let qr = result?.qrcode?.base64 || result?.base64 || result?.qrcode || result?.code;
-      
-      // If no QR from reconnect, retry via connectInstance
-      if (!qr || typeof qr !== "string" || qr.length <= 50) {
-        for (let retry = 0; retry < 2; retry++) {
-          toast({ title: "Aguardando QR Code...", description: `Tentativa ${retry + 2}/3...` });
-          await new Promise(r => setTimeout(r, 3000));
-          const retryResult = await callWhatsAppApi("connectInstance", configId);
-          console.log(`reconnect retry ${retry + 1}:`, JSON.stringify(retryResult));
-          qr = retryResult?.base64 || retryResult?.qrcode?.base64 || retryResult?.qrcode || retryResult?.code;
-          if (qr && typeof qr === "string" && qr.length > 50) break;
-          qr = null;
-        }
+      // Detect cooldown/session_expired — stop immediately, no retries
+      if (result?.error === "cooldown" || result?.error === "session_expired") {
+        const retryAfter = result?.retryAfter || 30;
+        toast({ title: "Aguarde", description: `Tente novamente em ${retryAfter}s.`, variant: "destructive" });
+        return;
       }
+      
+      const qr = result?.qrcode?.base64 || result?.base64 || result?.qrcode || result?.code;
       
       if (qr && typeof qr === "string" && qr.length > 50) {
         const src = qr.startsWith("data:") ? qr : `data:image/png;base64,${qr}`;
