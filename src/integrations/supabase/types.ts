@@ -759,6 +759,16 @@ export type Database = {
         }
       }
       cleanup_old_queue_items: { Args: never; Returns: undefined }
+      get_admin_global_config: {
+        Args: never
+        Returns: {
+          baileys_api_key: string
+          baileys_api_url: string
+          id: string
+          openai_api_key: string
+          queue_delay_seconds: number
+        }[]
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -767,6 +777,10 @@ export type Database = {
         Returns: boolean
       }
       reset_stuck_queue_items: { Args: never; Returns: undefined }
+      set_admin_global_config: {
+        Args: { _baileys_api_key: string; _openai_api_key: string }
+        Returns: string
+      }
     }
     Enums: {
       app_role: "admin" | "user"
