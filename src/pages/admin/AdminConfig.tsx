@@ -48,7 +48,14 @@ export default function AdminConfig() {
       qc.invalidateQueries({ queryKey: ["global-config"] });
       toast({ title: "Configuração salva!" });
     },
-    onError: (e: any) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
+    onError: (e: any) => {
+      const msg = e?.message || "";
+      if (msg.includes("schema cache") || msg.includes("could not find")) {
+        toast({ title: "Cache em atualização", description: "Aguarde alguns segundos e tente novamente.", variant: "destructive" });
+      } else {
+        toast({ title: "Erro", description: msg, variant: "destructive" });
+      }
+    },
   });
 
   const testBaileys = async () => {
