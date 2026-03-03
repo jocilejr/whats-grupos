@@ -12,6 +12,45 @@ const PORT = process.env.PORT || 3100;
 const SESSIONS_DIR = process.env.SESSIONS_DIR || '/data/baileys-sessions';
 const logger = pino({ level: 'warn' });
 
+// ---- Webhook dispatcher ----
+async function dispatchWebhooks(event, payload) {
+  try {
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.SUPABASE_FUNCTIONS_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!supabaseUrl || !supabaseKey) return;
+
+    // Fetch active webhook configs that listen to this event
+    const res = await fetch(
+      `${supabaseUrl}/rest/v1/webhook_configs?is_active=eq.true&events=cs.{${event}}`,
+      {
+        headers: {
+          'apikey': supabaseKey,
+          'Authorization': `Bearer ${supabaseKey}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+    const configs = await res.json();
+    if (!Array.isArray(configs) || configs.length === 0) return;
+
+    const body = JSON.stringify({ event, timestamp: new Date().toISOString(), data: payload });
+
+    for (const cfg of configs) {
+      const headers = { 'Content-Type': 'application/json' };
+      if (cfg.secret) {
+        headers['X-Webhook-Secret'] = cfg.secret;
+      }
+      fetch(cfg.webhook_url, { method: 'POST', headers, body }).catch(err => {
+        console.error(`[webhook] Failed to dispatch ${event} to ${cfg.webhook_url}:`, err.message);
+      });
+    }
+
+    console.log(`[webhook] Dispatched ${event} to ${configs.length} endpoint(s)`);
+  } catch (err) {
+    console.error(`[webhook] Error fetching configs for ${event}:`, err.message);
+  }
+}
+
 // Store active sockets
 const sessions = new Map();
 
@@ -68,6 +107,8 @@ async function createSession(instanceName) {
       session.connecting = false;
       session.qr = null;
       console.log(`[${instanceName}] Connected`);
+      // Dispatch webhook for connection.update
+      dispatchWebhooks('connection.update', { instanceName, state: 'open' });
     }
 
     if (connection === 'close') {
@@ -76,6 +117,8 @@ async function createSession(instanceName) {
       const statusCode = lastDisconnect?.error?.output?.statusCode;
       const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
       console.log(`[${instanceName}] Disconnected. Status: ${statusCode}. Reconnect: ${shouldReconnect}`);
+      // Dispatch webhook for connection.update
+      dispatchWebhooks('connection.update', { instanceName, state: 'close', statusCode, willReconnect: shouldReconnect });
 
       if (shouldReconnect) {
         setTimeout(() => {
@@ -124,6 +167,55 @@ async function createSession(instanceName) {
       console.log(`[${instanceName}] group-participants.update: ${action} ${participants.length} in ${groupName}`);
     } catch (err) {
       console.error(`[${instanceName}] group-participants.update webhook error:`, err.message);
+    }
+  });
+
+  // Listen for incoming messages and dispatch via webhook
+  sock.ev.on('messages.upsert', async ({ messages: msgs, type }) => {
+    if (type !== 'notify') return;
+    for (const msg of msgs) {
+      if (msg.key.fromMe) continue; // ignore own messages
+      try {
+        const from = msg.key.remoteJid;
+        const isGroup = from?.endsWith('@g.us') || false;
+        const participant = msg.key.participant || null;
+        let messageType = 'unknown';
+        let content = '';
+
+        if (msg.message?.conversation) {
+          messageType = 'text';
+          content = msg.message.conversation;
+        } else if (msg.message?.extendedTextMessage?.text) {
+          messageType = 'text';
+          content = msg.message.extendedTextMessage.text;
+        } else if (msg.message?.imageMessage) {
+          messageType = 'image';
+          content = msg.message.imageMessage.caption || '';
+        } else if (msg.message?.videoMessage) {
+          messageType = 'video';
+          content = msg.message.videoMessage.caption || '';
+        } else if (msg.message?.audioMessage) {
+          messageType = 'audio';
+        } else if (msg.message?.documentMessage) {
+          messageType = 'document';
+          content = msg.message.documentMessage.fileName || '';
+        } else if (msg.message?.stickerMessage) {
+          messageType = 'sticker';
+        }
+
+        dispatchWebhooks('message.received', {
+          instanceName,
+          from,
+          participant,
+          messageType,
+          content,
+          timestamp: msg.messageTimestamp,
+          isGroup,
+          messageId: msg.key.id,
+        });
+      } catch (err) {
+        console.error(`[${instanceName}] messages.upsert webhook error:`, err.message);
+      }
     }
   });
 
