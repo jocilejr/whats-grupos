@@ -1,51 +1,24 @@
 
 
-## Plano: Adicionar autenticação por API Key no Baileys Server
+## Diagnóstico
 
-### Problema
-Os endpoints do Baileys Server estão abertos — qualquer pessoa com a URL pública pode criar instâncias, enviar mensagens e manipular grupos sem autenticação.
+Verifiquei o banco de dados:
+- `vps_api_url` = `https://api.app.simplificandogrupos.com` (está preenchido)
+- `baileys_api_key` = `""` (string vazia)
 
-### Solução
-Adicionar um middleware de validação de API Key no `baileys-server/server.js` e exibir/gerenciar essa chave na página de documentação.
+### Problema 1: Base URL mostrando localhost
+O código busca `vps_api_url` corretamente, mas o `catch {}` vazio engole qualquer erro silenciosamente. Se a query falhar (ex: problema de RLS ou timing), o fallback `http://localhost:3100` é exibido. Vou melhorar o tratamento de erro e adicionar log.
+
+### Problema 2: API Key não aparece
+O campo `baileys_api_key` está vazio no banco. O código usa `{apiKey && (...)}`, então a seção fica invisível. Em vez de esconder, vou sempre mostrar a seção com um aviso para configurar quando estiver vazia.
 
 ### Alterações
 
-**1. `baileys-server/server.js`** — Middleware de autenticação
+**`src/pages/admin/AdminApiDocs.tsx`**:
 
-- Ler a variável de ambiente `BAILEYS_API_KEY` na inicialização
-- Criar um middleware Express que intercepta todas as rotas e valida o header `apikey` (compatível com o padrão Evolution API)
-- Retornar `401 Unauthorized` se a chave estiver ausente ou incorreta
-- Permitir apenas health-check (`GET /`) sem autenticação
-
-**2. `src/pages/admin/AdminApiDocs.tsx`** — Exibir API Key na documentação
-
-- Buscar `baileys_api_key` do `global_config` (novo campo)
-- Exibir a chave na seção Base URL com botão de copiar (mascarada por padrão)
-- Incluir o header `apikey` nos cURLs gerados automaticamente
-- Adicionar nota na documentação sobre o header obrigatório
-
-**3. Migração SQL** — Novo campo na `global_config`
-
-```sql
-ALTER TABLE public.global_config
-ADD COLUMN IF NOT EXISTS baileys_api_key text NOT NULL DEFAULT '';
-```
-
-**4. `docker-compose` / `deploy.sh`** — Passar a variável de ambiente
-
-- Adicionar `BAILEYS_API_KEY` como variável de ambiente do container, lida a partir de `global_config` ou do `.credentials`
-
-### Fluxo de autenticação
-```text
-Cliente → POST /message/sendText/instancia
-         Header: apikey: minha-chave-secreta
-         ↓
-Middleware → BAILEYS_API_KEY == header.apikey?
-         ├─ Sim → processa normalmente
-         └─ Não → 401 { error: "Unauthorized" }
-```
-
-### Impacto
-- Requisições internas (Edge Functions `process-queue`) precisarão enviar o header `apikey` — será adicionado na lógica da Edge Function
-- Requisições externas (n8n, CRMs) deverão incluir o header na configuração
+1. Remover o `catch {}` vazio — adicionar `console.error` para debug
+2. Sempre exibir a seção de API Key:
+   - Se preenchida: mostrar mascarada com botões Mostrar/Copiar (como hoje)
+   - Se vazia: mostrar alerta "Nenhuma API Key configurada. Defina em Config Global → API Key do Baileys Server"
+3. Trocar o fallback de `http://localhost:3100` para mensagem "Não configurada" quando `baseUrl` estiver vazio
 
