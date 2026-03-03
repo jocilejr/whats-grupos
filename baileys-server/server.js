@@ -85,7 +85,7 @@ const sessionLocks = new Map();
 
 // Cooldown after terminal disconnects (405 etc) — prevents rapid reconnect flood
 const sessionCooldowns = new Map();
-const COOLDOWN_MS = 60000;
+const COOLDOWN_MS = 10000;
 
 // Global connection mutex — only 1 WebSocket connection at a time across all instances
 let globalConnectBusy = false;
@@ -110,10 +110,12 @@ function releaseGlobalConnectLock() {
   globalConnectBusy = false;
 }
 
-// Ensure sessions dir exists
-if (!fs.existsSync(SESSIONS_DIR)) {
-  fs.mkdirSync(SESSIONS_DIR, { recursive: true });
+// Wipe ALL session data on startup — forces fresh QR on every connect
+if (fs.existsSync(SESSIONS_DIR)) {
+  fs.rmSync(SESSIONS_DIR, { recursive: true, force: true });
+  console.log(`[startup] Wiped all session data from ${SESSIONS_DIR}`);
 }
+fs.mkdirSync(SESSIONS_DIR, { recursive: true });
 
 // ---- Helper: get or create session ----
 async function getSession(instanceName) {
@@ -167,6 +169,11 @@ async function createSession(instanceName) {
 
 async function _doCreateSession(instanceName) {
   const sessionDir = path.join(SESSIONS_DIR, instanceName);
+  // Always start fresh — delete any residual auth files before connecting
+  if (fs.existsSync(sessionDir)) {
+    fs.rmSync(sessionDir, { recursive: true, force: true });
+    console.log(`[${instanceName}] Cleaned residual session dir before connect`);
+  }
   const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
 
   const sock = makeWASocket({
@@ -218,11 +225,10 @@ async function _doCreateSession(instanceName) {
       dispatchWebhooks('connection.update', { instanceName, state: 'close', statusCode, willReconnect: shouldReconnect });
 
       if (shouldReconnect) {
-        setTimeout(() => {
-          console.log(`[${instanceName}] Attempting reconnect...`);
-          sessions.delete(instanceName);
-          createSession(instanceName).catch(console.error);
-        }, 3000);
+        // NO auto-reconnect — just clean up. User must reconnect manually.
+        console.log(`[${instanceName}] Non-terminal disconnect (${statusCode}). Cleaned up. User must reconnect manually.`);
+        try { sock.end(); } catch {}
+        sessions.delete(instanceName);
       } else {
         console.log(`[${instanceName}] Terminal disconnect (${statusCode}). Clearing session files and stopping reconnect.`);
         // Register cooldown to prevent rapid re-creation
