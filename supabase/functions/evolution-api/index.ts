@@ -136,9 +136,26 @@ Deno.serve(async (req) => {
       case "connectInstance": {
         const connectUrl = `${apiUrl}/instance/connect/${instanceName}`;
         console.log(`[connectInstance] URL: ${connectUrl}`);
-        const resp = await fetch(connectUrl, { headers });
-        const rawText = await resp.text();
+        let resp = await fetch(connectUrl, { headers });
+        let rawText = await resp.text();
         console.log(`[connectInstance] Status: ${resp.status}, Response: ${rawText.substring(0, 500)}`);
+        
+        // If no QR in response, retry up to 2 times with 3s delay
+        try {
+          const parsed = JSON.parse(rawText);
+          if (!parsed?.base64 && !parsed?.code && !parsed?.qrcode) {
+            for (let retry = 0; retry < 2; retry++) {
+              console.log(`[connectInstance] No QR, retry ${retry + 1}/2 after 3s...`);
+              await new Promise(r => setTimeout(r, 3000));
+              resp = await fetch(connectUrl, { headers });
+              rawText = await resp.text();
+              console.log(`[connectInstance] Retry ${retry + 1} Status: ${resp.status}, Response: ${rawText.substring(0, 500)}`);
+              const retryParsed = JSON.parse(rawText);
+              if (retryParsed?.base64 || retryParsed?.code || retryParsed?.qrcode) break;
+            }
+          }
+        } catch {}
+        
         try { result = JSON.parse(rawText); } catch { result = { raw: rawText }; }
         break;
       }
@@ -150,7 +167,7 @@ Deno.serve(async (req) => {
         });
         console.log(`[reconnectInstance] Delete status: ${delResp.status}`);
         
-        await new Promise(r => setTimeout(r, 2000));
+        await new Promise(r => setTimeout(r, 3000));
         
         console.log(`[reconnectInstance] Recreating instance: ${instanceName}`);
         const createResp = await fetch(`${apiUrl}/instance/create`, {
@@ -168,11 +185,32 @@ Deno.serve(async (req) => {
         if (createResult?.qrcode) {
           result = createResult;
         } else {
-          await new Promise(r => setTimeout(r, 2000));
-          const connResp = await fetch(`${apiUrl}/instance/connect/${instanceName}`, { headers });
-          const connText = await connResp.text();
-          console.log(`[reconnectInstance] Connect status: ${connResp.status}, Response: ${connText.substring(0, 500)}`);
-          try { result = JSON.parse(connText); } catch { result = { raw: connText }; }
+          // Poll for QR using the dedicated qrcode endpoint with retries
+          for (let retry = 0; retry < 3; retry++) {
+            console.log(`[reconnectInstance] QR polling attempt ${retry + 1}/3...`);
+            await new Promise(r => setTimeout(r, 3000));
+            const qrResp = await fetch(`${apiUrl}/instance/qrcode/${instanceName}?timeout=10`, { headers });
+            const qrText = await qrResp.text();
+            console.log(`[reconnectInstance] QR poll ${retry + 1} Response: ${qrText.substring(0, 500)}`);
+            try {
+              const qrParsed = JSON.parse(qrText);
+              if (qrParsed?.base64 || qrParsed?.code) {
+                result = qrParsed;
+                break;
+              }
+              if (qrParsed?.instance?.state === 'open') {
+                result = qrParsed;
+                break;
+              }
+            } catch {}
+          }
+          if (!result) {
+            // Final fallback: try connect endpoint
+            const connResp = await fetch(`${apiUrl}/instance/connect/${instanceName}`, { headers });
+            const connText = await connResp.text();
+            console.log(`[reconnectInstance] Final connect Status: ${connResp.status}, Response: ${connText.substring(0, 500)}`);
+            try { result = JSON.parse(connText); } catch { result = { raw: connText }; }
+          }
         }
         break;
       }

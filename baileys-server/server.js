@@ -8,6 +8,14 @@ import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
 
+// Global error handlers to prevent silent crashes
+process.on('uncaughtException', (err) => {
+  console.error('[FATAL] Uncaught Exception:', err.message, err.stack);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[FATAL] Unhandled Rejection:', reason);
+});
+
 const app = express();
 app.use(express.json({ limit: '50mb' }));
 
@@ -108,11 +116,13 @@ async function createSession(instanceName) {
 
   sock.ev.on('connection.update', (update) => {
     const { connection, lastDisconnect, qr } = update;
+    console.log(`[${instanceName}] connection.update:`, JSON.stringify({ connection, qr: !!qr, hasLastDisconnect: !!lastDisconnect }));
 
     if (qr) {
       session.qr = qr;
+      session.qrTimestamp = Date.now();
       session.connecting = true;
-      console.log(`[${instanceName}] QR code generated`);
+      console.log(`[${instanceName}] QR code generated (length: ${qr.length})`);
     }
 
     if (connection === 'open') {
@@ -269,8 +279,12 @@ app.post('/instance/create', async (req, res) => {
 
     session = await createSession(instanceName);
 
-    // Wait a bit for QR to be generated
-    await new Promise(r => setTimeout(r, 3000));
+    // Poll for QR to be generated (up to 8s, check every 500ms)
+    for (let i = 0; i < 16; i++) {
+      if (session.qr || session.connected) break;
+      await new Promise(r => setTimeout(r, 500));
+    }
+    console.log(`[create] After polling: qr=${!!session.qr}, connected=${session.connected}`);
 
     const result = { instance: { instanceName, status: 'connecting' } };
     if (session.qr) {
@@ -292,7 +306,17 @@ app.get('/instance/connect/:name', async (req, res) => {
 
     if (!session) {
       session = await createSession(name);
-      await new Promise(r => setTimeout(r, 3000));
+    }
+
+    if (session.connected) {
+      return res.json({ instance: { state: 'open' } });
+    }
+
+    // Poll for QR code (up to 15s, check every 1s)
+    for (let i = 0; i < 15; i++) {
+      if (session.qr || session.connected) break;
+      await new Promise(r => setTimeout(r, 1000));
+      console.log(`[connect] Polling attempt ${i + 1}/15, qr=${!!session.qr}, connected=${session.connected}`);
     }
 
     if (session.connected) {
@@ -304,14 +328,8 @@ app.get('/instance/connect/:name', async (req, res) => {
       return res.json({ base64, code: session.qr });
     }
 
-    // Wait for QR
-    await new Promise(r => setTimeout(r, 5000));
-    if (session.qr) {
-      const base64 = await QRCode.toDataURL(session.qr);
-      return res.json({ base64, code: session.qr });
-    }
-
-    res.json({ instance: { state: session.connected ? 'open' : 'connecting' } });
+    console.log(`[connect] No QR after polling for ${name}`);
+    res.json({ instance: { state: 'connecting' } });
   } catch (e) {
     console.error('[connect]', e);
     res.status(500).json({ error: e.message });
@@ -784,6 +802,42 @@ app.get('/smart-link/:slug', async (req, res) => {
   } catch (e) {
     console.error('[smart-link]', e);
     res.status(500).type('text/plain').send('Internal server error');
+  }
+});
+
+// GET /instance/qrcode/:name - Dedicated QR polling endpoint
+app.get('/instance/qrcode/:name', async (req, res) => {
+  try {
+    const name = req.params.name;
+    const timeout = parseInt(req.query.timeout) || 15;
+    const session = await getSession(name);
+    
+    if (!session) {
+      return res.status(404).json({ error: 'Instance not found' });
+    }
+    
+    if (session.connected) {
+      return res.json({ instance: { state: 'open' } });
+    }
+
+    // Poll for QR
+    for (let i = 0; i < timeout; i++) {
+      if (session.qr || session.connected) break;
+      await new Promise(r => setTimeout(r, 1000));
+    }
+
+    if (session.connected) {
+      return res.json({ instance: { state: 'open' } });
+    }
+
+    if (session.qr) {
+      const base64 = await QRCode.toDataURL(session.qr);
+      return res.json({ base64, code: session.qr });
+    }
+
+    res.json({ instance: { state: 'connecting' }, message: 'QR not ready yet' });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 });
 
