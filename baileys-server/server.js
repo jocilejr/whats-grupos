@@ -80,6 +80,13 @@ async function dispatchWebhooks(event, payload) {
 // Store active sockets
 const sessions = new Map();
 
+// Mutex per instance — prevents concurrent createSession calls
+const sessionLocks = new Map();
+
+// Cooldown after terminal disconnects (405 etc) — prevents rapid reconnect flood
+const sessionCooldowns = new Map();
+const COOLDOWN_MS = 5000;
+
 // Ensure sessions dir exists
 if (!fs.existsSync(SESSIONS_DIR)) {
   fs.mkdirSync(SESSIONS_DIR, { recursive: true });
@@ -94,6 +101,43 @@ async function getSession(instanceName) {
 }
 
 async function createSession(instanceName) {
+  // If there's already a lock for this instance, wait for it
+  if (sessionLocks.has(instanceName)) {
+    console.log(`[${instanceName}] Waiting for existing session lock...`);
+    try { await sessionLocks.get(instanceName); } catch {}
+    // After lock released, if session exists and is usable, return it
+    const existing = sessions.get(instanceName);
+    if (existing) return existing;
+  }
+
+  // Check cooldown after terminal disconnect
+  const lastCooldown = sessionCooldowns.get(instanceName) || 0;
+  const elapsed = Date.now() - lastCooldown;
+  if (elapsed < COOLDOWN_MS) {
+    const waitMs = COOLDOWN_MS - elapsed;
+    console.log(`[${instanceName}] Cooldown active, waiting ${waitMs}ms before creating session...`);
+    await new Promise(r => setTimeout(r, waitMs));
+  }
+
+  // Create a lock promise with external resolve
+  let releaseLock;
+  const lockPromise = new Promise(resolve => { releaseLock = resolve; });
+  sessionLocks.set(instanceName, lockPromise);
+
+  try {
+    // Double-check: session may have been created while we waited
+    if (sessions.has(instanceName)) {
+      return sessions.get(instanceName);
+    }
+
+    return await _doCreateSession(instanceName);
+  } finally {
+    sessionLocks.delete(instanceName);
+    releaseLock();
+  }
+}
+
+async function _doCreateSession(instanceName) {
   const sessionDir = path.join(SESSIONS_DIR, instanceName);
   const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
 
@@ -153,6 +197,10 @@ async function createSession(instanceName) {
         }, 3000);
       } else {
         console.log(`[${instanceName}] Terminal disconnect (${statusCode}). Clearing session files and stopping reconnect.`);
+        // Register cooldown to prevent rapid re-creation
+        sessionCooldowns.set(instanceName, Date.now());
+        // Close socket gracefully before cleanup
+        try { sock.end(); } catch {}
         sessions.delete(instanceName);
         // Clean up session files so next connect generates fresh QR
         if (fs.existsSync(sessionDir)) {
@@ -286,9 +334,17 @@ app.post('/instance/create', async (req, res) => {
     // Poll for QR to be generated (up to 8s, check every 500ms)
     for (let i = 0; i < 16; i++) {
       if (session.qr || session.connected) break;
+      if (!sessions.has(instanceName)) {
+        console.log(`[create] Session ${instanceName} was removed during polling`);
+        return res.json({ error: 'session_expired', message: 'Sessão invalidada. Tente novamente em alguns segundos.' });
+      }
       await new Promise(r => setTimeout(r, 500));
     }
     console.log(`[create] After polling: qr=${!!session.qr}, connected=${session.connected}`);
+
+    if (!sessions.has(instanceName)) {
+      return res.json({ error: 'session_expired', message: 'Sessão invalidada. Tente novamente em alguns segundos.' });
+    }
 
     const result = { instance: { instanceName, status: 'connecting' } };
     if (session.qr) {
@@ -319,8 +375,18 @@ app.get('/instance/connect/:name', async (req, res) => {
     // Poll for QR code (up to 15s, check every 1s)
     for (let i = 0; i < 15; i++) {
       if (session.qr || session.connected) break;
+      // Check if session was removed (terminal disconnect during polling)
+      if (!sessions.has(name)) {
+        console.log(`[connect] Session ${name} was removed during polling (terminal disconnect)`);
+        return res.json({ error: 'session_expired', message: 'Sessão invalidada. Tente novamente em alguns segundos.' });
+      }
       await new Promise(r => setTimeout(r, 1000));
       console.log(`[connect] Polling attempt ${i + 1}/15, qr=${!!session.qr}, connected=${session.connected}`);
+    }
+
+    // Final check if session was removed
+    if (!sessions.has(name)) {
+      return res.json({ error: 'session_expired', message: 'Sessão invalidada. Tente novamente em alguns segundos.' });
     }
 
     if (session.connected) {
