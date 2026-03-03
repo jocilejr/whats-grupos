@@ -143,6 +143,7 @@ export type Database = {
       }
       global_config: {
         Row: {
+          baileys_api_key: string
           baileys_api_url: string
           created_at: string
           evolution_api_key: string
@@ -155,6 +156,7 @@ export type Database = {
           whatsapp_provider: string
         }
         Insert: {
+          baileys_api_key?: string
           baileys_api_url?: string
           created_at?: string
           evolution_api_key?: string
@@ -167,6 +169,7 @@ export type Database = {
           whatsapp_provider?: string
         }
         Update: {
+          baileys_api_key?: string
           baileys_api_url?: string
           created_at?: string
           evolution_api_key?: string

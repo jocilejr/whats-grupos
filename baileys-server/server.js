@@ -10,7 +10,22 @@ app.use(express.json({ limit: '50mb' }));
 
 const PORT = process.env.PORT || 3100;
 const SESSIONS_DIR = process.env.SESSIONS_DIR || '/data/baileys-sessions';
+const BAILEYS_API_KEY = process.env.BAILEYS_API_KEY || '';
 const logger = pino({ level: 'warn' });
+
+// ---- API Key authentication middleware ----
+app.use((req, res, next) => {
+  // Allow health-check without auth
+  if (req.method === 'GET' && req.path === '/') return next();
+
+  if (!BAILEYS_API_KEY) return next(); // No key configured = open (backward compat)
+
+  const provided = req.headers['apikey'] || req.headers['x-api-key'];
+  if (provided !== BAILEYS_API_KEY) {
+    return res.status(401).json({ error: 'Unauthorized', message: 'Invalid or missing API key' });
+  }
+  next();
+});
 
 // ---- Webhook dispatcher ----
 async function dispatchWebhooks(event, payload) {

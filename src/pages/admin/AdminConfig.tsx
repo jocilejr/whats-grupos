@@ -32,6 +32,7 @@ export default function AdminConfig() {
   const [openaiKey, setOpenaiKey] = useState("");
   const [provider, setProvider] = useState<string>("evolution");
   const [vpsApiUrl, setVpsApiUrl] = useState("");
+  const [baileysApiKey, setBaileysApiKey] = useState("");
   
   const [testing, setTesting] = useState(false);
   const [testingBaileys, setTestingBaileys] = useState(false);
@@ -45,6 +46,7 @@ export default function AdminConfig() {
     setOpenaiKey((config as any).openai_api_key || "");
     setProvider((config as any).whatsapp_provider || "evolution");
     setVpsApiUrl((config as any).vps_api_url || "");
+    setBaileysApiKey((config as any).baileys_api_key || "");
   }
 
   const save = useMutation({
@@ -55,6 +57,7 @@ export default function AdminConfig() {
         openai_api_key: openaiKey,
         whatsapp_provider: provider,
         vps_api_url: vpsApiUrl.replace(/\/$/, ""),
+        baileys_api_key: baileysApiKey,
       };
       if (!config?.id) {
         const { error } = await supabase.from("global_config").insert(payload);
@@ -232,6 +235,11 @@ export default function AdminConfig() {
             <div className="space-y-2">
               <Label>URL da API da VPS</Label>
               <Input value={vpsApiUrl} onChange={(e) => setVpsApiUrl(e.target.value)} placeholder="https://api.app.simplificandogrupos.com" />
+            </div>
+            <div className="space-y-2">
+              <Label>API Key do Baileys Server</Label>
+              <Input type="password" value={baileysApiKey} onChange={(e) => setBaileysApiKey(e.target.value)} placeholder="Chave secreta para autenticar requisições" />
+              <p className="text-xs text-muted-foreground">Essa chave será exigida no header <code className="bg-muted px-1 rounded">apikey</code> de todas as requisições à API.</p>
             </div>
             <Button type="submit" disabled={save.isPending}>
               {save.isPending ? "Salvando..." : "Salvar"}

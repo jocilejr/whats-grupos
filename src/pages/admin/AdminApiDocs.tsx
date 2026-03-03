@@ -183,6 +183,8 @@ const endpoints = [
 function AdminApiDocs() {
   const { toast } = useToast();
   const [baseUrl, setBaseUrl] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [showApiKey, setShowApiKey] = useState(false);
   const [webhooks, setWebhooks] = useState<WebhookConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [newUrl, setNewUrl] = useState("");
@@ -200,11 +202,14 @@ function AdminApiDocs() {
     try {
       const { data: config } = await supabase
         .from("global_config")
-        .select("vps_api_url")
+        .select("vps_api_url, baileys_api_key")
         .limit(1)
         .single();
       if (config?.vps_api_url) {
         setBaseUrl(config.vps_api_url);
+      }
+      if ((config as any)?.baileys_api_key) {
+        setApiKey((config as any).baileys_api_key);
       }
 
       const { data: wh } = await supabase
@@ -221,6 +226,9 @@ function AdminApiDocs() {
   function copyCurl(method: string, path: string, body: string | null) {
     const url = `${baseUrl || "http://localhost:3100"}${path}`;
     let cmd = `curl -X ${method} "${url}"`;
+    if (apiKey) {
+      cmd += ` \\\n  -H "apikey: ${apiKey}"`;
+    }
     if (body) {
       cmd += ` \\\n  -H "Content-Type: application/json" \\\n  -d '${body}'`;
     }
@@ -320,6 +328,30 @@ function AdminApiDocs() {
           </p>
         </CardContent>
       </Card>
+
+      {apiKey && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm flex items-center gap-2">🔑 API Key (Autenticação)</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-2">
+              <code className="text-sm bg-muted px-3 py-2 rounded flex-1 font-mono">
+                {showApiKey ? apiKey : "•".repeat(Math.min(apiKey.length, 32))}
+              </code>
+              <Button size="sm" variant="ghost" onClick={() => setShowApiKey(!showApiKey)}>
+                {showApiKey ? "Ocultar" : "Mostrar"}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => { navigator.clipboard.writeText(apiKey); toast({ title: "API Key copiada!" }); }}>
+                <Copy className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground mt-2">
+              Todas as requisições devem incluir o header <code className="bg-muted px-1 rounded">apikey: SUA_CHAVE</code>. Configurável em Config Global.
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       <Tabs defaultValue="endpoints">
         <TabsList className="grid w-full grid-cols-2">
