@@ -34,8 +34,8 @@ function getProviderConfig(globalConfig: any) {
   if (provider === "baileys") {
     return {
       provider: "baileys",
-      apiUrl: "http://baileys-server:3100",
-      apiKey: "",
+      apiUrl: globalConfig?.baileys_api_url || "http://baileys-server:3100",
+      apiKey: globalConfig?.baileys_api_key || "",
     };
   }
   return {
@@ -144,9 +144,9 @@ Deno.serve(async (req) => {
         );
         if (content.mentionsEveryOne) body.mentionsEveryOne = true;
 
-        // Build headers based on provider
+      // Build headers based on provider
         const fetchHeaders: Record<string, string> = { "Content-Type": "application/json" };
-        if (provider === "evolution" && apiKey) {
+        if (apiKey) {
           fetchHeaders.apikey = apiKey;
         }
 
