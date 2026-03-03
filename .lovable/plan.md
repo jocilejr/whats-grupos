@@ -1,30 +1,71 @@
 
 
-## Plano: Adicionar busca por palavra-chave nas mensagens da campanha
+## Plano: API Externa Autônoma + Webhooks + Documentação Admin
+
+### Conceito
+
+A API externa será um canal **totalmente independente** da aplicação principal. Requisições externas vão direto ao Baileys Server sem passar pela `message_queue` nem registrar em `message_logs`. O integrador externo é responsável por seu próprio controle de fluxo.
 
 ### O que será feito
 
-Adicionar um campo de busca no diálogo de mensagens da campanha (`CampaignMessagesDialog`) que filtra as programações pelo conteúdo de texto (texto, legenda, nome de enquete, título de lista, nome de contato, etc.).
+**1. Baileys Server (`baileys-server/server.js`)**
 
-### Implementação
+- Adicionar listener `messages.upsert` no `createSession()` para capturar mensagens recebidas e enviar via webhook
+- O servidor consultará `webhook_configs` via REST do Supabase para saber quais URLs disparar
+- Payload do webhook:
+  ```text
+  {
+    event: "message.received",
+    instanceName, from, participant, messageType,
+    content, timestamp, isGroup
+  }
+  ```
+- Também disparar webhook para `connection.update` (status da conexão mudou)
 
-**Arquivo: `src/components/campaigns/CampaignMessagesDialog.tsx`**
-- Adicionar um estado `searchQuery` (string)
-- Inserir um `Input` com ícone de `Search` entre os tabs e o subheader de cada aba
-- Passar `searchQuery` como prop para `CampaignMessageList`
+**2. Tabela `webhook_configs`**
 
-**Arquivo: `src/components/campaigns/CampaignMessageList.tsx`**
-- Adicionar prop `searchQuery?: string` na interface
-- Após o filtro de `weekdayFilter` (linha ~145), aplicar um segundo filtro que verifica se o texto do conteúdo (text, caption, pollName, listTitle, contactName, fileName, name, address) contém a query (case-insensitive)
-- Atualizar a mensagem de "nenhuma mensagem" para indicar quando é resultado do filtro de busca
+| Coluna | Tipo |
+|--------|------|
+| id | uuid PK |
+| user_id | uuid |
+| webhook_url | text |
+| events | text[] |
+| is_active | boolean |
+| secret | text (token de validação) |
+| created_at | timestamptz |
 
-### Localização do campo de busca
+RLS: usuários gerenciam os próprios; admins gerenciam todos.
 
-O campo ficará fixo acima da lista de mensagens, dentro de cada `TabsContent`, ao lado do botão "Adicionar Mensagem" ou logo abaixo dele. Será um input compacto com ícone de lupa e placeholder "Buscar por conteúdo...".
+**3. Página Admin `src/pages/admin/AdminApiDocs.tsx`**
 
-### Detalhes técnicos
+Duas abas:
 
-- O filtro é client-side sobre os dados já carregados (sem chamada extra ao banco)
-- A busca usa `toLowerCase().includes()` sobre os campos de texto do `content` JSON
-- O estado de busca é compartilhado entre todas as abas (um único input no topo, fora dos tabs, ou resetado ao trocar de aba — manteremos compartilhado para UX mais fluida)
+- **Endpoints**: Documentação dos endpoints do Baileys (instâncias, grupos, mensagens) com método, rota, body de exemplo e botão "Copiar cURL". Base URL preenchida via `global_config.baileys_api_url`.
+- **Webhooks**: Formulário para cadastrar URLs, selecionar eventos (checkboxes), ativar/desativar, e testar envio.
+
+**4. Rota e Navegação**
+
+- Rota `/admin/api-docs` em `App.tsx` protegida por `AdminRoute`
+- Item "API & Webhooks" no menu admin em `AppSidebar.tsx` com ícone `Code`
+
+### Fluxo da API Externa
+
+```text
+Sistema externo (n8n, CRM, etc.)
+        │
+        ▼
+  POST /message/sendText/:name  ──► Baileys Server ──► WhatsApp (direto)
+        │
+        └── Sem fila, sem logs, sem delay da aplicação
+
+WhatsApp ──► Baileys (messages.upsert) ──► POST webhook_url (message.received)
+```
+
+### Eventos de webhook disponíveis
+
+| Evento | Descrição |
+|--------|-----------|
+| `message.received` | Mensagem recebida em qualquer conversa |
+| `group.participant.update` | Entrada/saída de participante (já existe) |
+| `connection.update` | Status da conexão mudou |
 
