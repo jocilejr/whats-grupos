@@ -1,50 +1,71 @@
 
 
-## Problema Identificado
+## Problema real identificado
 
-O 405 persiste porque existem **3 camadas de retry** que se multiplicam:
+O 405 não é um problema de retry storm -- é um problema **arquitetural**. O Baileys Server faz coisas demais automaticamente:
 
-1. **Edge function `reconnectInstance`**: delete → create → 3 polls de QR → fallback connect (cada um cria nova sessão)
-2. **Frontend `reconnectInstance`**: após edge function, faz mais 2 retries com `connectInstance`
-3. **Frontend `showQrCode`**: 3 tentativas de `connectInstance`
-4. **Polling de status**: a cada 15s chama `connectionState` (esse é OK, não cria sessão)
+1. **`restoreSessions()` no startup** reconecta TODAS as sessões simultaneamente. Cada uma recebe 405, e o WhatsApp bloqueia o IP.
+2. **`/instance/create` abre WebSocket imediatamente** -- deveria apenas registrar a instância.
+3. **`reconnectInstance`** faz delete → create (que conecta) → connect = 2+ conexões em sequência.
 
-Cada chamada que cria sessão dispara um novo WASocket que recebe 405 em ~2s, registra cooldown, mas o cooldown atual é apenas 5s e o servidor **espera** o cooldown em vez de rejeitar — então todas as chamadas concorrentes se empilham.
+O resultado: o IP do servidor fica bloqueado pelo WhatsApp antes mesmo de você conseguir escanear um QR Code.
 
-## Correções (3 arquivos)
+## Correção estrutural (2 arquivos)
 
 ### 1. `baileys-server/server.js`
 
-- **Cooldown de 5s → 30s**: WhatsApp precisa de tempo para liberar a conexão
-- **Rejeitar imediatamente durante cooldown** em vez de esperar (throw error com `COOLDOWN:Xs`)
-- **Endpoints `/instance/create` e `/instance/connect`**: capturar erro de cooldown e retornar `{ error: "cooldown", retryAfter: N }` com status 429
-- **`restoreSessions()`**: pular instâncias que já estão em cooldown
+- **Remover `restoreSessions()` do startup** -- não reconectar automaticamente. Instâncias só conectam quando o usuário pedir.
+- **Separar create de connect**: `/instance/create` apenas cria o diretório de sessão e retorna `{ status: 'created' }`, sem abrir WebSocket.
+- **Só `/instance/connect/:name` abre WebSocket** e gera QR Code.
+- **Aumentar cooldown para 60s** e adicionar **backoff global** (máximo 1 conexão por vez no servidor inteiro, com 5s entre conexões diferentes).
 
 ### 2. `supabase/functions/evolution-api/index.ts`
 
-- **`reconnectInstance`**: reduzir retries de QR polling de 3 para 1
-- **Detectar respostas `session_expired` e `cooldown`**: parar retries imediatamente e retornar o erro ao frontend
-- **Remover o fallback connect** que criava mais uma sessão concorrente
+- **`reconnectInstance`**: delete → esperar 5s → connect (não create+connect). Sem retry.
+- **`createInstance`**: apenas chama `/instance/create` (que agora não conecta). Sem polling de QR.
+- **Remover retry do `connectInstance`** -- uma única chamada, sem "single retry after 3s".
 
-### 3. `src/pages/SettingsPage.tsx`
-
-- **`reconnectInstance`**: detectar erro `cooldown` ou `session_expired` na resposta e mostrar toast com tempo de espera, sem fazer retries adicionais
-- **`showQrCode`**: mesma detecção — parar retries se receber cooldown/session_expired
-- **`createInstance`**: mesma detecção no `connectInstance` pós-criação
-
-### Resultado esperado
+### Fluxo corrigido
 
 ```text
-Antes (loop infinito):
-  UI clica Reconectar
-  → Edge: delete + create + 3 polls + connect fallback = ~5 sessões criadas
-  → Frontend: + 2 retries = ~7 sessões total
-  → Cada sessão → 405 em 2s → cleanup → próxima sessão imediata
-  → WhatsApp bloqueia mais → mais 405
+Antes:
+  Startup → restoreSessions() → 5 sockets simultâneos → 5x 405 → IP bloqueado
+  Criar instância → abre socket → 405 → session_expired
 
 Depois:
-  UI clica Reconectar
-  → Edge: delete + create + 1 poll → 405 → cooldown 30s → retorna {error: "cooldown", retryAfter: 28}
-  → Frontend: recebe cooldown → mostra "Aguarde 28s antes de tentar novamente" → para
-  → Após 30s, próxima tentativa tem socket limpo sem concorrência
+  Startup → nada (só inicia o Express)
+  Criar instância → registra nome → retorna OK
+  Conectar instância → abre 1 socket → gera QR ou 405 com cooldown 60s
+  Reconectar → delete + wait 5s + connect (1 socket)
 ```
+
+### Detalhes técnicos
+
+**`server.js` - create sem conectar:**
+```javascript
+app.post('/instance/create', async (req, res) => {
+  const { instanceName } = req.body;
+  // Apenas cria o diretório, NÃO abre WebSocket
+  const sessionDir = path.join(SESSIONS_DIR, instanceName);
+  if (!fs.existsSync(sessionDir)) fs.mkdirSync(sessionDir, { recursive: true });
+  res.json({ instance: { instanceName, status: 'created' } });
+});
+```
+
+**`server.js` - mutex global (1 conexão por vez):**
+```javascript
+let globalConnectLock = null;
+// Antes de cada createSession, aguarda lock global + 5s entre conexões
+```
+
+**Edge function - reconnect simplificado:**
+```javascript
+case "reconnectInstance":
+  await fetch(`${apiUrl}/instance/delete/${instanceName}`, ...);
+  await new Promise(r => setTimeout(r, 5000));
+  // Vai direto para connect, sem create intermediário
+  const resp = await fetch(`${apiUrl}/instance/connect/${instanceName}`, ...);
+  result = await resp.json();
+  break;
+```
+
