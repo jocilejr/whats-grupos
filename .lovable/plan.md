@@ -1,33 +1,37 @@
 
 
-# Causa raiz: versão do protocolo WhatsApp obsoleta no Baileys
+# Correção definitiva: WhatsApp rejeita Platform.WEB (405)
 
-## O problema REAL
+## Causa raiz confirmada
 
-O erro 405 **não é causado pelo código do servidor** — é um bug conhecido da biblioteca `@whiskeysockets/baileys@7.0.0-rc.9`.
+O WhatsApp começou a rejeitar conexões que se identificam como `Platform.WEB` (valor 14). Agora exige `Platform.MACOS` (valor 24). O Baileys `7.0.0-rc.9` usa WEB por padrão, causando 405 em toda tentativa de pairing.
 
-A versão do protocolo WhatsApp hardcoded no Baileys é `[2, 3000, 1027934701]`, que **o WhatsApp já não aceita mais**. Toda tentativa de conexão é rejeitada com 405 antes mesmo de gerar o QR Code. Issue confirmada: [GitHub #2376](https://github.com/WhiskeySockets/Baileys/issues/2376).
+**PR oficial**: [WhiskeySockets/Baileys#2365](https://github.com/WhiskeySockets/Baileys/pull/2365) -- confirmado funcionando por 10+ usuários na última semana.
 
 ## Correção
 
-Passar a versão correta do protocolo no `makeWASocket()` em `baileys-server/server.js`:
+Duas alterações:
 
+### 1. `baileys-server/package.json` -- instalar o fork com a correção
+Trocar a dependência do Baileys para o branch com o fix:
+```json
+"@whiskeysockets/baileys": "kobie3717/Baileys#fix/405-platform-macos"
+```
+
+### 2. `baileys-server/server.js` -- configurar browser como macOS
+Adicionar a opção `browser` no `makeWASocket` para garantir que a plataforma MACOS é usada:
 ```javascript
 const sock = makeWASocket({
   auth: state,
   logger,
   printQRInTerminal: false,
   generateHighQualityLinkPreview: true,
-  version: [2, 3000, 1034074495],  // ← versão atual do WA Web
+  browser: ['Baileys', 'Chrome', '131.0.0'],
 });
 ```
-
-Isso é uma única linha adicionada na chamada `makeWASocket` (linha ~179 do `server.js`).
-
-## Arquivo alterado
-- `baileys-server/server.js` — adicionar `version: [2, 3000, 1034074495]` ao config do `makeWASocket`
+E remover o `version` hardcoded que não resolve o problema.
 
 ## Após a alteração
-- Rebuild do container: `docker compose up -d --build baileys-server`
-- A primeira tentativa de "QR Code" deve gerar o QR normalmente
+- Rebuild obrigatório: `docker compose up -d --build baileys-server` (o `npm install` no Dockerfile vai baixar o fork)
+- Testar QR Code -- deve gerar e parear normalmente
 
