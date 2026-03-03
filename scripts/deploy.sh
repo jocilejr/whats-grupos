@@ -40,7 +40,6 @@ if [ -d "${PROJECT_DIR}/baileys-server" ]; then
       --network supabase_default \
       -e SUPABASE_FUNCTIONS_URL=http://supabase-kong:8000 \
       -e SUPABASE_SERVICE_ROLE_KEY="${SERVICE_ROLE_KEY}" \
-      -e BAILEYS_API_KEY="${BAILEYS_API_KEY}" \
       -p 127.0.0.1:3100:3100 -v baileys-data:/data baileys-server 2>/dev/null && \
     echo "[OK] Baileys Server atualizado." || \
     echo "[AVISO] Falha ao atualizar Baileys Server."

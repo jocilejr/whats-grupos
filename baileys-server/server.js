@@ -1,121 +1,24 @@
-import express from 'express';
-import makeWASocket, { useMultiFileAuthState, DisconnectReason } from '@whiskeysockets/baileys';
-import QRCode from 'qrcode';
-import pino from 'pino';
-import path from 'path';
-import fs from 'fs';
-import { createRequire } from 'module';
-
-const require = createRequire(import.meta.url);
-
-// Global error handlers to prevent silent crashes
-process.on('uncaughtException', (err) => {
-  console.error('[FATAL] Uncaught Exception:', err.message, err.stack);
-});
-process.on('unhandledRejection', (reason) => {
-  console.error('[FATAL] Unhandled Rejection:', reason);
-});
+const express = require('express');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, makeCacheableSignalKeyStore } = require('@whiskeysockets/baileys');
+const QRCode = require('qrcode');
+const pino = require('pino');
+const path = require('path');
+const fs = require('fs');
 
 const app = express();
 app.use(express.json({ limit: '50mb' }));
 
 const PORT = process.env.PORT || 3100;
 const SESSIONS_DIR = process.env.SESSIONS_DIR || '/data/baileys-sessions';
-const BAILEYS_API_KEY = process.env.BAILEYS_API_KEY || '';
 const logger = pino({ level: 'warn' });
-
-// ---- API Key authentication middleware ----
-app.use((req, res, next) => {
-  // Allow health-check without auth
-  if (req.method === 'GET' && req.path === '/') return next();
-
-  if (!BAILEYS_API_KEY) return next(); // No key configured = open (backward compat)
-
-  const provided = req.headers['apikey'] || req.headers['x-api-key'];
-  if (provided !== BAILEYS_API_KEY) {
-    return res.status(401).json({ error: 'Unauthorized', message: 'Invalid or missing API key' });
-  }
-  next();
-});
-
-// ---- Webhook dispatcher ----
-async function dispatchWebhooks(event, payload) {
-  try {
-    const supabaseUrl = process.env.SUPABASE_URL || process.env.SUPABASE_FUNCTIONS_URL;
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!supabaseUrl || !supabaseKey) return;
-
-    // Fetch active webhook configs that listen to this event
-    const res = await fetch(
-      `${supabaseUrl}/rest/v1/webhook_configs?is_active=eq.true&events=cs.{${event}}`,
-      {
-        headers: {
-          'apikey': supabaseKey,
-          'Authorization': `Bearer ${supabaseKey}`,
-          'Content-Type': 'application/json',
-        },
-      }
-    );
-    const configs = await res.json();
-    if (!Array.isArray(configs) || configs.length === 0) return;
-
-    const body = JSON.stringify({ event, timestamp: new Date().toISOString(), data: payload });
-
-    for (const cfg of configs) {
-      const headers = { 'Content-Type': 'application/json' };
-      if (cfg.secret) {
-        headers['X-Webhook-Secret'] = cfg.secret;
-      }
-      fetch(cfg.webhook_url, { method: 'POST', headers, body }).catch(err => {
-        console.error(`[webhook] Failed to dispatch ${event} to ${cfg.webhook_url}:`, err.message);
-      });
-    }
-
-    console.log(`[webhook] Dispatched ${event} to ${configs.length} endpoint(s)`);
-  } catch (err) {
-    console.error(`[webhook] Error fetching configs for ${event}:`, err.message);
-  }
-}
 
 // Store active sockets
 const sessions = new Map();
 
-// Mutex per instance — prevents concurrent createSession calls
-const sessionLocks = new Map();
-
-// Cooldown after terminal disconnects (405 etc) — prevents rapid reconnect flood
-const sessionCooldowns = new Map();
-const COOLDOWN_MS = 10000;
-
-// Global connection mutex — only 1 WebSocket connection at a time across all instances
-let globalConnectBusy = false;
-let globalConnectLastTime = 0;
-const GLOBAL_CONNECT_GAP_MS = 5000;
-
-async function acquireGlobalConnectLock() {
-  // Wait until no other connection is in progress
-  while (globalConnectBusy) {
-    await new Promise(r => setTimeout(r, 500));
-  }
-  // Enforce minimum gap between connections
-  const elapsed = Date.now() - globalConnectLastTime;
-  if (elapsed < GLOBAL_CONNECT_GAP_MS) {
-    await new Promise(r => setTimeout(r, GLOBAL_CONNECT_GAP_MS - elapsed));
-  }
-  globalConnectBusy = true;
+// Ensure sessions dir exists
+if (!fs.existsSync(SESSIONS_DIR)) {
+  fs.mkdirSync(SESSIONS_DIR, { recursive: true });
 }
-
-function releaseGlobalConnectLock() {
-  globalConnectLastTime = Date.now();
-  globalConnectBusy = false;
-}
-
-// Wipe ALL session data on startup — forces fresh QR on every connect
-if (fs.existsSync(SESSIONS_DIR)) {
-  fs.rmSync(SESSIONS_DIR, { recursive: true, force: true });
-  console.log(`[startup] Wiped all session data from ${SESSIONS_DIR}`);
-}
-fs.mkdirSync(SESSIONS_DIR, { recursive: true });
 
 // ---- Helper: get or create session ----
 async function getSession(instanceName) {
@@ -126,62 +29,19 @@ async function getSession(instanceName) {
 }
 
 async function createSession(instanceName) {
-  // If there's already a lock for this instance, wait for it
-  if (sessionLocks.has(instanceName)) {
-    console.log(`[${instanceName}] Waiting for existing session lock...`);
-    try { await sessionLocks.get(instanceName); } catch {}
-    // After lock released, if session exists and is usable, return it
-    const existing = sessions.get(instanceName);
-    if (existing) return existing;
-  }
-
-  // Check cooldown after terminal disconnect — REJECT immediately instead of waiting
-  const lastCooldown = sessionCooldowns.get(instanceName) || 0;
-  const elapsed = Date.now() - lastCooldown;
-  if (elapsed < COOLDOWN_MS) {
-    const remainingSec = Math.ceil((COOLDOWN_MS - elapsed) / 1000);
-    console.log(`[${instanceName}] Cooldown active, rejecting. Retry after ${remainingSec}s`);
-    throw new Error(`COOLDOWN:${remainingSec}`);
-  }
-
-  // Create a lock promise with external resolve
-  let releaseLock;
-  const lockPromise = new Promise(resolve => { releaseLock = resolve; });
-  sessionLocks.set(instanceName, lockPromise);
-
-  try {
-    // Double-check: session may have been created while we waited
-    if (sessions.has(instanceName)) {
-      return sessions.get(instanceName);
-    }
-
-    await acquireGlobalConnectLock();
-    try {
-      return await _doCreateSession(instanceName);
-    } finally {
-      releaseGlobalConnectLock();
-    }
-  } finally {
-    sessionLocks.delete(instanceName);
-    releaseLock();
-  }
-}
-
-async function _doCreateSession(instanceName) {
   const sessionDir = path.join(SESSIONS_DIR, instanceName);
-  // Always start fresh — delete any residual auth files before connecting
-  if (fs.existsSync(sessionDir)) {
-    fs.rmSync(sessionDir, { recursive: true, force: true });
-    console.log(`[${instanceName}] Cleaned residual session dir before connect`);
-  }
   const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
+  const { version } = await fetchLatestBaileysVersion();
 
   const sock = makeWASocket({
-    auth: state,
+    version,
+    auth: {
+      creds: state.creds,
+      keys: makeCacheableSignalKeyStore(state.keys, logger),
+    },
     logger,
     printQRInTerminal: false,
     generateHighQualityLinkPreview: true,
-    browser: ['Mac OS', 'Chrome', '20.0.04'],
   });
 
   const session = {
@@ -196,13 +56,11 @@ async function _doCreateSession(instanceName) {
 
   sock.ev.on('connection.update', (update) => {
     const { connection, lastDisconnect, qr } = update;
-    console.log(`[${instanceName}] connection.update:`, JSON.stringify({ connection, qr: !!qr, hasLastDisconnect: !!lastDisconnect }));
 
     if (qr) {
       session.qr = qr;
-      session.qrTimestamp = Date.now();
       session.connecting = true;
-      console.log(`[${instanceName}] QR code generated (length: ${qr.length})`);
+      console.log(`[${instanceName}] QR code generated`);
     }
 
     if (connection === 'open') {
@@ -210,49 +68,27 @@ async function _doCreateSession(instanceName) {
       session.connecting = false;
       session.qr = null;
       console.log(`[${instanceName}] Connected`);
-      // Dispatch webhook for connection.update
-      dispatchWebhooks('connection.update', { instanceName, state: 'open' });
     }
 
     if (connection === 'close') {
       session.connected = false;
       session.connecting = false;
       const statusCode = lastDisconnect?.error?.output?.statusCode;
-      // Terminal codes: 401=loggedOut, 405=replaced/invalid, 406=obsolete, 440=multidevice conflict
-      const terminalCodes = [401, 405, 406, 440];
-      const shouldReconnect = !terminalCodes.includes(statusCode);
+      const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
       console.log(`[${instanceName}] Disconnected. Status: ${statusCode}. Reconnect: ${shouldReconnect}`);
-      // Dispatch webhook for connection.update
-      dispatchWebhooks('connection.update', { instanceName, state: 'close', statusCode, willReconnect: shouldReconnect });
 
       if (shouldReconnect) {
-        // NO auto-reconnect — just clean up. User must reconnect manually.
-        console.log(`[${instanceName}] Non-terminal disconnect (${statusCode}). Cleaned up. User must reconnect manually.`);
-        try { sock.end(); } catch {}
-        sessions.delete(instanceName);
+        setTimeout(() => {
+          console.log(`[${instanceName}] Attempting reconnect...`);
+          sessions.delete(instanceName);
+          createSession(instanceName).catch(console.error);
+        }, 3000);
       } else {
-        console.log(`[${instanceName}] Terminal disconnect (${statusCode}). Marking error and scheduling cleanup.`);
-        // Register cooldown to prevent rapid re-creation
-        sessionCooldowns.set(instanceName, Date.now());
-        // Close socket gracefully
-        try { sock.end(); } catch {}
-        // Mark error on session instead of deleting — polling will detect it
-        const existingSession = sessions.get(instanceName);
-        if (existingSession) {
-          existingSession.error = { code: statusCode, message: `Terminal disconnect ${statusCode}` };
-        }
-        // Clean up session files so next connect generates fresh QR
+        sessions.delete(instanceName);
+        // Clean up session files on logout
         if (fs.existsSync(sessionDir)) {
           fs.rmSync(sessionDir, { recursive: true, force: true });
-          console.log(`[${instanceName}] Session files removed from ${sessionDir}`);
         }
-        // Deferred cleanup — remove from Map after 30s so polling can read the error
-        setTimeout(() => {
-          if (sessions.get(instanceName)?.error) {
-            sessions.delete(instanceName);
-            console.log(`[${instanceName}] Deferred cleanup: removed from sessions Map`);
-          }
-        }, 30000);
       }
     }
   });
@@ -291,87 +127,52 @@ async function _doCreateSession(instanceName) {
     }
   });
 
-  // Listen for incoming messages and dispatch via webhook
-  sock.ev.on('messages.upsert', async ({ messages: msgs, type }) => {
-    if (type !== 'notify') return;
-    for (const msg of msgs) {
-      if (msg.key.fromMe) continue; // ignore own messages
-      try {
-        const from = msg.key.remoteJid;
-        const isGroup = from?.endsWith('@g.us') || false;
-        const participant = msg.key.participant || null;
-        let messageType = 'unknown';
-        let content = '';
-
-        if (msg.message?.conversation) {
-          messageType = 'text';
-          content = msg.message.conversation;
-        } else if (msg.message?.extendedTextMessage?.text) {
-          messageType = 'text';
-          content = msg.message.extendedTextMessage.text;
-        } else if (msg.message?.imageMessage) {
-          messageType = 'image';
-          content = msg.message.imageMessage.caption || '';
-        } else if (msg.message?.videoMessage) {
-          messageType = 'video';
-          content = msg.message.videoMessage.caption || '';
-        } else if (msg.message?.audioMessage) {
-          messageType = 'audio';
-        } else if (msg.message?.documentMessage) {
-          messageType = 'document';
-          content = msg.message.documentMessage.fileName || '';
-        } else if (msg.message?.stickerMessage) {
-          messageType = 'sticker';
-        }
-
-        dispatchWebhooks('message.received', {
-          instanceName,
-          from,
-          participant,
-          messageType,
-          content,
-          timestamp: msg.messageTimestamp,
-          isGroup,
-          messageId: msg.key.id,
-        });
-      } catch (err) {
-        console.error(`[${instanceName}] messages.upsert webhook error:`, err.message);
-      }
-    }
-  });
-
   sessions.set(instanceName, session);
   return session;
 }
 
-// ---- NO automatic session restore on startup ----
-// Sessions only connect when the user explicitly requests via /instance/connect/:name
-// This prevents mass reconnection storms that trigger WhatsApp IP blocks
+// ---- Restore existing sessions on startup ----
+async function restoreSessions() {
+  if (!fs.existsSync(SESSIONS_DIR)) return;
+  const dirs = fs.readdirSync(SESSIONS_DIR).filter(d =>
+    fs.statSync(path.join(SESSIONS_DIR, d)).isDirectory()
+  );
+  for (const name of dirs) {
+    try {
+      console.log(`[startup] Restoring session: ${name}`);
+      await createSession(name);
+    } catch (e) {
+      console.error(`[startup] Failed to restore ${name}:`, e.message);
+    }
+  }
+}
 
 // ============================================================
 // ENDPOINTS (Evolution API compatible)
 // ============================================================
 
-// POST /instance/create — Only registers the instance, does NOT open WebSocket
+// POST /instance/create
 app.post('/instance/create', async (req, res) => {
   try {
     const { instanceName } = req.body;
     if (!instanceName) return res.status(400).json({ error: 'instanceName required' });
 
-    // If already connected, just return status
-    const session = await getSession(instanceName);
+    let session = await getSession(instanceName);
     if (session) {
       return res.json({ instance: { instanceName, status: session.connected ? 'open' : 'connecting' } });
     }
 
-    // Just create the session directory — no WebSocket
-    const sessionDir = path.join(SESSIONS_DIR, instanceName);
-    if (!fs.existsSync(sessionDir)) {
-      fs.mkdirSync(sessionDir, { recursive: true });
+    session = await createSession(instanceName);
+
+    // Wait a bit for QR to be generated
+    await new Promise(r => setTimeout(r, 3000));
+
+    const result = { instance: { instanceName, status: 'connecting' } };
+    if (session.qr) {
+      result.qrcode = { base64: await QRCode.toDataURL(session.qr) };
     }
 
-    console.log(`[create] Instance ${instanceName} registered (no WebSocket opened)`);
-    res.json({ instance: { instanceName, status: 'created' } });
+    res.json(result);
   } catch (e) {
     console.error('[create]', e);
     res.status(500).json({ error: e.message });
@@ -385,56 +186,8 @@ app.get('/instance/connect/:name', async (req, res) => {
     let session = await getSession(name);
 
     if (!session) {
-      try {
-        session = await createSession(name);
-      } catch (e) {
-        if (e.message?.startsWith('COOLDOWN:')) {
-          const retryAfter = parseInt(e.message.split(':')[1]) || 30;
-          return res.status(429).json({ error: 'cooldown', retryAfter, message: `Aguarde ${retryAfter}s antes de tentar novamente.` });
-        }
-        throw e;
-      }
-    }
-
-    if (session.connected) {
-      return res.json({ instance: { state: 'open' } });
-    }
-
-    // Poll for QR code (up to 15s, check every 1s)
-    for (let i = 0; i < 15; i++) {
-      if (session.qr || session.connected) break;
-      // Check if session has a terminal error (e.g. 405)
-      if (session.error) {
-        const retryAfter = Math.ceil(COOLDOWN_MS / 1000);
-        console.log(`[connect] Session ${name} hit terminal error ${session.error.code} during polling`);
-        return res.status(429).json({
-          error: `terminal_${session.error.code}`,
-          message: `Disconnect ${session.error.code}. Tente novamente em ${retryAfter}s.`,
-          retryAfter,
-        });
-      }
-      // Check if session was removed entirely
-      if (!sessions.has(name)) {
-        console.log(`[connect] Session ${name} was removed during polling`);
-        return res.json({ error: 'session_expired', message: 'Sessão invalidada. Tente novamente em alguns segundos.' });
-      }
-      await new Promise(r => setTimeout(r, 1000));
-      console.log(`[connect] Polling attempt ${i + 1}/15, qr=${!!session.qr}, connected=${session.connected}`);
-    }
-
-    // Final check for terminal error
-    if (session.error) {
-      const retryAfter = Math.ceil(COOLDOWN_MS / 1000);
-      return res.status(429).json({
-        error: `terminal_${session.error.code}`,
-        message: `Disconnect ${session.error.code}. Tente novamente em ${retryAfter}s.`,
-        retryAfter,
-      });
-    }
-
-    // Final check if session was removed
-    if (!sessions.has(name)) {
-      return res.json({ error: 'session_expired', message: 'Sessão invalidada. Tente novamente em alguns segundos.' });
+      session = await createSession(name);
+      await new Promise(r => setTimeout(r, 3000));
     }
 
     if (session.connected) {
@@ -446,8 +199,14 @@ app.get('/instance/connect/:name', async (req, res) => {
       return res.json({ base64, code: session.qr });
     }
 
-    console.log(`[connect] No QR after polling for ${name}`);
-    res.json({ instance: { state: 'connecting' } });
+    // Wait for QR
+    await new Promise(r => setTimeout(r, 5000));
+    if (session.qr) {
+      const base64 = await QRCode.toDataURL(session.qr);
+      return res.json({ base64, code: session.qr });
+    }
+
+    res.json({ instance: { state: session.connected ? 'open' : 'connecting' } });
   } catch (e) {
     console.error('[connect]', e);
     res.status(500).json({ error: e.message });
@@ -923,53 +682,13 @@ app.get('/smart-link/:slug', async (req, res) => {
   }
 });
 
-// GET /instance/qrcode/:name - Dedicated QR polling endpoint
-app.get('/instance/qrcode/:name', async (req, res) => {
-  try {
-    const name = req.params.name;
-    const timeout = parseInt(req.query.timeout) || 15;
-    const session = await getSession(name);
-    
-    if (!session) {
-      return res.status(404).json({ error: 'Instance not found' });
-    }
-    
-    if (session.connected) {
-      return res.json({ instance: { state: 'open' } });
-    }
-
-    // Poll for QR
-    for (let i = 0; i < timeout; i++) {
-      if (session.qr || session.connected) break;
-      await new Promise(r => setTimeout(r, 1000));
-    }
-
-    if (session.connected) {
-      return res.json({ instance: { state: 'open' } });
-    }
-
-    if (session.qr) {
-      const base64 = await QRCode.toDataURL(session.qr);
-      return res.json({ base64, code: session.qr });
-    }
-
-    res.json({ instance: { state: 'connecting' }, message: 'QR not ready yet' });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
 // Health check
 app.get('/health', (req, res) => {
-  let baileysVersion = 'unknown';
-  try {
-    const pkg = require('@whiskeysockets/baileys/package.json');
-    baileysVersion = pkg.version;
-  } catch (_) {}
-  res.json({ status: 'ok', sessions: sessions.size, baileysVersion });
+  res.json({ status: 'ok', sessions: sessions.size });
 });
 
 // ---- Start server ----
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Baileys Server running on port ${PORT} (no auto-restore — sessions connect on demand)`);
+app.listen(PORT, '0.0.0.0', async () => {
+  console.log(`Baileys Server running on port ${PORT}`);
+  await restoreSessions();
 });

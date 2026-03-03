@@ -25,7 +25,6 @@ const GroupsPage = lazy(() => import("./pages/GroupsPage"));
 const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard"));
 const AdminUsers = lazy(() => import("./pages/admin/AdminUsers"));
 const AdminConfig = lazy(() => import("./pages/admin/AdminConfig"));
-import AdminApiDocs from "./pages/admin/AdminApiDocs";
 const LandingPage = lazy(() => import("./pages/LandingPage"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 const SmartLinkRedirect = lazy(() => import("./pages/SmartLinkRedirect"));
@@ -80,7 +79,6 @@ const App = () => (
                   <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
                   <Route path="/admin/users" element={<AdminRoute><AdminUsers /></AdminRoute>} />
                   <Route path="/admin/config" element={<AdminRoute><AdminConfig /></AdminRoute>} />
-                  <Route path="/admin/api-docs" element={<AdminRoute><AdminApiDocs /></AdminRoute>} />
                 </Route>
                 <Route path="*" element={<NotFound />} />
               </Routes>

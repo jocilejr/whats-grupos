@@ -30,7 +30,7 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [configId, setConfigId] = useState("");
-  const [selectedInstance, setSelectedInstance] = useState("");
+  const [evolutionInstance, setEvolutionInstance] = useState("");
   const [groupIds, setGroupIds] = useState<string[]>([]);
   const [isActive, setIsActive] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -54,7 +54,7 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
 
   // When user selects an instance, auto-resolve the configId
   const handleInstanceSelect = (instName: string) => {
-    setSelectedInstance(instName);
+    setEvolutionInstance(instName);
     const matched = configs?.find((c) => c.instance_name === instName);
     setConfigId(matched?.id || "");
     setGroupIds([]);
@@ -65,7 +65,7 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
       if (campaign) {
         setName(campaign.name || "");
         setDescription(campaign.description || "");
-        setSelectedInstance(campaign.instance_name || "");
+        setEvolutionInstance(campaign.instance_name || "");
         setGroupIds(campaign.group_ids || []);
         setIsActive(campaign.is_active ?? true);
         // Resolve configId: use campaign's value, or look up from configs by instance name
@@ -75,7 +75,7 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
         setName("");
         setDescription("");
         setConfigId("");
-        setSelectedInstance("");
+        setEvolutionInstance("");
         setGroupIds([]);
         setIsActive(true);
       }
@@ -93,7 +93,7 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
           name: name.trim(),
           description: description.trim() || null,
           api_config_id: configId || null,
-          instance_name: selectedInstance || null,
+          instance_name: evolutionInstance || null,
           group_ids: groupIds,
           is_active: isActive,
         }).eq("id", campaign.id);
@@ -105,7 +105,7 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
           name: name.trim(),
           description: description.trim() || null,
           api_config_id: configId || null,
-          instance_name: selectedInstance || null,
+          instance_name: evolutionInstance || null,
           group_ids: groupIds,
           is_active: isActive,
         });
@@ -157,7 +157,7 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
               <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
                 <Zap className="h-3 w-3" />Instância WhatsApp
               </Label>
-              <Select value={selectedInstance} onValueChange={handleInstanceSelect}>
+              <Select value={evolutionInstance} onValueChange={handleInstanceSelect}>
                 <SelectTrigger className="bg-background/50 border-border/50"><SelectValue placeholder="Selecione a instância" /></SelectTrigger>
                 <SelectContent>
                   {instanceOptions.map((opt) => (
@@ -175,7 +175,7 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
             <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
               <Users className="h-3 w-3" />Grupos
             </Label>
-            <GroupSelector configId={configId} instanceName={selectedInstance} selectedIds={groupIds} onSelectionChange={setGroupIds} />
+            <GroupSelector configId={configId} instanceName={evolutionInstance} selectedIds={groupIds} onSelectionChange={setGroupIds} />
           </div>
 
           {/* Switch ativa */}

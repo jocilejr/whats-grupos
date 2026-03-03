@@ -109,33 +109,7 @@ async function handleCronTrigger(supabase: any) {
     }
   }
 
-  // Auto-recover stale messages: recalculate next_run_at for messages stuck in the past
-  const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
-  const { data: staleMessages } = await supabase
-    .from("scheduled_messages")
-    .select("*")
-    .eq("is_active", true)
-    .not("next_run_at", "is", null)
-    .lt("next_run_at", twoHoursAgo)
-    .is("processing_started_at", null);
-
-  if (staleMessages?.length) {
-    for (const msg of staleMessages) {
-      if (msg.schedule_type === "once") {
-        await supabase.from("scheduled_messages").update({
-          is_active: false, next_run_at: null,
-        }).eq("id", msg.id);
-      } else {
-        const nextRunAt = calculateNextRunAt(msg, new Date());
-        await supabase.from("scheduled_messages").update({
-          next_run_at: nextRunAt, processing_started_at: null,
-        }).eq("id", msg.id);
-      }
-    }
-    console.log(`Auto-recovered ${staleMessages.length} stale messages`);
-  }
-
-  return new Response(JSON.stringify({ queued: totalQueued, staleRecovered: staleMessages?.length || 0 }), {
+  return new Response(JSON.stringify({ queued: totalQueued }), {
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 }
@@ -166,10 +140,26 @@ async function enqueueMessage(supabase: any, msg: any): Promise<number> {
     }
   }
 
-  // Fallback to global config — always Baileys, resolved at runtime by process-queue
+  // Fallback to global config if no api_config or if values are "global"
   if (!apiUrl || apiUrl === "global" || !apiKey || apiKey === "global") {
-    apiUrl = "resolved-at-runtime";
-    apiKey = "resolved-at-runtime";
+    const { data: globalCfg } = await supabase.from("global_config")
+      .select("evolution_api_url, evolution_api_key, whatsapp_provider")
+      .limit(1).maybeSingle();
+
+    const provider = globalCfg?.whatsapp_provider || "evolution";
+
+    if (provider === "baileys") {
+      // Baileys: URL resolvida no process-queue, nao precisa validar aqui
+      apiUrl = "resolved-at-runtime";
+      apiKey = "resolved-at-runtime";
+    } else {
+      if (!globalCfg?.evolution_api_url) {
+        console.error(`No global Evolution API config for message ${msg.id}`);
+        return 0;
+      }
+      apiUrl = globalCfg.evolution_api_url;
+      apiKey = globalCfg.evolution_api_key;
+    }
   }
   apiUrl = apiUrl!.replace(/\/$/, "");
 

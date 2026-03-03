@@ -57,7 +57,7 @@ export default function SettingsPage() {
     await Promise.all(
       configList.map(async (config) => {
         try {
-          const result = await callWhatsAppApi("connectionState", config.id);
+          const result = await callEvolutionApi("connectionState", config.id);
           results[config.id] = result;
         } catch {
           // silently ignore polling errors
@@ -81,7 +81,7 @@ export default function SettingsPage() {
     return () => clearInterval(interval);
   }, [configs, pollAllStatuses]);
 
-  const callWhatsAppApi = async (action: string, configId: string, body?: any) => {
+  const callEvolutionApi = async (action: string, configId: string, body?: any) => {
     const { data: { session } } = await supabase.auth.getSession();
     const resp = await fetch(
       `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/evolution-api?action=${action}&configId=${configId}`,
@@ -110,7 +110,7 @@ export default function SettingsPage() {
       }).select().single();
       if (error) throw error;
 
-      const result = await callWhatsAppApi("createInstance", newConfig.id);
+      const result = await callEvolutionApi("createInstance", newConfig.id);
       
       if (result.error) {
         await supabase.from("api_configs").delete().eq("id", newConfig.id);
@@ -121,14 +121,11 @@ export default function SettingsPage() {
       setNewInstanceName("");
       toast({ title: "Instância criada!" });
 
-      const qrResult = await callWhatsAppApi("connectInstance", newConfig.id);
-      // Don't retry on cooldown during creation
-      if (qrResult?.error !== "cooldown" && qrResult?.error !== "session_expired") {
-        const qrCode = qrResult?.base64 || qrResult?.qrcode?.base64 || qrResult?.qrcode || qrResult?.code;
-        if (qrCode && typeof qrCode === "string" && qrCode.length > 50) {
-          const src = qrCode.startsWith("data:") ? qrCode : `data:image/png;base64,${qrCode}`;
-          setQrCodeData({ name: newInstanceName, qrcode: src });
-        }
+      const qrResult = await callEvolutionApi("connectInstance", newConfig.id);
+      const qrCode = qrResult?.base64 || qrResult?.qrcode?.base64 || qrResult?.qrcode || qrResult?.code;
+      if (qrCode && typeof qrCode === "string" && qrCode.length > 50) {
+        const src = qrCode.startsWith("data:") ? qrCode : `data:image/png;base64,${qrCode}`;
+        setQrCodeData({ name: newInstanceName, qrcode: src });
       }
     } catch (e: any) {
       toast({ title: "Erro", description: e.message, variant: "destructive" });
@@ -140,9 +137,9 @@ export default function SettingsPage() {
   const deleteConfig = useMutation({
     mutationFn: async (id: string) => {
       try {
-        await callWhatsAppApi("deleteInstance", id);
+        await callEvolutionApi("deleteInstance", id);
       } catch {
-        // Continue even if API fails
+        // Continue even if Evolution API fails
       }
       const { error } = await supabase.from("api_configs").delete().eq("id", id);
       if (error) throw error;
@@ -156,7 +153,7 @@ export default function SettingsPage() {
   const testConnection = async (configId: string) => {
     setTestingId(configId);
     try {
-      const result = await callWhatsAppApi("connectionState", configId);
+      const result = await callEvolutionApi("connectionState", configId);
       setConnectionStates((prev) => ({ ...prev, [configId]: result }));
       const state = result?.instance?.state || result?.state;
       if (state === "open") {
@@ -177,34 +174,26 @@ export default function SettingsPage() {
 
   const showQrCode = async (configId: string, name: string) => {
     try {
-      const result = await callWhatsAppApi("connectInstance", configId);
+      const result = await callEvolutionApi("connectInstance", configId);
       console.log("connectInstance response:", JSON.stringify(result));
-      
-      // Detect cooldown/session_expired — stop immediately
-      if (result?.error === "cooldown" || result?.error === "session_expired") {
-        const retryAfter = result?.retryAfter || 30;
-        toast({ title: "Aguarde", description: `Tente novamente em ${retryAfter}s.`, variant: "destructive" });
-        return;
-      }
-      
-      // Check if already connected
-      const state = result?.instance?.state;
-      if (state === "open") {
-        toast({ title: "Instância conectada!", description: "Já está ativa, não precisa de QR Code." });
-        setConnectionStates((prev) => ({ ...prev, [configId]: result }));
-        return;
-      }
       
       const qr = result?.base64 || result?.qrcode?.base64 || result?.qrcode || result?.code;
       if (qr && typeof qr === "string" && qr.length > 50) {
         const src = qr.startsWith("data:") ? qr : `data:image/png;base64,${qr}`;
         setQrCodeData({ name, qrcode: src });
       } else {
-        toast({ 
-          title: "QR Code não gerado", 
-          description: "Use o botão 'Reconectar' para recriar a instância e gerar um novo QR Code.", 
-          variant: "destructive" 
-        });
+        const stateResult = await callEvolutionApi("connectionState", configId);
+        setConnectionStates((prev) => ({ ...prev, [configId]: stateResult }));
+        const state = stateResult?.instance?.state || stateResult?.state;
+        if (state === "open") {
+          toast({ title: "Instância conectada!", description: "Já está ativa, não precisa de QR Code." });
+        } else {
+          toast({ 
+            title: "QR Code não gerado", 
+            description: "Use o botão 'Reconectar' para recriar a instância e gerar um novo QR Code.", 
+            variant: "destructive" 
+          });
+        }
       }
     } catch (e: any) {
       toast({ title: "Erro", description: e.message, variant: "destructive" });
@@ -214,18 +203,10 @@ export default function SettingsPage() {
   const reconnectInstance = async (configId: string, name: string) => {
     try {
       toast({ title: "Reconectando...", description: "Recriando instância e gerando QR Code. Aguarde..." });
-      const result = await callWhatsAppApi("reconnectInstance", configId);
+      const result = await callEvolutionApi("reconnectInstance", configId);
       console.log("reconnectInstance response:", JSON.stringify(result));
       
-      // Detect cooldown/session_expired — stop immediately, no retries
-      if (result?.error === "cooldown" || result?.error === "session_expired") {
-        const retryAfter = result?.retryAfter || 30;
-        toast({ title: "Aguarde", description: `Tente novamente em ${retryAfter}s.`, variant: "destructive" });
-        return;
-      }
-      
       const qr = result?.qrcode?.base64 || result?.base64 || result?.qrcode || result?.code;
-      
       if (qr && typeof qr === "string" && qr.length > 50) {
         const src = qr.startsWith("data:") ? qr : `data:image/png;base64,${qr}`;
         setQrCodeData({ name, qrcode: src });

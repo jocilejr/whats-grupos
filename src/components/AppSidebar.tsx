@@ -3,6 +3,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useRole } from "@/hooks/useRole";
 import { useNavigate, useLocation } from "react-router-dom";
 import {
+  
   Send,
   Megaphone,
   FileText,
@@ -14,7 +15,6 @@ import {
   Shield,
   Users,
   Cog,
-  Code,
 } from "lucide-react";
 import logoImg from "@/assets/logo.png";
 import {
@@ -48,7 +48,6 @@ const adminMenuItems = [
   { title: "Painel Admin", icon: Shield, path: "/admin" },
   { title: "Usuários", icon: Users, path: "/admin/users" },
   { title: "Config Global", icon: Cog, path: "/admin/config" },
-  { title: "API & Webhooks", icon: Code, path: "/admin/api-docs" },
 ];
 
 function getInitials(email?: string | null): string {
