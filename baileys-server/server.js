@@ -230,17 +230,28 @@ async function _doCreateSession(instanceName) {
         try { sock.end(); } catch {}
         sessions.delete(instanceName);
       } else {
-        console.log(`[${instanceName}] Terminal disconnect (${statusCode}). Clearing session files and stopping reconnect.`);
+        console.log(`[${instanceName}] Terminal disconnect (${statusCode}). Marking error and scheduling cleanup.`);
         // Register cooldown to prevent rapid re-creation
         sessionCooldowns.set(instanceName, Date.now());
-        // Close socket gracefully before cleanup
+        // Close socket gracefully
         try { sock.end(); } catch {}
-        sessions.delete(instanceName);
+        // Mark error on session instead of deleting — polling will detect it
+        const existingSession = sessions.get(instanceName);
+        if (existingSession) {
+          existingSession.error = { code: statusCode, message: `Terminal disconnect ${statusCode}` };
+        }
         // Clean up session files so next connect generates fresh QR
         if (fs.existsSync(sessionDir)) {
           fs.rmSync(sessionDir, { recursive: true, force: true });
           console.log(`[${instanceName}] Session files removed from ${sessionDir}`);
         }
+        // Deferred cleanup — remove from Map after 30s so polling can read the error
+        setTimeout(() => {
+          if (sessions.get(instanceName)?.error) {
+            sessions.delete(instanceName);
+            console.log(`[${instanceName}] Deferred cleanup: removed from sessions Map`);
+          }
+        }, 30000);
       }
     }
   });
@@ -391,13 +402,33 @@ app.get('/instance/connect/:name', async (req, res) => {
     // Poll for QR code (up to 15s, check every 1s)
     for (let i = 0; i < 15; i++) {
       if (session.qr || session.connected) break;
-      // Check if session was removed (terminal disconnect during polling)
+      // Check if session has a terminal error (e.g. 405)
+      if (session.error) {
+        const retryAfter = Math.ceil(COOLDOWN_MS / 1000);
+        console.log(`[connect] Session ${name} hit terminal error ${session.error.code} during polling`);
+        return res.status(429).json({
+          error: `terminal_${session.error.code}`,
+          message: `Disconnect ${session.error.code}. Tente novamente em ${retryAfter}s.`,
+          retryAfter,
+        });
+      }
+      // Check if session was removed entirely
       if (!sessions.has(name)) {
-        console.log(`[connect] Session ${name} was removed during polling (terminal disconnect)`);
+        console.log(`[connect] Session ${name} was removed during polling`);
         return res.json({ error: 'session_expired', message: 'Sessão invalidada. Tente novamente em alguns segundos.' });
       }
       await new Promise(r => setTimeout(r, 1000));
       console.log(`[connect] Polling attempt ${i + 1}/15, qr=${!!session.qr}, connected=${session.connected}`);
+    }
+
+    // Final check for terminal error
+    if (session.error) {
+      const retryAfter = Math.ceil(COOLDOWN_MS / 1000);
+      return res.status(429).json({
+        error: `terminal_${session.error.code}`,
+        message: `Disconnect ${session.error.code}. Tente novamente em ${retryAfter}s.`,
+        retryAfter,
+      });
     }
 
     // Final check if session was removed
