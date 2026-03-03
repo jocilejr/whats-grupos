@@ -85,7 +85,30 @@ const sessionLocks = new Map();
 
 // Cooldown after terminal disconnects (405 etc) — prevents rapid reconnect flood
 const sessionCooldowns = new Map();
-const COOLDOWN_MS = 30000;
+const COOLDOWN_MS = 60000;
+
+// Global connection mutex — only 1 WebSocket connection at a time across all instances
+let globalConnectBusy = false;
+let globalConnectLastTime = 0;
+const GLOBAL_CONNECT_GAP_MS = 5000;
+
+async function acquireGlobalConnectLock() {
+  // Wait until no other connection is in progress
+  while (globalConnectBusy) {
+    await new Promise(r => setTimeout(r, 500));
+  }
+  // Enforce minimum gap between connections
+  const elapsed = Date.now() - globalConnectLastTime;
+  if (elapsed < GLOBAL_CONNECT_GAP_MS) {
+    await new Promise(r => setTimeout(r, GLOBAL_CONNECT_GAP_MS - elapsed));
+  }
+  globalConnectBusy = true;
+}
+
+function releaseGlobalConnectLock() {
+  globalConnectLastTime = Date.now();
+  globalConnectBusy = false;
+}
 
 // Ensure sessions dir exists
 if (!fs.existsSync(SESSIONS_DIR)) {
@@ -130,7 +153,12 @@ async function createSession(instanceName) {
       return sessions.get(instanceName);
     }
 
-    return await _doCreateSession(instanceName);
+    await acquireGlobalConnectLock();
+    try {
+      return await _doCreateSession(instanceName);
+    } finally {
+      releaseGlobalConnectLock();
+    }
   } finally {
     sessionLocks.delete(instanceName);
     releaseLock();
@@ -298,74 +326,34 @@ async function _doCreateSession(instanceName) {
   return session;
 }
 
-// ---- Restore existing sessions on startup ----
-async function restoreSessions() {
-  if (!fs.existsSync(SESSIONS_DIR)) return;
-  const dirs = fs.readdirSync(SESSIONS_DIR).filter(d =>
-    fs.statSync(path.join(SESSIONS_DIR, d)).isDirectory()
-  );
-  for (const name of dirs) {
-    // Skip instances currently in cooldown
-    const lastCd = sessionCooldowns.get(name) || 0;
-    if (Date.now() - lastCd < COOLDOWN_MS) {
-      console.log(`[startup] Skipping ${name} (in cooldown)`);
-      continue;
-    }
-    try {
-      console.log(`[startup] Restoring session: ${name}`);
-      await createSession(name);
-    } catch (e) {
-      console.error(`[startup] Failed to restore ${name}:`, e.message);
-    }
-  }
-}
+// ---- NO automatic session restore on startup ----
+// Sessions only connect when the user explicitly requests via /instance/connect/:name
+// This prevents mass reconnection storms that trigger WhatsApp IP blocks
 
 // ============================================================
 // ENDPOINTS (Evolution API compatible)
 // ============================================================
 
-// POST /instance/create
+// POST /instance/create — Only registers the instance, does NOT open WebSocket
 app.post('/instance/create', async (req, res) => {
   try {
     const { instanceName } = req.body;
     if (!instanceName) return res.status(400).json({ error: 'instanceName required' });
 
-    let session = await getSession(instanceName);
+    // If already connected, just return status
+    const session = await getSession(instanceName);
     if (session) {
       return res.json({ instance: { instanceName, status: session.connected ? 'open' : 'connecting' } });
     }
 
-    try {
-      session = await createSession(instanceName);
-    } catch (e) {
-      if (e.message?.startsWith('COOLDOWN:')) {
-        const retryAfter = parseInt(e.message.split(':')[1]) || 30;
-        return res.status(429).json({ error: 'cooldown', retryAfter, message: `Aguarde ${retryAfter}s antes de tentar novamente.` });
-      }
-      throw e;
+    // Just create the session directory — no WebSocket
+    const sessionDir = path.join(SESSIONS_DIR, instanceName);
+    if (!fs.existsSync(sessionDir)) {
+      fs.mkdirSync(sessionDir, { recursive: true });
     }
 
-    // Poll for QR to be generated (up to 8s, check every 500ms)
-    for (let i = 0; i < 16; i++) {
-      if (session.qr || session.connected) break;
-      if (!sessions.has(instanceName)) {
-        console.log(`[create] Session ${instanceName} was removed during polling`);
-        return res.json({ error: 'session_expired', message: 'Sessão invalidada. Tente novamente em alguns segundos.' });
-      }
-      await new Promise(r => setTimeout(r, 500));
-    }
-    console.log(`[create] After polling: qr=${!!session.qr}, connected=${session.connected}`);
-
-    if (!sessions.has(instanceName)) {
-      return res.json({ error: 'session_expired', message: 'Sessão invalidada. Tente novamente em alguns segundos.' });
-    }
-
-    const result = { instance: { instanceName, status: 'connecting' } };
-    if (session.qr) {
-      result.qrcode = { base64: await QRCode.toDataURL(session.qr) };
-    }
-
-    res.json(result);
+    console.log(`[create] Instance ${instanceName} registered (no WebSocket opened)`);
+    res.json({ instance: { instanceName, status: 'created' } });
   } catch (e) {
     console.error('[create]', e);
     res.status(500).json({ error: e.message });
@@ -944,7 +932,6 @@ app.get('/health', (req, res) => {
 });
 
 // ---- Start server ----
-app.listen(PORT, '0.0.0.0', async () => {
-  console.log(`Baileys Server running on port ${PORT}`);
-  await restoreSessions();
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Baileys Server running on port ${PORT} (no auto-restore — sessions connect on demand)`);
 });
