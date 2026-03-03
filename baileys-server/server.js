@@ -1,9 +1,12 @@
-const express = require('express');
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, makeCacheableSignalKeyStore } = require('@whiskeysockets/baileys');
-const QRCode = require('qrcode');
-const pino = require('pino');
-const path = require('path');
-const fs = require('fs');
+import express from 'express';
+import makeWASocket, { useMultiFileAuthState, DisconnectReason } from '@whiskeysockets/baileys';
+import QRCode from 'qrcode';
+import pino from 'pino';
+import path from 'path';
+import fs from 'fs';
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
 
 const app = express();
 app.use(express.json({ limit: '50mb' }));
@@ -85,14 +88,9 @@ async function getSession(instanceName) {
 async function createSession(instanceName) {
   const sessionDir = path.join(SESSIONS_DIR, instanceName);
   const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
-  const { version } = await fetchLatestBaileysVersion();
 
   const sock = makeWASocket({
-    version,
-    auth: {
-      creds: state.creds,
-      keys: makeCacheableSignalKeyStore(state.keys, logger),
-    },
+    auth: state,
     logger,
     printQRInTerminal: false,
     generateHighQualityLinkPreview: true,
