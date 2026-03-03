@@ -181,7 +181,7 @@ async function _doCreateSession(instanceName) {
     logger,
     printQRInTerminal: false,
     generateHighQualityLinkPreview: true,
-    browser: ['Baileys', 'Chrome', '131.0.0'],
+    browser: ['Mac OS', 'Chrome', '20.0.04'],
   });
 
   const session = {
