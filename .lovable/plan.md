@@ -1,48 +1,39 @@
 
-# Correção direta: QR Code não gera em nenhuma instância
 
-## Diagnóstico do código atual
+# Diagnóstico: Race condition entre disconnect e polling
 
-Analisando o `baileys-server/server.js`, identifiquei **3 problemas concretos** que impedem a geração de QR Code:
+## Problema identificado no código atual
 
-### Problema 1: Auto-reconnect cria loop infinito
-Linhas 220-225 — quando ocorre um disconnect NÃO-terminal (ex: timeout de rede), o servidor automaticamente tenta reconectar após 3s. Isso cria um ciclo que acumula tentativas e bloqueia o IP no WhatsApp:
-```javascript
-if (shouldReconnect) {
-  setTimeout(() => {
-    sessions.delete(instanceName);
-    createSession(instanceName).catch(console.error); // LOOP!
-  }, 3000);
-}
-```
+Analisando o `server.js` linhas 216-244 e 391-406:
 
-### Problema 2: Race condition na geração de QR
-O `_doCreateSession` abre o WebSocket e retorna. O endpoint `/instance/connect` faz polling por 15s esperando o QR. Mas se o WhatsApp responde com 405 antes do QR chegar, a `connection.update` callback deleta a sessão do Map, e o polling detecta `session_expired` — o QR nunca chega ao frontend.
+Quando `/instance/connect/:name` é chamado:
+1. `_doCreateSession` cria o socket e adiciona à Map `sessions` (linha 331)
+2. O polling começa (linhas 392-401), verificando `session.qr` a cada 1s por 15s
+3. O WhatsApp responde com disconnect 405 **antes** do QR chegar
+4. O handler `connection.update` (linha 238) faz `sessions.delete(instanceName)` — remove da Map
+5. O polling detecta `!sessions.has(name)` (linha 395) e retorna `session_expired`
 
-### Problema 3: Sessões residuais no disco
-O `/instance/create` cria o diretório vazio. Se houve uma tentativa anterior que falhou, podem existir arquivos de auth corrompidos no disco (mesmo após o cleanup do 405), causando rejeição imediata pelo WhatsApp em vez de gerar QR novo.
+O QR nunca chega ao frontend porque a sessão é removida da Map durante o polling.
 
-## Correções (apenas `baileys-server/server.js`)
+## Correção
 
-### A. Remover completamente o auto-reconnect
-Substituir o `setTimeout → createSession` por apenas limpar a sessão e logar. O usuário reconecta manualmente quando quiser.
+No `connection.update`, em vez de deletar a sessão do Map imediatamente no disconnect terminal, **marcar a sessão com o erro** e mantê-la no Map. O polling pode então detectar o erro específico e retornar uma resposta adequada com `retryAfter`.
 
-### B. Limpar sessões residuais no startup
-No boot do servidor, remover TODOS os diretórios de sessão existentes. Isso garante que toda conexão começa do zero, sem credenciais antigas que causam 405.
+### `baileys-server/server.js` - 2 alterações:
 
-### C. Garantir limpeza antes de cada createSession
-Antes de chamar `useMultiFileAuthState`, deletar o diretório de sessão se existir, forçando geração de novas chaves e QR Code limpo.
+**A. No handler de disconnect terminal (linhas 232-244)**: Em vez de `sessions.delete(instanceName)`, setar `session.error = { code: statusCode }` e manter na Map. Agendar cleanup após 30s para não acumular lixo.
 
-### D. Reduzir cooldown para 10s
-O cooldown de 60s é excessivo para novas instâncias. Reduzir para 10s permite tentar novamente mais rápido após uma falha transitória.
+**B. No polling do `/instance/connect` (linhas 392-406)**: Checar `session.error` além de `sessions.has(name)`. Se `session.error`, retornar o código real do erro (405, 401, etc.) com `retryAfter` do cooldown, em vez do genérico `session_expired`.
 
 ```text
-Fluxo corrigido:
-  Startup → limpa TODAS as sessões do disco → servidor pronto
-  Connect → deleta dir antigo → useMultiFileAuthState (fresh) → WebSocket → QR
-  Disconnect terminal → limpa sessão + dir, cooldown 10s
-  Disconnect não-terminal → limpa sessão, NÃO reconecta automaticamente
+Antes:
+  Socket criado → 405 chega → sessions.delete() → polling: "session_expired" (genérico)
+  
+Depois:
+  Socket criado → 405 chega → session.error = {code: 405} → polling: {error: "terminal_405", retryAfter: 10}
+  → cleanup agendado após 30s
 ```
 
-## Arquivos alterados
-- `baileys-server/server.js` — todas as 4 correções acima
+### Arquivo alterado
+- `baileys-server/server.js`
+
