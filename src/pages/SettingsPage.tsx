@@ -57,7 +57,7 @@ export default function SettingsPage() {
     await Promise.all(
       configList.map(async (config) => {
         try {
-          const result = await callEvolutionApi("connectionState", config.id);
+          const result = await callWhatsAppApi("connectionState", config.id);
           results[config.id] = result;
         } catch {
           // silently ignore polling errors
@@ -81,7 +81,7 @@ export default function SettingsPage() {
     return () => clearInterval(interval);
   }, [configs, pollAllStatuses]);
 
-  const callEvolutionApi = async (action: string, configId: string, body?: any) => {
+  const callWhatsAppApi = async (action: string, configId: string, body?: any) => {
     const { data: { session } } = await supabase.auth.getSession();
     const resp = await fetch(
       `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/evolution-api?action=${action}&configId=${configId}`,
@@ -110,7 +110,7 @@ export default function SettingsPage() {
       }).select().single();
       if (error) throw error;
 
-      const result = await callEvolutionApi("createInstance", newConfig.id);
+      const result = await callWhatsAppApi("createInstance", newConfig.id);
       
       if (result.error) {
         await supabase.from("api_configs").delete().eq("id", newConfig.id);
@@ -121,7 +121,7 @@ export default function SettingsPage() {
       setNewInstanceName("");
       toast({ title: "Instância criada!" });
 
-      const qrResult = await callEvolutionApi("connectInstance", newConfig.id);
+      const qrResult = await callWhatsAppApi("connectInstance", newConfig.id);
       const qrCode = qrResult?.base64 || qrResult?.qrcode?.base64 || qrResult?.qrcode || qrResult?.code;
       if (qrCode && typeof qrCode === "string" && qrCode.length > 50) {
         const src = qrCode.startsWith("data:") ? qrCode : `data:image/png;base64,${qrCode}`;
@@ -137,9 +137,9 @@ export default function SettingsPage() {
   const deleteConfig = useMutation({
     mutationFn: async (id: string) => {
       try {
-        await callEvolutionApi("deleteInstance", id);
+        await callWhatsAppApi("deleteInstance", id);
       } catch {
-        // Continue even if Evolution API fails
+        // Continue even if API fails
       }
       const { error } = await supabase.from("api_configs").delete().eq("id", id);
       if (error) throw error;
@@ -153,7 +153,7 @@ export default function SettingsPage() {
   const testConnection = async (configId: string) => {
     setTestingId(configId);
     try {
-      const result = await callEvolutionApi("connectionState", configId);
+      const result = await callWhatsAppApi("connectionState", configId);
       setConnectionStates((prev) => ({ ...prev, [configId]: result }));
       const state = result?.instance?.state || result?.state;
       if (state === "open") {
@@ -174,7 +174,7 @@ export default function SettingsPage() {
 
   const showQrCode = async (configId: string, name: string) => {
     try {
-      const result = await callEvolutionApi("connectInstance", configId);
+      const result = await callWhatsAppApi("connectInstance", configId);
       console.log("connectInstance response:", JSON.stringify(result));
       
       const qr = result?.base64 || result?.qrcode?.base64 || result?.qrcode || result?.code;
@@ -182,7 +182,7 @@ export default function SettingsPage() {
         const src = qr.startsWith("data:") ? qr : `data:image/png;base64,${qr}`;
         setQrCodeData({ name, qrcode: src });
       } else {
-        const stateResult = await callEvolutionApi("connectionState", configId);
+        const stateResult = await callWhatsAppApi("connectionState", configId);
         setConnectionStates((prev) => ({ ...prev, [configId]: stateResult }));
         const state = stateResult?.instance?.state || stateResult?.state;
         if (state === "open") {
@@ -203,7 +203,7 @@ export default function SettingsPage() {
   const reconnectInstance = async (configId: string, name: string) => {
     try {
       toast({ title: "Reconectando...", description: "Recriando instância e gerando QR Code. Aguarde..." });
-      const result = await callEvolutionApi("reconnectInstance", configId);
+      const result = await callWhatsAppApi("reconnectInstance", configId);
       console.log("reconnectInstance response:", JSON.stringify(result));
       
       const qr = result?.qrcode?.base64 || result?.base64 || result?.qrcode || result?.code;

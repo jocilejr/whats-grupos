@@ -166,26 +166,10 @@ async function enqueueMessage(supabase: any, msg: any): Promise<number> {
     }
   }
 
-  // Fallback to global config if no api_config or if values are "global"
+  // Fallback to global config — always Baileys, resolved at runtime by process-queue
   if (!apiUrl || apiUrl === "global" || !apiKey || apiKey === "global") {
-    const { data: globalCfg } = await supabase.from("global_config")
-      .select("evolution_api_url, evolution_api_key, whatsapp_provider")
-      .limit(1).maybeSingle();
-
-    const provider = globalCfg?.whatsapp_provider || "evolution";
-
-    if (provider === "baileys") {
-      // Baileys: URL resolvida no process-queue, nao precisa validar aqui
-      apiUrl = "resolved-at-runtime";
-      apiKey = "resolved-at-runtime";
-    } else {
-      if (!globalCfg?.evolution_api_url) {
-        console.error(`No global Evolution API config for message ${msg.id}`);
-        return 0;
-      }
-      apiUrl = globalCfg.evolution_api_url;
-      apiKey = globalCfg.evolution_api_key;
-    }
+    apiUrl = "resolved-at-runtime";
+    apiKey = "resolved-at-runtime";
   }
   apiUrl = apiUrl!.replace(/\/$/, "");
 

@@ -29,22 +29,6 @@ async function checkRateLimit(supabase: any, userId: string): Promise<{ limited:
   return { limited: (count || 0) >= max, max };
 }
 
-function getProviderConfig(globalConfig: any) {
-  const provider = globalConfig?.whatsapp_provider || "evolution";
-  if (provider === "baileys") {
-    return {
-      provider: "baileys",
-      apiUrl: globalConfig?.baileys_api_url || "http://baileys-server:3100",
-      apiKey: globalConfig?.baileys_api_key || "",
-    };
-  }
-  return {
-    provider: "evolution",
-    apiUrl: (globalConfig?.evolution_api_url || "").replace(/\/$/, ""),
-    apiKey: globalConfig?.evolution_api_key || "",
-  };
-}
-
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -57,10 +41,12 @@ Deno.serve(async (req) => {
 
     const { data: globalCfg } = await supabase
       .from("global_config")
-      .select("*")
+      .select("baileys_api_url, queue_delay_seconds")
       .limit(1)
       .maybeSingle();
+
     const delayMs = ((globalCfg?.queue_delay_seconds) || 10) * 1000;
+    const apiUrl = (globalCfg?.baileys_api_url || "http://baileys-server:3100").replace(/\/$/, "");
 
     let processed = 0;
     let errors = 0;
@@ -112,43 +98,14 @@ Deno.serve(async (req) => {
       }
 
       try {
-        // Determine API URL and key - check user config first, then global
-        let apiUrl = "";
-        let apiKey = "";
-        let provider = "evolution";
-
-        if (item.api_config_id) {
-          const { data: config } = await supabase
-            .from("api_configs")
-            .select("api_url, api_key")
-            .eq("id", item.api_config_id)
-            .maybeSingle();
-          if (config) {
-            apiUrl = config.api_url;
-            apiKey = config.api_key;
-          }
-        }
-
-        // Fall back to global config (with provider routing)
-        if (!apiUrl || apiUrl === "global" || !apiKey || apiKey === "global") {
-          const providerCfg = getProviderConfig(globalCfg);
-          if (!providerCfg.apiUrl) throw new Error("No API config found");
-          apiUrl = providerCfg.apiUrl;
-          apiKey = providerCfg.apiKey;
-          provider = providerCfg.provider;
-        }
-
         const content = item.content as any;
         const { endpoint, body } = buildMessagePayload(
           item.message_type, apiUrl, item.instance_name, item.group_id, content
         );
         if (content.mentionsEveryOne) body.mentionsEveryOne = true;
 
-      // Build headers based on provider
+        // Internal connection — no apikey header needed
         const fetchHeaders: Record<string, string> = { "Content-Type": "application/json" };
-        if (apiKey) {
-          fetchHeaders.apikey = apiKey;
-        }
 
         const resp = await fetch(endpoint, {
           method: "POST",
@@ -177,7 +134,7 @@ Deno.serve(async (req) => {
           });
 
           processed++;
-          console.log(`Queue item ${item.id}: group ${item.group_id} → OK (${provider})`);
+          console.log(`Queue item ${item.id}: group ${item.group_id} → OK`);
         } else {
           await supabase.from("message_queue").update({
             status: "error",
@@ -198,7 +155,7 @@ Deno.serve(async (req) => {
           });
 
           errors++;
-          console.error(`Queue item ${item.id}: group ${item.group_id} → ERROR (${provider}). Continuing.`);
+          console.error(`Queue item ${item.id}: group ${item.group_id} → ERROR. Continuing.`);
         }
       } catch (e) {
         const isTimeout = e.name === "TimeoutError" || e.name === "AbortError";

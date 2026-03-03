@@ -13,30 +13,13 @@ function json(data: unknown, status = 200) {
   });
 }
 
-async function getGlobalConfig(supabase: any) {
-  const { data, error } = await supabase
+async function getInternalApiUrl(supabase: any): Promise<string> {
+  const { data } = await supabase
     .from("global_config")
-    .select("*")
+    .select("baileys_api_url")
     .limit(1)
     .maybeSingle();
-  if (error || !data) return null;
-  return data;
-}
-
-function getProviderConfig(globalConfig: any) {
-  const provider = globalConfig.whatsapp_provider || "evolution";
-  if (provider === "baileys") {
-    return {
-      provider: "baileys",
-      apiUrl: "http://baileys-server:3100",
-      headers: { "Content-Type": "application/json" } as Record<string, string>,
-    };
-  }
-  return {
-    provider: "evolution",
-    apiUrl: (globalConfig.evolution_api_url || "").replace(/\/$/, ""),
-    headers: { apikey: globalConfig.evolution_api_key } as Record<string, string>,
-  };
+  return (data?.baileys_api_url || "http://baileys-server:3100").replace(/\/$/, "");
 }
 
 const SEND_ACTIONS = new Set([
@@ -88,12 +71,12 @@ Deno.serve(async (req) => {
     const action = url.searchParams.get("action");
     const configId = url.searchParams.get("configId");
 
-    // Health check doesn't require configId - it's an infrastructure test
+    // Internal headers — no apikey needed for Baileys internal connection
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+
+    // Health check doesn't require configId
     if (action === "healthCheck") {
-      const globalConfig = await getGlobalConfig(supabase);
-      if (!globalConfig) return json({ error: "WhatsApp provider not configured. Contact admin." }, 500);
-      const { apiUrl } = getProviderConfig(globalConfig);
-      if (!apiUrl) return json({ error: "API URL not configured." }, 500);
+      const apiUrl = await getInternalApiUrl(supabase);
       try {
         const resp = await fetch(`${apiUrl}/health`);
         const data = await resp.json();
@@ -122,12 +105,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    const globalConfig = await getGlobalConfig(supabase);
-    if (!globalConfig) return json({ error: "WhatsApp provider not configured. Contact admin." }, 500);
-
-    const { provider, apiUrl, headers } = getProviderConfig(globalConfig);
-    if (!apiUrl) return json({ error: `${provider} API URL not configured. Contact admin.` }, 500);
-
+    const apiUrl = await getInternalApiUrl(supabase);
     const instanceName = url.searchParams.get("instanceName") || config.instance_name;
 
     let result: any;
@@ -136,7 +114,7 @@ Deno.serve(async (req) => {
       case "createInstance": {
         const resp = await fetch(`${apiUrl}/instance/create`, {
           method: "POST",
-          headers: { ...headers, "Content-Type": "application/json" },
+          headers,
           body: JSON.stringify({
             instanceName: config.instance_name,
             integration: "WHATSAPP-BAILEYS",
@@ -150,14 +128,14 @@ Deno.serve(async (req) => {
       case "fetchInstances": {
         const resp = await fetch(`${apiUrl}/instance/fetchInstances`, { headers });
         const rawText = await resp.text();
-        console.log(`[fetchInstances] Provider: ${provider}, Status: ${resp.status}, Response: ${rawText.substring(0, 500)}`);
+        console.log(`[fetchInstances] Status: ${resp.status}, Response: ${rawText.substring(0, 500)}`);
         try { result = JSON.parse(rawText); } catch { result = { raw: rawText }; }
         break;
       }
 
       case "connectInstance": {
         const connectUrl = `${apiUrl}/instance/connect/${instanceName}`;
-        console.log(`[connectInstance] Provider: ${provider}, URL: ${connectUrl}`);
+        console.log(`[connectInstance] URL: ${connectUrl}`);
         const resp = await fetch(connectUrl, { headers });
         const rawText = await resp.text();
         console.log(`[connectInstance] Status: ${resp.status}, Response: ${rawText.substring(0, 500)}`);
@@ -166,7 +144,7 @@ Deno.serve(async (req) => {
       }
 
       case "reconnectInstance": {
-        console.log(`[reconnectInstance] Provider: ${provider}, Deleting instance: ${instanceName}`);
+        console.log(`[reconnectInstance] Deleting instance: ${instanceName}`);
         const delResp = await fetch(`${apiUrl}/instance/delete/${instanceName}`, {
           method: "DELETE", headers,
         });
@@ -177,7 +155,7 @@ Deno.serve(async (req) => {
         console.log(`[reconnectInstance] Recreating instance: ${instanceName}`);
         const createResp = await fetch(`${apiUrl}/instance/create`, {
           method: "POST",
-          headers: { ...headers, "Content-Type": "application/json" },
+          headers,
           body: JSON.stringify({
             instanceName,
             integration: "WHATSAPP-BAILEYS",
@@ -201,7 +179,6 @@ Deno.serve(async (req) => {
 
       case "connectionState": {
         const stateUrl = `${apiUrl}/instance/connectionState/${instanceName}`;
-        console.log(`[connectionState] Provider: ${provider}, URL: ${stateUrl}`);
         const resp = await fetch(stateUrl, { headers });
         const rawText = await resp.text();
         console.log(`[connectionState] Status: ${resp.status}, Response: ${rawText}`);
@@ -211,7 +188,6 @@ Deno.serve(async (req) => {
 
       case "fetchGroups": {
         const groupsUrl = `${apiUrl}/group/fetchAllGroups/${instanceName}?getParticipants=false`;
-        console.log(`[fetchGroups] Provider: ${provider}, URL: ${groupsUrl}`);
         let resp = await fetch(groupsUrl, { headers });
         
         if (resp.status === 500) {
@@ -221,15 +197,14 @@ Deno.serve(async (req) => {
         }
         
         const rawText = await resp.text();
-        console.log(`[fetchGroups] Status: ${resp.status}, Response length: ${rawText.length}, Preview: ${rawText.substring(0, 500)}`);
+        console.log(`[fetchGroups] Status: ${resp.status}, Response length: ${rawText.length}`);
         
-        if (resp.status === 500 && provider === "evolution") {
+        if (resp.status === 500) {
           console.log(`[fetchGroups] Still 500, trying instance restart...`);
           await fetch(`${apiUrl}/instance/restart/${instanceName}`, { method: "PUT", headers });
           await new Promise(r => setTimeout(r, 3000));
           const retryResp = await fetch(groupsUrl, { headers });
           const retryText = await retryResp.text();
-          console.log(`[fetchGroups] After restart - Status: ${retryResp.status}, Preview: ${retryText.substring(0, 500)}`);
           try { result = JSON.parse(retryText); } catch { result = []; }
         } else {
           try { result = JSON.parse(rawText); } catch { result = { raw: rawText }; }
@@ -250,9 +225,7 @@ Deno.serve(async (req) => {
       case "sendText": {
         const body = await req.json();
         const resp = await fetch(`${apiUrl}/message/sendText/${instanceName}`, {
-          method: "POST",
-          headers: { ...headers, "Content-Type": "application/json" },
-          body: JSON.stringify(body),
+          method: "POST", headers, body: JSON.stringify(body),
         });
         result = await resp.json();
         break;
@@ -261,9 +234,7 @@ Deno.serve(async (req) => {
       case "sendMedia": {
         const body = await req.json();
         const resp = await fetch(`${apiUrl}/message/sendMedia/${instanceName}`, {
-          method: "POST",
-          headers: { ...headers, "Content-Type": "application/json" },
-          body: JSON.stringify(body),
+          method: "POST", headers, body: JSON.stringify(body),
         });
         result = await resp.json();
         break;
@@ -272,9 +243,7 @@ Deno.serve(async (req) => {
       case "sendAudio": {
         const body = await req.json();
         const resp = await fetch(`${apiUrl}/message/sendWhatsAppAudio/${instanceName}`, {
-          method: "POST",
-          headers: { ...headers, "Content-Type": "application/json" },
-          body: JSON.stringify(body),
+          method: "POST", headers, body: JSON.stringify(body),
         });
         result = await resp.json();
         break;
@@ -283,9 +252,7 @@ Deno.serve(async (req) => {
       case "sendSticker": {
         const body = await req.json();
         const resp = await fetch(`${apiUrl}/message/sendSticker/${instanceName}`, {
-          method: "POST",
-          headers: { ...headers, "Content-Type": "application/json" },
-          body: JSON.stringify(body),
+          method: "POST", headers, body: JSON.stringify(body),
         });
         result = await resp.json();
         break;
@@ -294,9 +261,7 @@ Deno.serve(async (req) => {
       case "sendLocation": {
         const body = await req.json();
         const resp = await fetch(`${apiUrl}/message/sendLocation/${instanceName}`, {
-          method: "POST",
-          headers: { ...headers, "Content-Type": "application/json" },
-          body: JSON.stringify(body),
+          method: "POST", headers, body: JSON.stringify(body),
         });
         result = await resp.json();
         break;
@@ -305,9 +270,7 @@ Deno.serve(async (req) => {
       case "sendContact": {
         const body = await req.json();
         const resp = await fetch(`${apiUrl}/message/sendContact/${instanceName}`, {
-          method: "POST",
-          headers: { ...headers, "Content-Type": "application/json" },
-          body: JSON.stringify(body),
+          method: "POST", headers, body: JSON.stringify(body),
         });
         result = await resp.json();
         break;
@@ -316,9 +279,7 @@ Deno.serve(async (req) => {
       case "sendPoll": {
         const body = await req.json();
         const resp = await fetch(`${apiUrl}/message/sendPoll/${instanceName}`, {
-          method: "POST",
-          headers: { ...headers, "Content-Type": "application/json" },
-          body: JSON.stringify(body),
+          method: "POST", headers, body: JSON.stringify(body),
         });
         result = await resp.json();
         break;
@@ -327,9 +288,7 @@ Deno.serve(async (req) => {
       case "sendList": {
         const body = await req.json();
         const resp = await fetch(`${apiUrl}/message/sendList/${instanceName}`, {
-          method: "POST",
-          headers: { ...headers, "Content-Type": "application/json" },
-          body: JSON.stringify(body),
+          method: "POST", headers, body: JSON.stringify(body),
         });
         result = await resp.json();
         break;
@@ -337,8 +296,7 @@ Deno.serve(async (req) => {
 
       case "deleteInstance": {
         const resp = await fetch(`${apiUrl}/instance/delete/${instanceName}`, {
-          method: "DELETE",
-          headers,
+          method: "DELETE", headers,
         });
         result = await resp.json();
         break;

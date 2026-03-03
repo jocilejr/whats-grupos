@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { Wifi, Loader2, Brain, Cog, Server } from "lucide-react";
+import { Loader2, Brain, Cog, Server } from "lucide-react";
 
 export default function AdminConfig() {
   const { toast } = useToast();
@@ -19,7 +19,7 @@ export default function AdminConfig() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("global_config")
-        .select("*")
+        .select("id, vps_api_url, baileys_api_key, openai_api_key, queue_delay_seconds")
         .limit(1)
         .maybeSingle();
       if (error) throw error;
@@ -27,35 +27,25 @@ export default function AdminConfig() {
     },
   });
 
-  const [apiUrl, setApiUrl] = useState("");
-  const [apiKey, setApiKey] = useState("");
   const [openaiKey, setOpenaiKey] = useState("");
-  const [provider] = useState<string>("baileys");
   const [vpsApiUrl, setVpsApiUrl] = useState("");
   const [baileysApiKey, setBaileysApiKey] = useState("");
   
-  const [testing, setTesting] = useState(false);
   const [testingBaileys, setTestingBaileys] = useState(false);
   const [testingOpenai, setTestingOpenai] = useState(false);
   const [synced, setSynced] = useState(false);
 
   if (config && !synced) {
     setSynced(true);
-    setApiUrl(config.evolution_api_url || "");
-    setApiKey(config.evolution_api_key || "");
-    setOpenaiKey((config as any).openai_api_key || "");
-    // provider is always baileys
-    setVpsApiUrl((config as any).vps_api_url || "");
-    setBaileysApiKey((config as any).baileys_api_key || "");
+    setOpenaiKey(config.openai_api_key || "");
+    setVpsApiUrl(config.vps_api_url || "");
+    setBaileysApiKey(config.baileys_api_key || "");
   }
 
   const save = useMutation({
     mutationFn: async () => {
-      const payload: any = {
-        evolution_api_url: apiUrl.replace(/\/$/, ""),
-        evolution_api_key: apiKey,
+      const payload = {
         openai_api_key: openaiKey,
-        whatsapp_provider: provider,
         vps_api_url: vpsApiUrl.replace(/\/$/, ""),
         baileys_api_key: baileysApiKey,
       };
@@ -73,23 +63,6 @@ export default function AdminConfig() {
     },
     onError: (e: any) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
   });
-
-  const testConnection = async () => {
-    setTesting(true);
-    try {
-      const resp = await fetch(`${apiUrl}/instance/fetchInstances`, {
-        headers: { apikey: apiKey },
-      });
-      if (!resp.ok) throw new Error("Falha na conexão");
-      const data = await resp.json();
-      const count = Array.isArray(data) ? data.length : (data?.data?.length ?? 0);
-      toast({ title: "Conexão OK!", description: `${count} instância(s) encontrada(s).` });
-    } catch (e: any) {
-      toast({ title: "Erro de conexão", description: e.message, variant: "destructive" });
-    } finally {
-      setTesting(false);
-    }
-  };
 
   const testBaileys = async () => {
     setTestingBaileys(true);
