@@ -8,7 +8,7 @@
     "start": "node server.js"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "kobie3717/Baileys#fix/405-platform-macos",
+    "@whiskeysockets/baileys": "7.0.0-rc.9",
     "express": "^4.21.2",
     "qrcode": "^1.5.4",
     "pino": "^9.6.0",
