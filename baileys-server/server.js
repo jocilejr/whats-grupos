@@ -181,6 +181,7 @@ async function _doCreateSession(instanceName) {
     logger,
     printQRInTerminal: false,
     generateHighQualityLinkPreview: true,
+    version: [2, 3000, 1034074495],
   });
 
   const session = {
