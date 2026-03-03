@@ -791,7 +791,12 @@ app.get('/smart-link/:slug', async (req, res) => {
 
 // Health check
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', sessions: sessions.size });
+  let baileysVersion = 'unknown';
+  try {
+    const pkg = require('@whiskeysockets/baileys/package.json');
+    baileysVersion = pkg.version;
+  } catch (_) {}
+  res.json({ status: 'ok', sessions: sessions.size, baileysVersion });
 });
 
 // ---- Start server ----
