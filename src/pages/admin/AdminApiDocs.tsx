@@ -208,8 +208,8 @@ function AdminApiDocs() {
       if (config?.vps_api_url) {
         setBaseUrl(config.vps_api_url);
       }
-      if ((config as any)?.baileys_api_key) {
-        setApiKey((config as any).baileys_api_key);
+      if (config?.baileys_api_key) {
+        setApiKey(config.baileys_api_key);
       }
 
       const { data: wh } = await supabase
