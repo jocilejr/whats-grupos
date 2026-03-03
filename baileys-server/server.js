@@ -138,7 +138,9 @@ async function createSession(instanceName) {
       session.connected = false;
       session.connecting = false;
       const statusCode = lastDisconnect?.error?.output?.statusCode;
-      const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+      // Terminal codes: 401=loggedOut, 405=replaced/invalid, 406=obsolete, 440=multidevice conflict
+      const terminalCodes = [401, 405, 406, 440];
+      const shouldReconnect = !terminalCodes.includes(statusCode);
       console.log(`[${instanceName}] Disconnected. Status: ${statusCode}. Reconnect: ${shouldReconnect}`);
       // Dispatch webhook for connection.update
       dispatchWebhooks('connection.update', { instanceName, state: 'close', statusCode, willReconnect: shouldReconnect });
@@ -150,10 +152,12 @@ async function createSession(instanceName) {
           createSession(instanceName).catch(console.error);
         }, 3000);
       } else {
+        console.log(`[${instanceName}] Terminal disconnect (${statusCode}). Clearing session files and stopping reconnect.`);
         sessions.delete(instanceName);
-        // Clean up session files on logout
+        // Clean up session files so next connect generates fresh QR
         if (fs.existsSync(sessionDir)) {
           fs.rmSync(sessionDir, { recursive: true, force: true });
+          console.log(`[${instanceName}] Session files removed from ${sessionDir}`);
         }
       }
     }
