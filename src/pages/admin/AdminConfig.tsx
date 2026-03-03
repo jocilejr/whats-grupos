@@ -19,7 +19,7 @@ export default function AdminConfig() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("global_config")
-        .select("id, vps_api_url, baileys_api_key, openai_api_key, queue_delay_seconds")
+        .select("id, baileys_api_key, openai_api_key, queue_delay_seconds")
         .limit(1)
         .maybeSingle();
       if (error) throw error;
@@ -28,7 +28,6 @@ export default function AdminConfig() {
   });
 
   const [openaiKey, setOpenaiKey] = useState("");
-  const [vpsApiUrl, setVpsApiUrl] = useState("");
   const [baileysApiKey, setBaileysApiKey] = useState("");
   
   const [testingBaileys, setTestingBaileys] = useState(false);
@@ -38,7 +37,6 @@ export default function AdminConfig() {
   if (config && !synced) {
     setSynced(true);
     setOpenaiKey(config.openai_api_key || "");
-    setVpsApiUrl(config.vps_api_url || "");
     setBaileysApiKey(config.baileys_api_key || "");
   }
 
@@ -46,7 +44,6 @@ export default function AdminConfig() {
     mutationFn: async () => {
       const payload = {
         openai_api_key: openaiKey,
-        vps_api_url: vpsApiUrl.replace(/\/$/, ""),
         baileys_api_key: baileysApiKey,
       };
       if (!config?.id) {
@@ -150,23 +147,19 @@ export default function AdminConfig() {
         </CardContent>
       </Card>
 
-      {/* VPS API URL Card */}
+      {/* API Key Card */}
       <Card className="border-border/30">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Server className="h-5 w-5 text-primary" />
-            API Externa
+            API Key (Requisições Externas)
           </CardTitle>
-          <CardDescription>Configuração para acesso externo à API (integrações de terceiros)</CardDescription>
+          <CardDescription>Chave padrão para autenticar integrações de terceiros (n8n, CRMs, etc.)</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="space-y-4">
             <div className="space-y-2">
-              <Label>URL da API da VPS</Label>
-              <Input value={vpsApiUrl} onChange={(e) => setVpsApiUrl(e.target.value)} placeholder="https://api.app.simplificandogrupos.com" />
-            </div>
-            <div className="space-y-2">
-              <Label>API Key para requisições externas</Label>
+              <Label>API Key</Label>
               <Input type="password" value={baileysApiKey} onChange={(e) => setBaileysApiKey(e.target.value)} placeholder="Chave secreta para autenticar requisições externas" />
               <p className="text-xs text-muted-foreground">Essa chave será exigida no header <code className="bg-muted px-1 rounded">apikey</code> apenas para requisições externas à API. Internamente a aplicação conecta diretamente.</p>
             </div>

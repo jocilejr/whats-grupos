@@ -202,11 +202,11 @@ function AdminApiDocs() {
     try {
       const { data: config } = await supabase
         .from("global_config")
-        .select("vps_api_url, baileys_api_key")
+        .select("baileys_api_url, baileys_api_key")
         .limit(1)
-        .single();
-      if (config?.vps_api_url) {
-        setBaseUrl(config.vps_api_url);
+        .maybeSingle();
+      if (config?.baileys_api_url) {
+        setBaseUrl(config.baileys_api_url);
       }
       if (config?.baileys_api_key) {
         setApiKey(config.baileys_api_key);
@@ -322,10 +322,10 @@ function AdminApiDocs() {
         </CardHeader>
         <CardContent>
           <code className="text-sm bg-muted px-3 py-2 rounded block font-mono">
-            {baseUrl || <span className="text-destructive">Não configurada — defina em Config Global → URL da API da VPS</span>}
+           {baseUrl || <span className="text-destructive">Não configurada — nenhum registro encontrado em Config Global</span>}
           </code>
           <p className="text-xs text-muted-foreground mt-2">
-            Configurável em Config Global → URL da API da VPS. Esta é a URL pública para requisições externas.
+            URL do servidor Baileys (endereço interno da rede Docker). Usada como base para os endpoints da API.
           </p>
         </CardContent>
       </Card>
