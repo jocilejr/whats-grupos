@@ -217,14 +217,15 @@ function AdminApiDocs() {
         .select("*")
         .order("created_at", { ascending: false });
       if (wh) setWebhooks(wh as any);
-    } catch {
+    } catch (err) {
+      console.error("Erro ao carregar config da API:", err);
     } finally {
       setLoading(false);
     }
   }
 
   function copyCurl(method: string, path: string, body: string | null) {
-    const url = `${baseUrl || "http://localhost:3100"}${path}`;
+    const url = `${baseUrl || "https://SUA-URL-DA-API"}${path}`;
     let cmd = `curl -X ${method} "${url}"`;
     if (apiKey) {
       cmd += ` \\\n  -H "apikey: ${apiKey}"`;
@@ -321,7 +322,7 @@ function AdminApiDocs() {
         </CardHeader>
         <CardContent>
           <code className="text-sm bg-muted px-3 py-2 rounded block font-mono">
-            {baseUrl || "http://localhost:3100"}
+            {baseUrl || <span className="text-destructive">Não configurada — defina em Config Global → URL da API da VPS</span>}
           </code>
           <p className="text-xs text-muted-foreground mt-2">
             Configurável em Config Global → URL da API da VPS. Esta é a URL pública para requisições externas.
@@ -329,29 +330,35 @@ function AdminApiDocs() {
         </CardContent>
       </Card>
 
-      {apiKey && (
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm flex items-center gap-2">🔑 API Key (Autenticação)</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-2">
-              <code className="text-sm bg-muted px-3 py-2 rounded flex-1 font-mono">
-                {showApiKey ? apiKey : "•".repeat(Math.min(apiKey.length, 32))}
-              </code>
-              <Button size="sm" variant="ghost" onClick={() => setShowApiKey(!showApiKey)}>
-                {showApiKey ? "Ocultar" : "Mostrar"}
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => { navigator.clipboard.writeText(apiKey); toast({ title: "API Key copiada!" }); }}>
-                <Copy className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-            <p className="text-xs text-muted-foreground mt-2">
-              Todas as requisições devem incluir o header <code className="bg-muted px-1 rounded">apikey: SUA_CHAVE</code>. Configurável em Config Global.
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm flex items-center gap-2">🔑 API Key (Autenticação)</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {apiKey ? (
+            <>
+              <div className="flex items-center gap-2">
+                <code className="text-sm bg-muted px-3 py-2 rounded flex-1 font-mono">
+                  {showApiKey ? apiKey : "•".repeat(Math.min(apiKey.length, 32))}
+                </code>
+                <Button size="sm" variant="ghost" onClick={() => setShowApiKey(!showApiKey)}>
+                  {showApiKey ? "Ocultar" : "Mostrar"}
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => { navigator.clipboard.writeText(apiKey); toast({ title: "API Key copiada!" }); }}>
+                  <Copy className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground mt-2">
+                Todas as requisições devem incluir o header <code className="bg-muted px-1 rounded">apikey: SUA_CHAVE</code>. Configurável em Config Global.
+              </p>
+            </>
+          ) : (
+            <p className="text-sm text-destructive">
+              Nenhuma API Key configurada. Defina em <strong>Config Global → API Key do Baileys Server</strong>.
             </p>
-          </CardContent>
-        </Card>
-      )}
+          )}
+        </CardContent>
+      </Card>
 
       <Tabs defaultValue="endpoints">
         <TabsList className="grid w-full grid-cols-2">
