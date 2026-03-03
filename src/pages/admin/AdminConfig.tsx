@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { Settings, Wifi, Loader2, Brain, Cog, Server } from "lucide-react";
+import { Wifi, Loader2, Brain, Cog, Server } from "lucide-react";
 
 export default function AdminConfig() {
   const { toast } = useToast();
@@ -30,7 +30,7 @@ export default function AdminConfig() {
   const [apiUrl, setApiUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [openaiKey, setOpenaiKey] = useState("");
-  const [provider, setProvider] = useState<string>("evolution");
+  const [provider] = useState<string>("baileys");
   const [vpsApiUrl, setVpsApiUrl] = useState("");
   const [baileysApiKey, setBaileysApiKey] = useState("");
   
@@ -44,7 +44,7 @@ export default function AdminConfig() {
     setApiUrl(config.evolution_api_url || "");
     setApiKey(config.evolution_api_key || "");
     setOpenaiKey((config as any).openai_api_key || "");
-    setProvider((config as any).whatsapp_provider || "evolution");
+    // provider is always baileys
     setVpsApiUrl((config as any).vps_api_url || "");
     setBaileysApiKey((config as any).baileys_api_key || "");
   }
@@ -157,67 +157,23 @@ export default function AdminConfig() {
         </div>
       </div>
 
-      {/* WhatsApp Provider Card */}
+      {/* Baileys Connection Card */}
       <Card className="border-border/30">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Settings className="h-5 w-5 text-primary" />
-            Provedor WhatsApp
+            <Server className="h-5 w-5 text-primary" />
+            Conexão WhatsApp (Baileys)
           </CardTitle>
-          <CardDescription>Escolha entre Evolution API ou Baileys (local na VPS)</CardDescription>
+          <CardDescription>O Baileys roda diretamente na VPS como container Docker. A conexão interna é automática.</CardDescription>
         </CardHeader>
         <CardContent>
-          <Tabs value={provider} onValueChange={setProvider}>
-            <TabsList className="grid w-full grid-cols-2 mb-6">
-              <TabsTrigger value="evolution" className="flex items-center gap-2">
-                <Settings className="h-4 w-4" />
-                Evolution API
-              </TabsTrigger>
-              <TabsTrigger value="baileys" className="flex items-center gap-2">
-                <Server className="h-4 w-4" />
-                Baileys (Local)
-              </TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="evolution">
-              <form onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="space-y-4">
-                <div className="space-y-2">
-                  <Label>URL da API</Label>
-                  <Input value={apiUrl} onChange={(e) => setApiUrl(e.target.value)} placeholder="https://sua-evolution-api.com" />
-                </div>
-                <div className="space-y-2">
-                  <Label>API Key Global</Label>
-                  <Input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="Chave de API" />
-                </div>
-                <div className="flex gap-2">
-                  <Button type="submit" disabled={save.isPending}>
-                    {save.isPending ? "Salvando..." : "Salvar Configuração"}
-                  </Button>
-                  <Button type="button" variant="outline" onClick={testConnection} disabled={testing || !apiUrl || !apiKey}>
-                    {testing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Wifi className="h-4 w-4 mr-2" />}
-                    Testar Conexão
-                  </Button>
-                </div>
-              </form>
-            </TabsContent>
-
-            <TabsContent value="baileys">
-              <form onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="space-y-4">
-                <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-sm text-muted-foreground">
-                  O Baileys roda diretamente na VPS como um container Docker. A conexão é detectada automaticamente — não é necessário configurar URL.
-                </div>
-                <div className="flex gap-2">
-                  <Button type="submit" disabled={save.isPending}>
-                    {save.isPending ? "Salvando..." : "Salvar Configuração"}
-                  </Button>
-                  <Button type="button" variant="outline" onClick={testBaileys} disabled={testingBaileys}>
-                    {testingBaileys ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Server className="h-4 w-4 mr-2" />}
-                    Testar Conexão
-                  </Button>
-                </div>
-              </form>
-            </TabsContent>
-          </Tabs>
+          <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-sm text-muted-foreground mb-4">
+            A aplicação se conecta internamente ao Baileys sem necessidade de configuração. Use o botão abaixo para verificar se o servidor está ativo.
+          </div>
+          <Button type="button" variant="outline" onClick={testBaileys} disabled={testingBaileys}>
+            {testingBaileys ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Server className="h-4 w-4 mr-2" />}
+            Testar Conexão
+          </Button>
         </CardContent>
       </Card>
 
@@ -226,9 +182,9 @@ export default function AdminConfig() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Server className="h-5 w-5 text-primary" />
-            URL da API da VPS
+            API Externa
           </CardTitle>
-          <CardDescription>URL base para chamar edge functions na VPS (sync de grupos, links de convite)</CardDescription>
+          <CardDescription>Configuração para acesso externo à API (integrações de terceiros)</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="space-y-4">
@@ -237,9 +193,9 @@ export default function AdminConfig() {
               <Input value={vpsApiUrl} onChange={(e) => setVpsApiUrl(e.target.value)} placeholder="https://api.app.simplificandogrupos.com" />
             </div>
             <div className="space-y-2">
-              <Label>API Key do Baileys Server</Label>
-              <Input type="password" value={baileysApiKey} onChange={(e) => setBaileysApiKey(e.target.value)} placeholder="Chave secreta para autenticar requisições" />
-              <p className="text-xs text-muted-foreground">Essa chave será exigida no header <code className="bg-muted px-1 rounded">apikey</code> de todas as requisições à API.</p>
+              <Label>API Key para requisições externas</Label>
+              <Input type="password" value={baileysApiKey} onChange={(e) => setBaileysApiKey(e.target.value)} placeholder="Chave secreta para autenticar requisições externas" />
+              <p className="text-xs text-muted-foreground">Essa chave será exigida no header <code className="bg-muted px-1 rounded">apikey</code> apenas para requisições externas à API. Internamente a aplicação conecta diretamente.</p>
             </div>
             <Button type="submit" disabled={save.isPending}>
               {save.isPending ? "Salvando..." : "Salvar"}

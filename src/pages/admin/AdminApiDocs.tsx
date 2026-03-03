@@ -349,7 +349,7 @@ function AdminApiDocs() {
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground mt-2">
-                Todas as requisições devem incluir o header <code className="bg-muted px-1 rounded">apikey: SUA_CHAVE</code>. Configurável em Config Global.
+                Todas as requisições <strong>externas</strong> devem incluir o header <code className="bg-muted px-1 rounded">apikey: SUA_CHAVE</code>. Internamente a aplicação conecta diretamente. Configurável em Config Global.
               </p>
             </>
           ) : (
