@@ -1,37 +1,59 @@
 
 
-## Diagnóstico: Instabilidade de Conexão (502 Bad Gateway)
+## Diagnóstico: QR Code Não Gerado no Baileys v7
 
 ### Problema Identificado
 
-A captura de tela mostra erros **502 (Bad Gateway)** no console, o que significa que o container do Baileys Server está caindo/reiniciando. Isso é quase certamente causado pela atualização recente para `@whiskeysockets/baileys@7.0.0-rc.9`, que é uma **Release Candidate** com breaking changes em relação à v6.
+O console mostra que tanto `reconnectInstance` quanto `connectInstance` retornam `{"instance":{"state":"connecting"}}` sem QR Code. Isso significa que o Baileys v7 está demorando mais que o timeout configurado para gerar o primeiro QR.
 
-Na v7, a API do Baileys mudou significativamente:
-- `fetchLatestBaileysVersion` pode não existir mais ou ter assinatura diferente
-- `makeCacheableSignalKeyStore` pode ter sido removido/renomeado  
-- A estrutura de exports mudou (o server.js usa `require` com destructuring que pode falhar)
+### Causa Raiz
 
-Quando o container crasha, o polling de status retorna "desconhecido" (502). Quando ele reinicia brevemente, funciona por um momento antes de crashar novamente - explicando o comportamento intermitente.
+No `server.js`, o endpoint `/instance/create` espera apenas **3 segundos** e o `/instance/connect` espera mais **5 segundos** pelo QR. No Baileys v7, a inicialização do socket mudou e pode levar mais tempo para emitir o primeiro evento `qr` no `connection.update`.
 
-### Plano: Estabilizar o Baileys Server
+Além disso, na reconexão:
+1. Delete (ok)
+2. Wait 2s
+3. Create (espera 3s internamente)
+4. Se não tem QR, wait 2s + connect (espera 5s)
 
-**1. `baileys-server/server.js`** - Tornar os imports resilientes à v7:
-- Envolver os imports em try/catch com fallbacks
-- Remover dependência de `fetchLatestBaileysVersion` (usar versão fixa ou detectar automaticamente)
-- Usar `makeCacheableSignalKeyStore` apenas se disponível, senão usar `state.keys` diretamente
-- Adicionar log de erro claro na inicialização para diagnóstico
+Total: ~12s, mas se v7 demora mais, o QR nunca chega a tempo.
 
-**2. `baileys-server/package.json`** - Alternativa segura:
-- Se a v7 RC continuar instável, reverter para `"@whiskeysockets/baileys": "^6.7.16"` que é a versão estável comprovada
-- Ou fixar em `"6.7.16"` (sem `^`) para máxima estabilidade
+### Plano de Correção
 
-### Recomendação
+**1. `baileys-server/server.js`** - Melhorar a geração de QR:
 
-A abordagem mais segura é **reverter para a v6 estável** (`6.7.16`) até que a v7 saia do estágio RC. A v7.0.0-rc.9 tem breaking changes documentados e não é recomendada para produção.
+- **Aumentar timeout** no `/instance/create` de 3s para 5s
+- **Aumentar timeout** no `/instance/connect` de 5s para 10s, com polling a cada 1s em vez de esperar fixo
+- **Adicionar logging detalhado** nos eventos `connection.update` para debug
+- **Adicionar endpoint `/instance/qrcode/:name`** dedicado que faz polling do QR com timeout configurável
+- **Adicionar `process.on('uncaughtException')` e `process.on('unhandledRejection')`** para evitar crashes silenciosos
+
+**2. `supabase/functions/evolution-api/index.ts`** - Melhorar a lógica de reconexão:
+
+- No `reconnectInstance`, após criar, fazer polling do QR com retry (até 3 tentativas de 3s cada)
+- Aumentar o delay entre delete e create de 2s para 3s
+- Logar mais detalhes para debug
+
+**3. `src/pages/SettingsPage.tsx`** - Melhorar feedback ao usuário:
+
+- Quando `connectInstance` retorna `state: connecting` sem QR, aguardar 3s e tentar novamente automaticamente (até 2 retries)
+- Mostrar mensagem "Aguardando QR Code..." durante o retry
 
 ### Mudanças Concretas
 
-1. **`baileys-server/package.json`**: Reverter `@whiskeysockets/baileys` para `"6.7.16"` (versão exata, sem `^`)
-2. **`baileys-server/server.js`**: Manter o endpoint `/health` com retorno de versão (já implementado)
-3. **Pós-deploy**: Rebuild do container na VPS com `sudo ./scripts/deploy.sh`
+```text
+server.js:
+  /instance/create    → timeout 3s → 5s
+  /instance/connect   → wait fixo 5s → polling 1s x 10 tentativas
+  + global error handlers para evitar crash
+  + logs detalhados no connection.update
+
+evolution-api/index.ts:
+  reconnectInstance   → polling QR com 3 retries de 3s
+  connectInstance     → retry se retornar connecting sem QR
+
+SettingsPage.tsx:
+  showQrCode()        → retry automático 2x se não receber QR
+  reconnectInstance() → retry automático 2x se não receber QR
+```
 
