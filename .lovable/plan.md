@@ -1,56 +1,50 @@
 
 
-## Diagnóstico: Race Condition na Criação de Sessão
+## Problema Identificado
 
-### O que está acontecendo
+O 405 persiste porque existem **3 camadas de retry** que se multiplicam:
 
-Os logs mostram claramente o ciclo:
-1. `createSession("Rosana")` cria um WASocket
-2. Socket entra em `connecting`, mas recebe `close` com status 405 em ~2-4 segundos (antes do QR ser gerado)
-3. O close handler limpa os arquivos e remove da memória
-4. Mas enquanto isso, a UI/edge function faz **múltiplas chamadas concorrentes** que criam novos sockets antes do anterior terminar
-5. Cada novo socket encontra o mesmo problema — 405 antes do QR
+1. **Edge function `reconnectInstance`**: delete → create → 3 polls de QR → fallback connect (cada um cria nova sessão)
+2. **Frontend `reconnectInstance`**: após edge function, faz mais 2 retries com `connectInstance`
+3. **Frontend `showQrCode`**: 3 tentativas de `connectInstance`
+4. **Polling de status**: a cada 15s chama `connectionState` (esse é OK, não cria sessão)
 
-O problema fundamental: **não há mutex/lock por instância**. Múltiplas chamadas de `createSession("Rosana")` rodam ao mesmo tempo, criando sockets concorrentes que competem entre si e com WhatsApp, resultando em 405 repetido.
+Cada chamada que cria sessão dispara um novo WASocket que recebe 405 em ~2s, registra cooldown, mas o cooldown atual é apenas 5s e o servidor **espera** o cooldown em vez de rejeitar — então todas as chamadas concorrentes se empilham.
 
-Além disso, o endpoint `/instance/connect` chama `createSession` e depois faz polling de 15s no objeto `session`, mas o close handler já removeu esse session do Map e deletou os arquivos. O polling continua verificando um objeto "morto".
+## Correções (3 arquivos)
 
-### Plano de Correção
+### 1. `baileys-server/server.js`
 
-**`baileys-server/server.js`** — 3 mudanças:
+- **Cooldown de 5s → 30s**: WhatsApp precisa de tempo para liberar a conexão
+- **Rejeitar imediatamente durante cooldown** em vez de esperar (throw error com `COOLDOWN:Xs`)
+- **Endpoints `/instance/create` e `/instance/connect`**: capturar erro de cooldown e retornar `{ error: "cooldown", retryAfter: N }` com status 429
+- **`restoreSessions()`**: pular instâncias que já estão em cooldown
 
-1. **Adicionar lock por instância**: Um `Map<string, Promise>` que impede chamadas concorrentes de `createSession` para o mesmo nome. Se já existe uma criação em andamento, aguarda ela terminar.
+### 2. `supabase/functions/evolution-api/index.ts`
 
-2. **Adicionar cooldown após 405**: Quando receber 405, registrar um timestamp. Na próxima tentativa de criar sessão, esperar pelo menos 5 segundos desde o último 405 antes de criar novo socket. Isso evita flood de conexões que o WhatsApp rejeita.
+- **`reconnectInstance`**: reduzir retries de QR polling de 3 para 1
+- **Detectar respostas `session_expired` e `cooldown`**: parar retries imediatamente e retornar o erro ao frontend
+- **Remover o fallback connect** que criava mais uma sessão concorrente
 
-3. **Endpoint `/instance/connect` deve detectar sessão morta**: Durante o polling, verificar se a session ainda existe no Map. Se foi removida (por 405), parar o polling e retornar um erro claro em vez de `state: connecting`.
+### 3. `src/pages/SettingsPage.tsx`
+
+- **`reconnectInstance`**: detectar erro `cooldown` ou `session_expired` na resposta e mostrar toast com tempo de espera, sem fazer retries adicionais
+- **`showQrCode`**: mesma detecção — parar retries se receber cooldown/session_expired
+- **`createInstance`**: mesma detecção no `connectInstance` pós-criação
+
+### Resultado esperado
 
 ```text
-Mudanças em server.js:
+Antes (loop infinito):
+  UI clica Reconectar
+  → Edge: delete + create + 3 polls + connect fallback = ~5 sessões criadas
+  → Frontend: + 2 retries = ~7 sessões total
+  → Cada sessão → 405 em 2s → cleanup → próxima sessão imediata
+  → WhatsApp bloqueia mais → mais 405
 
-+ const sessionLocks = new Map();     // mutex por instância
-+ const sessionCooldowns = new Map(); // timestamp do último 405
-
-  createSession():
-    - Checar se já existe lock ativo → aguardar
-    - Checar cooldown → aguardar se < 5s desde último 405
-    - Criar lock antes de iniciar, liberar quando socket emitir QR ou close
-
-  connection.update (close com 405):
-    - Registrar cooldown: sessionCooldowns.set(name, Date.now())
-    - Fechar socket com sock.end() antes de deletar sessão
-
-  /instance/connect:
-    - No polling, checar sessions.has(name) a cada iteração
-    - Se session sumiu do Map, retornar { error: "session_expired", message: "Sessão invalidada. Tente novamente em alguns segundos." }
-
-  /instance/create:
-    - Mesmo tratamento de lock/cooldown
+Depois:
+  UI clica Reconectar
+  → Edge: delete + create + 1 poll → 405 → cooldown 30s → retorna {error: "cooldown", retryAfter: 28}
+  → Frontend: recebe cooldown → mostra "Aguarde 28s antes de tentar novamente" → para
+  → Após 30s, próxima tentativa tem socket limpo sem concorrência
 ```
-
-Após deploy, o comportamento será:
-- Primeira tentativa: cria socket, se receber 405, limpa e registra cooldown
-- Segunda tentativa (dentro de 5s): aguarda cooldown, depois cria socket limpo
-- Sem chamadas concorrentes competindo
-- UI recebe erro claro em vez de timeout silencioso
-
