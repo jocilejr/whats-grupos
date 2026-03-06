@@ -1,13 +1,14 @@
 {
   "name": "baileys-server",
-  "version": "1.0.0",
-  "description": "Servidor REST compatível com Evolution API usando Baileys",
+  "version": "2.0.0",
+  "type": "module",
+  "description": "Servidor REST compatível com Evolution API usando Baileys v7",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "^6.7.16",
+    "@whiskeysockets/baileys": "^7.0.0-rc.9",
     "express": "^4.21.2",
     "qrcode": "^1.5.4",
     "pino": "^9.6.0",
