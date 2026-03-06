@@ -1,51 +1,30 @@
 
+## Adicionar `smart-link-api` ao script de deploy
 
-## Diagnóstico: Erro 405 é um problema conhecido do Baileys v7 com WhatsApp
+### Problema
 
-### Causa raiz real
-O WhatsApp está rejeitando **todas** as conexões (novas e antigas) porque a versão do protocolo e/ou a identificação do browser estão incorretas. Isso é um bug documentado no Baileys v7 rc9 (GitHub Issue #2370). A config `browser: ['Mac OS', 'Desktop', '']` não funciona mais.
+O script `scripts/deploy.sh` copia as edge functions para o servidor VPS, mas a funcao `smart-link-api` nao esta na lista de funcoes a serem copiadas (linha 24). Por isso, a versao corrigida (com `npm:` import) nunca chega ao servidor, e o erro `InvalidWorkerCreation` persiste.
 
-### Evidência
-- Instância "Rosana" → erro 405
-- Instância nova "Teste" → mesmo erro 405
-- Não é sessão corrompida — é **rejeição do WhatsApp** antes de gerar QR
+### Solucao
 
-### Correção confirmada pela comunidade
+**Arquivo:** `scripts/deploy.sh`
 
-**`baileys-server/server.js`** — Alterar `createSession()` (linha 73-79):
+Adicionar `smart-link-api` na lista de funcoes copiadas na linha 24.
 
-```javascript
-// DE:
-const sock = makeWASocket({
-  auth: state,
-  logger,
-  browser: ['Mac OS', 'Desktop', ''],
-  printQRInTerminal: false,
-  generateHighQualityLinkPreview: true,
-});
-
-// PARA:
-const sock = makeWASocket({
-  auth: state,
-  logger,
-  browser: ['WhatsGrupos', 'Chrome', '145.0.0'],
-  version: [2, 3000, 1033893291],
-  printQRInTerminal: false,
-  generateHighQualityLinkPreview: true,
-});
+De:
+```text
+for FUNC in evolution-api send-scheduled-messages admin-api backup-export generate-ai-message process-queue sync-group-stats group-events-webhook smart-link-redirect sync-invite-links; do
 ```
 
-Duas mudanças:
-1. **`browser`**: Simular Chrome real em vez de "Mac OS Desktop" (que WhatsApp agora bloqueia)
-2. **`version`**: Fixar versão do protocolo WhatsApp que funciona com v7 rc9
-
-### Após implementar
-Na VPS, executar:
-```bash
-cd /opt/whats-grupos && git pull
-docker compose -f docker-compose.frontend.yml build --no-cache baileys-server
-docker compose -f docker-compose.frontend.yml up -d baileys-server
-docker exec baileys-server rm -rf /data/baileys-sessions/*
-docker restart baileys-server
+Para:
+```text
+for FUNC in evolution-api send-scheduled-messages admin-api backup-export generate-ai-message process-queue sync-group-stats group-events-webhook smart-link-redirect smart-link-api sync-invite-links; do
 ```
 
+### Apos a implementacao
+
+Voce precisara rodar no servidor VPS:
+1. `git pull`
+2. `sudo ./scripts/deploy.sh`
+
+Isso copiara a versao corrigida do `smart-link-api` (com import `npm:`) para o ambiente Supabase local e reiniciara as functions.

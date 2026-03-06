@@ -73,7 +73,8 @@ async function createSession(instanceName) {
   const sock = makeWASocket({
     auth: state,
     logger,
-    browser: ['Mac OS', 'Desktop', ''],
+    browser: ['WhatsGrupos', 'Chrome', '145.0.0'],
+    version: [2, 3000, 1033893291],
     printQRInTerminal: false,
     generateHighQualityLinkPreview: true,
   });
