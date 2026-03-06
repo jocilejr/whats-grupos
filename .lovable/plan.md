@@ -1,69 +1,30 @@
 
+## Adicionar `smart-link-api` ao script de deploy
 
-## Diagnóstico: Mensagens "enviadas" mas não entregues no WhatsApp mobile
+### Problema
 
-### Causa raiz identificada
+O script `scripts/deploy.sh` copia as edge functions para o servidor VPS, mas a funcao `smart-link-api` nao esta na lista de funcoes a serem copiadas (linha 24). Por isso, a versao corrigida (com `npm:` import) nunca chega ao servidor, e o erro `InvalidWorkerCreation` persiste.
 
-Os logs do Baileys mostram exatamente o que está acontecendo:
+### Solucao
 
-```
-[sendText] mentionsEveryOne=true, jid=120363184992222035@g.us
-[sendText] Mentions added: 897 participants
-[sendText] Failed to fetch group metadata for mentions: Timed Out
-[sendText] Error: Connection Closed
-```
+**Arquivo:** `scripts/deploy.sh`
 
-**3 problemas concretos no `baileys-server/server.js`:**
+Adicionar `smart-link-api` na lista de funcoes copiadas na linha 24.
 
-1. **`mentionsEveryOne` derruba a conexão em grupos grandes** — Para mencionar todos, o servidor chama `groupMetadata()` para pegar a lista de participantes. Em grupos com 800+ membros, essa chamada faz timeout e derruba a conexão WebSocket inteira. Quando a conexão cai, `sendMessage()` falha com "Connection Closed". Porém, se o `groupMetadata` consegue retornar antes do timeout, o `sendMessage` tenta enviar uma mensagem com 897 menções — o que o WhatsApp rejeita silenciosamente no protocolo (chega no Web mas não propaga pro mobile).
-
-2. **Código deployado usa API v6 (incompatível)** — O `server.js` atual usa `fetchLatestBaileysVersion` e `makeCacheableSignalKeyStore`, que são funções da v6. A memória do projeto indica que houve migração para v7, mas o arquivo no repositório ainda tem o código antigo. Isso causa comportamento instável.
-
-3. **Reconexão sem backoff** — Quando a conexão cai, o servidor tenta reconectar após apenas 3 segundos, sem backoff exponencial. Isso pode causar ban temporário do WhatsApp.
-
-### Plano de correção
-
-#### 1. Corrigir `mentionsEveryOne` para grupos grandes
-
-Em vez de buscar `groupMetadata()` (que faz uma query ao servidor do WhatsApp e pode timeout), usar a lista de participantes já disponível no cache local do Baileys. Se não estiver em cache, enviar SEM menções em vez de derrubar a conexão.
-
+De:
 ```text
-// Antes (atual): chama API do WhatsApp
-const metadata = await session.sock.groupMetadata(jid);
-msgOptions.mentions = metadata.participants.map(p => p.id);
-
-// Depois: timeout curto + fallback sem menções
-const metadata = await Promise.race([
-  session.sock.groupMetadata(jid),
-  new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
-]);
+for FUNC in evolution-api send-scheduled-messages admin-api backup-export generate-ai-message process-queue sync-group-stats group-events-webhook smart-link-redirect sync-invite-links; do
 ```
 
-Aplicar isso em `sendText` (linha 316-323) e `sendMedia` (linha 359-366).
+Para:
+```text
+for FUNC in evolution-api send-scheduled-messages admin-api backup-export generate-ai-message process-queue sync-group-stats group-events-webhook smart-link-redirect smart-link-api sync-invite-links; do
+```
 
-#### 2. Atualizar server.js para API Baileys v7
+### Apos a implementacao
 
-- Remover `fetchLatestBaileysVersion` e `makeCacheableSignalKeyStore`
-- Usar `auth: state` diretamente (padrão v7)
-- Configurar `browser: ['Mac OS', 'Desktop', '']` para evitar erro 405
+Voce precisara rodar no servidor VPS:
+1. `git pull`
+2. `sudo ./scripts/deploy.sh`
 
-#### 3. Adicionar backoff na reconexão
-
-- Primeira tentativa: 5s, segunda: 15s, terceira: 60s
-- Após 3 tentativas, parar e aguardar reconexão manual
-
-#### 4. Limitar tamanho de menções
-
-- Para grupos com mais de 300 participantes, não incluir menções (enviar como texto normal)
-- O WhatsApp tem um limite implícito de menções por mensagem — ultrapassá-lo faz a mensagem ser entregue apenas parcialmente
-
-### Arquivos modificados
-
-| Arquivo | Mudança |
-|---------|---------|
-| `baileys-server/server.js` | Atualizar para API v7, timeout no groupMetadata, limite de menções, backoff na reconexão |
-
-### Observação importante
-
-Após o deploy, será necessário **reconectar a instância por QR Code** pois a mudança de v6 para v7 invalida as sessões existentes.
-
+Isso copiara a versao corrigida do `smart-link-api` (com import `npm:`) para o ambiente Supabase local e reiniciara as functions.

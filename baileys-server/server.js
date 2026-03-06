@@ -1,9 +1,13 @@
-const express = require('express');
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, makeCacheableSignalKeyStore } = require('@whiskeysockets/baileys');
-const QRCode = require('qrcode');
-const pino = require('pino');
-const path = require('path');
-const fs = require('fs');
+import express from 'express';
+import { default as makeWASocket, useMultiFileAuthState, DisconnectReason } from '@whiskeysockets/baileys';
+import QRCode from 'qrcode';
+import pino from 'pino';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 app.use(express.json({ limit: '50mb' }));
@@ -12,12 +16,46 @@ const PORT = process.env.PORT || 3100;
 const SESSIONS_DIR = process.env.SESSIONS_DIR || '/data/baileys-sessions';
 const logger = pino({ level: 'warn' });
 
+// Constants
+const MAX_MENTIONS_PARTICIPANTS = 300;
+const METADATA_TIMEOUT_MS = 5000;
+const RECONNECT_DELAYS = [5000, 15000, 60000]; // backoff: 5s, 15s, 60s
+
 // Store active sockets
 const sessions = new Map();
 
 // Ensure sessions dir exists
 if (!fs.existsSync(SESSIONS_DIR)) {
   fs.mkdirSync(SESSIONS_DIR, { recursive: true });
+}
+
+// ---- Helper: safe groupMetadata with timeout ----
+async function safeGroupMetadata(sock, jid) {
+  try {
+    const metadata = await Promise.race([
+      sock.groupMetadata(jid),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('metadata_timeout')), METADATA_TIMEOUT_MS)),
+    ]);
+    return metadata;
+  } catch (err) {
+    console.log(`[safeGroupMetadata] Failed for ${jid}: ${err.message}`);
+    return null;
+  }
+}
+
+// ---- Helper: add mentions if group is small enough ----
+async function addMentionsIfNeeded(sock, jid, msgContent) {
+  const metadata = await safeGroupMetadata(sock, jid);
+  if (!metadata) {
+    console.log(`[mentions] Skipping mentions — metadata unavailable for ${jid}`);
+    return;
+  }
+  if (metadata.participants.length > MAX_MENTIONS_PARTICIPANTS) {
+    console.log(`[mentions] Skipping mentions — group has ${metadata.participants.length} participants (limit: ${MAX_MENTIONS_PARTICIPANTS})`);
+    return;
+  }
+  msgContent.mentions = metadata.participants.map(p => p.id);
+  console.log(`[mentions] Added ${msgContent.mentions.length} mentions for ${jid}`);
 }
 
 // ---- Helper: get or create session ----
@@ -31,15 +69,11 @@ async function getSession(instanceName) {
 async function createSession(instanceName) {
   const sessionDir = path.join(SESSIONS_DIR, instanceName);
   const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
-  const { version } = await fetchLatestBaileysVersion();
 
   const sock = makeWASocket({
-    version,
-    auth: {
-      creds: state.creds,
-      keys: makeCacheableSignalKeyStore(state.keys, logger),
-    },
+    auth: state,
     logger,
+    browser: ['Mac OS', 'Desktop', ''],
     printQRInTerminal: false,
     generateHighQualityLinkPreview: true,
   });
@@ -50,6 +84,7 @@ async function createSession(instanceName) {
     connected: false,
     connecting: true,
     saveCreds,
+    reconnectAttempt: 0,
   };
 
   sock.ev.on('creds.update', saveCreds);
@@ -67,6 +102,7 @@ async function createSession(instanceName) {
       session.connected = true;
       session.connecting = false;
       session.qr = null;
+      session.reconnectAttempt = 0;
       console.log(`[${instanceName}] Connected`);
     }
 
@@ -77,19 +113,44 @@ async function createSession(instanceName) {
       const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
       console.log(`[${instanceName}] Disconnected. Status: ${statusCode}. Reconnect: ${shouldReconnect}`);
 
-      if (shouldReconnect) {
+      // Terminal errors — stop reconnecting
+      const terminalCodes = [401, 405, 406, 440];
+      if (!shouldReconnect || terminalCodes.includes(statusCode)) {
+        console.log(`[${instanceName}] Terminal error (${statusCode}). Stopping reconnection.`);
+        // Delay deletion so polling can read the error
+        const errorLabel = `terminal_${statusCode || 'loggedOut'}`;
+        session.error = errorLabel;
         setTimeout(() => {
-          console.log(`[${instanceName}] Attempting reconnect...`);
           sessions.delete(instanceName);
-          createSession(instanceName).catch(console.error);
-        }, 3000);
-      } else {
-        sessions.delete(instanceName);
+        }, 30000);
         // Clean up session files on logout
         if (fs.existsSync(sessionDir)) {
           fs.rmSync(sessionDir, { recursive: true, force: true });
         }
+        return;
       }
+
+      // Backoff reconnection
+      const attempt = session.reconnectAttempt || 0;
+      if (attempt >= RECONNECT_DELAYS.length) {
+        console.log(`[${instanceName}] Max reconnect attempts reached (${attempt}). Giving up.`);
+        session.error = 'max_reconnect_attempts';
+        setTimeout(() => {
+          sessions.delete(instanceName);
+        }, 30000);
+        return;
+      }
+
+      const delay = RECONNECT_DELAYS[attempt];
+      session.reconnectAttempt = attempt + 1;
+      console.log(`[${instanceName}] Reconnecting in ${delay / 1000}s (attempt ${attempt + 1}/${RECONNECT_DELAYS.length})...`);
+
+      setTimeout(() => {
+        sessions.delete(instanceName);
+        createSession(instanceName).catch(err => {
+          console.error(`[${instanceName}] Reconnect failed:`, err.message);
+        });
+      }, delay);
     }
   });
 
@@ -99,11 +160,10 @@ async function createSession(instanceName) {
       const webhookUrl = process.env.SUPABASE_FUNCTIONS_URL || 'http://supabase-kong:8000';
       const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
-      // Try to get group name
       let groupName = id;
       try {
-        const metadata = await sock.groupMetadata(id);
-        groupName = metadata.subject || id;
+        const metadata = await safeGroupMetadata(sock, id);
+        if (metadata) groupName = metadata.subject || id;
       } catch {}
 
       await fetch(`${webhookUrl}/functions/v1/group-events-webhook`, {
@@ -163,8 +223,6 @@ app.post('/instance/create', async (req, res) => {
     }
 
     session = await createSession(instanceName);
-
-    // Wait a bit for QR to be generated
     await new Promise(r => setTimeout(r, 3000));
 
     const result = { instance: { instanceName, status: 'connecting' } };
@@ -199,7 +257,6 @@ app.get('/instance/connect/:name', async (req, res) => {
       return res.json({ base64, code: session.qr });
     }
 
-    // Wait for QR
     await new Promise(r => setTimeout(r, 5000));
     if (session.qr) {
       const base64 = await QRCode.toDataURL(session.qr);
@@ -223,6 +280,7 @@ app.get('/instance/connectionState/:name', async (req, res) => {
     res.json({
       instance: {
         state: session.connected ? 'open' : (session.connecting ? 'connecting' : 'close'),
+        ...(session.error && { error: session.error }),
       },
     });
   } catch (e) {
@@ -309,18 +367,10 @@ app.post('/message/sendText/:name', async (req, res) => {
     const { number, text, mentionsEveryOne } = req.body;
     const jid = number.includes('@') ? number : `${number}@g.us`;
 
-    console.log(`[sendText] mentionsEveryOne=${mentionsEveryOne}, jid=${jid}`);
-
     const msgOptions = { text };
 
     if (mentionsEveryOne) {
-      try {
-        const metadata = await session.sock.groupMetadata(jid);
-        msgOptions.mentions = metadata.participants.map(p => p.id);
-        console.log(`[sendText] Mentions added: ${msgOptions.mentions.length} participants`);
-      } catch (mentionErr) {
-        console.error(`[sendText] Failed to fetch group metadata for mentions:`, mentionErr.message);
-      }
+      await addMentionsIfNeeded(session.sock, jid, msgOptions);
     }
 
     const result = await session.sock.sendMessage(jid, msgOptions);
@@ -342,8 +392,6 @@ app.post('/message/sendMedia/:name', async (req, res) => {
     const { number, mediatype, media, caption, fileName, mentionsEveryOne } = req.body;
     const jid = number.includes('@') ? number : `${number}@g.us`;
 
-    console.log(`[sendMedia] mentionsEveryOne=${mentionsEveryOne}, jid=${jid}, mediatype=${mediatype}`);
-
     let msgContent;
     if (mediatype === 'image') {
       msgContent = { image: { url: media }, caption: caption || '' };
@@ -355,18 +403,9 @@ app.post('/message/sendMedia/:name', async (req, res) => {
       return res.status(400).json({ error: `Unsupported media type: ${mediatype}` });
     }
 
-    // Adicionar menções se solicitado
     if (mentionsEveryOne) {
-      try {
-        const metadata = await session.sock.groupMetadata(jid);
-        msgContent.mentions = metadata.participants.map(p => p.id);
-        console.log(`[sendMedia] Mentions added: ${msgContent.mentions.length} participants`);
-      } catch (mentionErr) {
-        console.error(`[sendMedia] Failed to fetch group metadata for mentions:`, mentionErr.message);
-      }
+      await addMentionsIfNeeded(session.sock, jid, msgContent);
     }
-
-    console.log(`[sendMedia] Sending with mentions: ${!!msgContent.mentions}`);
 
     const result = await session.sock.sendMessage(jid, msgContent);
     res.json({ key: result.key, status: 'PENDING' });
@@ -499,7 +538,7 @@ app.post('/message/sendPoll/:name', async (req, res) => {
   }
 });
 
-// GET /group/inviteCode/:name/:jid - Get invite code for a single group
+// GET /group/inviteCode/:name/:jid
 app.get('/group/inviteCode/:name/:jid', async (req, res) => {
   try {
     const session = await getSession(req.params.name);
@@ -521,7 +560,7 @@ app.get('/group/inviteCode/:name/:jid', async (req, res) => {
   }
 });
 
-// POST /group/inviteCodeBatch/:name - Get invite codes for multiple groups
+// POST /group/inviteCodeBatch/:name
 app.post('/group/inviteCodeBatch/:name', async (req, res) => {
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   try {
@@ -538,7 +577,6 @@ app.post('/group/inviteCodeBatch/:name', async (req, res) => {
     const result = {};
     const errors = {};
 
-    // First pass with 500ms delay between calls
     for (const jid of jids) {
       try {
         const code = await session.sock.groupInviteCode(jid);
@@ -551,7 +589,6 @@ app.post('/group/inviteCodeBatch/:name', async (req, res) => {
       await sleep(500);
     }
 
-    // Retry failed ones after 2s pause
     const failedJids = Object.keys(errors);
     if (failedJids.length > 0) {
       console.log(`[inviteCodeBatch] Retrying ${failedJids.length} failed groups after 2s...`);
@@ -577,7 +614,7 @@ app.post('/group/inviteCodeBatch/:name', async (req, res) => {
   }
 });
 
-// GET /smart-link/:slug - Smart link resolver (returns group invite URL as plain text)
+// GET /smart-link/:slug
 app.get('/smart-link/:slug', async (req, res) => {
   try {
     const slug = req.params.slug;
@@ -593,7 +630,6 @@ app.get('/smart-link/:slug', async (req, res) => {
       return res.status(500).type('text/plain').send('Server misconfigured');
     }
 
-    // 1. Fetch smart link by slug
     const slRes = await fetch(
       `${supabaseUrl}/rest/v1/campaign_smart_links?slug=eq.${encodeURIComponent(slug)}&is_active=eq.true&limit=1`,
       {
@@ -620,7 +656,6 @@ app.get('/smart-link/:slug', async (req, res) => {
 
     const groupIds = groupLinks.map(g => g.group_id);
 
-    // 2. Fetch latest group_stats for these groups
     const groupIdsFilter = groupIds.map(id => `"${id}"`).join(',');
     const statsRes = await fetch(
       `${supabaseUrl}/rest/v1/group_stats?group_id=in.(${groupIdsFilter})&order=snapshot_date.desc`,
@@ -645,7 +680,6 @@ app.get('/smart-link/:slug', async (req, res) => {
       }
     }
 
-    // 3. Select group by position + capacity
     const maxMembers = smartLink.max_members_per_group;
     let redirectUrl = null;
 
@@ -659,7 +693,6 @@ app.get('/smart-link/:slug', async (req, res) => {
       }
     }
 
-    // Fallback: last group with a URL
     if (!redirectUrl) {
       for (let i = groupLinks.length - 1; i >= 0; i--) {
         const u = inviteUrls[groupLinks[i].group_id];
