@@ -190,7 +190,7 @@ Deno.serve(async (req) => {
         if (createResult?.qrcode) {
           result = createResult;
         } else {
-          await new Promise(r => setTimeout(r, 2000));
+          await new Promise(r => setTimeout(r, 3000));
           const connResp = await fetch(`${apiUrl}/instance/connect/${instanceName}`, { headers });
           const connText = await connResp.text();
           console.log(`[reconnectInstance] Connect status: ${connResp.status}, Response: ${connText.substring(0, 500)}`);
