@@ -202,17 +202,32 @@ export default function SettingsPage() {
 
   const reconnectInstance = async (configId: string, name: string) => {
     try {
-      toast({ title: "Reconectando...", description: "Recriando instância e gerando QR Code. Aguarde..." });
+      toast({ title: "Recriando instância...", description: "Aguarde enquanto a instância é recriada." });
       const result = await callEvolutionApi("reconnectInstance", configId);
       console.log("reconnectInstance response:", JSON.stringify(result));
-      
-      const qr = result?.qrcode?.base64 || result?.base64 || result?.qrcode || result?.code;
+
+      // Check if QR came directly from create
+      let qr = result?.qrcode?.base64 || result?.base64 || result?.qrcode || result?.code;
+      if (qr && typeof qr === "string" && qr.length > 50) {
+        const src = qr.startsWith("data:") ? qr : `data:image/png;base64,${qr}`;
+        setQrCodeData({ name, qrcode: src });
+        toast({ title: "QR Code gerado!", description: "Escaneie com o WhatsApp." });
+        return;
+      }
+
+      // No QR from create — wait and call connectInstance separately
+      toast({ title: "Gerando QR Code...", description: "Conectando à instância recriada." });
+      await new Promise(r => setTimeout(r, 2000));
+      const connResult = await callEvolutionApi("connectInstance", configId);
+      console.log("connectInstance after reconnect:", JSON.stringify(connResult));
+
+      qr = connResult?.base64 || connResult?.qrcode?.base64 || connResult?.qrcode || connResult?.code;
       if (qr && typeof qr === "string" && qr.length > 50) {
         const src = qr.startsWith("data:") ? qr : `data:image/png;base64,${qr}`;
         setQrCodeData({ name, qrcode: src });
         toast({ title: "QR Code gerado!", description: "Escaneie com o WhatsApp." });
       } else {
-        toast({ title: "Erro ao reconectar", description: "Tente novamente em alguns segundos.", variant: "destructive" });
+        toast({ title: "Instância recriada", description: "Clique em 'QR Code' para conectar.", variant: "destructive" });
       }
     } catch (e: any) {
       toast({ title: "Erro", description: e.message, variant: "destructive" });
