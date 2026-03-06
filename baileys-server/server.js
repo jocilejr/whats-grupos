@@ -222,6 +222,13 @@ app.post('/instance/create', async (req, res) => {
       return res.json({ instance: { instanceName, status: session.connected ? 'open' : 'connecting' } });
     }
 
+    // Force clean old session files (v6→v7 compatibility)
+    const sessionDir = path.join(SESSIONS_DIR, instanceName);
+    if (fs.existsSync(sessionDir)) {
+      console.log(`[create] Cleaning old session dir for ${instanceName}`);
+      fs.rmSync(sessionDir, { recursive: true, force: true });
+    }
+
     session = await createSession(instanceName);
     await new Promise(r => setTimeout(r, 3000));
 
