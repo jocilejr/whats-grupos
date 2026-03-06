@@ -143,6 +143,7 @@ export type Database = {
       }
       global_config: {
         Row: {
+          baileys_api_key: string
           baileys_api_url: string
           created_at: string
           evolution_api_key: string
@@ -155,6 +156,7 @@ export type Database = {
           whatsapp_provider: string
         }
         Insert: {
+          baileys_api_key?: string
           baileys_api_url?: string
           created_at?: string
           evolution_api_key?: string
@@ -167,6 +169,7 @@ export type Database = {
           whatsapp_provider?: string
         }
         Update: {
+          baileys_api_key?: string
           baileys_api_url?: string
           created_at?: string
           evolution_api_key?: string
@@ -657,6 +660,39 @@ export type Database = {
         }
         Relationships: []
       }
+      webhook_configs: {
+        Row: {
+          created_at: string
+          events: string[]
+          id: string
+          is_active: boolean
+          secret: string | null
+          updated_at: string
+          user_id: string
+          webhook_url: string
+        }
+        Insert: {
+          created_at?: string
+          events?: string[]
+          id?: string
+          is_active?: boolean
+          secret?: string | null
+          updated_at?: string
+          user_id: string
+          webhook_url: string
+        }
+        Update: {
+          created_at?: string
+          events?: string[]
+          id?: string
+          is_active?: boolean
+          secret?: string | null
+          updated_at?: string
+          user_id?: string
+          webhook_url?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
@@ -723,6 +759,16 @@ export type Database = {
         }
       }
       cleanup_old_queue_items: { Args: never; Returns: undefined }
+      get_admin_global_config: {
+        Args: never
+        Returns: {
+          baileys_api_key: string
+          baileys_api_url: string
+          id: string
+          openai_api_key: string
+          queue_delay_seconds: number
+        }[]
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -731,6 +777,10 @@ export type Database = {
         Returns: boolean
       }
       reset_stuck_queue_items: { Args: never; Returns: undefined }
+      set_admin_global_config: {
+        Args: { _baileys_api_key: string; _openai_api_key: string }
+        Returns: string
+      }
     }
     Enums: {
       app_role: "admin" | "user"
