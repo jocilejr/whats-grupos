@@ -264,7 +264,12 @@ app.get('/instance/connect/:name', async (req, res) => {
       return res.json({ base64, code: session.qr });
     }
 
-    await new Promise(r => setTimeout(r, 5000));
+    // Polling loop: check every 1s for up to 15s
+    for (let i = 0; i < 15; i++) {
+      await new Promise(r => setTimeout(r, 1000));
+      if (session.qr || session.connected) break;
+    }
+
     if (session.qr) {
       const base64 = await QRCode.toDataURL(session.qr);
       return res.json({ base64, code: session.qr });
