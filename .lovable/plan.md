@@ -1,55 +1,30 @@
 
+## Adicionar `smart-link-api` ao script de deploy
 
-## Problema
+### Problema
 
-A migration anterior usou `AT TIME ZONE 'America/Sao_Paulo'` para converter horários. No Postgres da VPS, essa função está **subtraindo** 3h em vez de **somar**, causando um erro de 6 horas:
+O script `scripts/deploy.sh` copia as edge functions para o servidor VPS, mas a funcao `smart-link-api` nao esta na lista de funcoes a serem copiadas (linha 24). Por isso, a versao corrigida (com `npm:` import) nunca chega ao servidor, e o erro `InvalidWorkerCreation` persiste.
 
-- Usuário configurou: **19:30 BRT**
-- Deveria gravar: **22:30 UTC** (19:30 + 3h)
-- Gravou: **16:30 UTC** (19:30 - 3h = 13:30 BRT)
+### Solucao
 
-## Solução
+**Arquivo:** `scripts/deploy.sh`
 
-Criar uma nova migration que recalcula `next_run_at` usando **aritmética explícita de intervalo** — sem nenhum uso de `AT TIME ZONE`.
+Adicionar `smart-link-api` na lista de funcoes copiadas na linha 24.
 
-### Regras de conversão
-
-- Hora atual em BRT: `now() - interval '3 hours'`
-- BRT → UTC: `+ interval '3 hours'`
-
-### SQL da migration (1 arquivo novo)
-
-**DAILY:**
-```sql
-UPDATE scheduled_messages
-SET next_run_at = CASE
-  WHEN (CURRENT_DATE + (COALESCE(content->>'runTime','08:00') || ':00')::interval 
-        + interval '3 hours') > now()
-  THEN CURRENT_DATE + (COALESCE(content->>'runTime','08:00') || ':00')::interval 
-       + interval '3 hours'
-  ELSE CURRENT_DATE + interval '1 day' 
-       + (COALESCE(content->>'runTime','08:00') || ':00')::interval 
-       + interval '3 hours'
-END, processing_started_at = NULL
-WHERE is_active = true AND schedule_type = 'daily';
+De:
+```text
+for FUNC in evolution-api send-scheduled-messages admin-api backup-export generate-ai-message process-queue sync-group-stats group-events-webhook smart-link-redirect sync-invite-links; do
 ```
 
-**WEEKLY:** Gera próximos 14 dias com `generate_series`, filtra pelo array `weekDays`, calcula `dia + runTime + 3h`, pega o primeiro futuro.
-
-**MONTHLY:** Usa `monthDay` no mês atual ou próximo, `+ runTime + 3h`.
-
-**CUSTOM:** Usa array `customDays`, mesma lógica do monthly para cada dia candidato.
-
-### Alterações
-
-- **1 arquivo novo**: `supabase/migrations/[timestamp]_fix_timezone_arithmetic.sql`
-- **Nenhuma** alteração em frontend ou edge functions (a função `calculateNextRunAt` no edge function já usa `brtH + 3` corretamente)
-
-### Após implementar
-
-Rodar na VPS:
-```bash
-source /opt/whats-grupos/.credentials
-./scripts/run-migrations.sh supabase/migrations "$DB_PASSWORD"
+Para:
+```text
+for FUNC in evolution-api send-scheduled-messages admin-api backup-export generate-ai-message process-queue sync-group-stats group-events-webhook smart-link-redirect smart-link-api sync-invite-links; do
 ```
 
+### Apos a implementacao
+
+Voce precisara rodar no servidor VPS:
+1. `git pull`
+2. `sudo ./scripts/deploy.sh`
+
+Isso copiara a versao corrigida do `smart-link-api` (com import `npm:`) para o ambiente Supabase local e reiniciara as functions.
