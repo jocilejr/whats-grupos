@@ -1,45 +1,30 @@
 
+## Adicionar `smart-link-api` ao script de deploy
 
-## Diagnóstico: Bug de Timezone no Agendamento "Uma vez"
+### Problema
 
-### Causa raiz
+O script `scripts/deploy.sh` copia as edge functions para o servidor VPS, mas a funcao `smart-link-api` nao esta na lista de funcoes a serem copiadas (linha 24). Por isso, a versao corrigida (com `npm:` import) nunca chega ao servidor, e o erro `InvalidWorkerCreation` persiste.
 
-No `computeNextRunAt()` (linha 213-218) e no `handleSave` (linha 318), o código faz:
+### Solucao
 
-```javascript
-const d = new Date(scheduledDate);       // midnight LOCAL time
-d.setUTCHours(h + BRT_OFFSET, m, 0, 0); // sets UTC hours but keeps UTC DATE from local midnight
+**Arquivo:** `scripts/deploy.sh`
+
+Adicionar `smart-link-api` na lista de funcoes copiadas na linha 24.
+
+De:
+```text
+for FUNC in evolution-api send-scheduled-messages admin-api backup-export generate-ai-message process-queue sync-group-stats group-events-webhook smart-link-redirect sync-invite-links; do
 ```
 
-O problema: `new Date(scheduledDate)` cria a data à meia-noite no fuso do **navegador**. Se o fuso do navegador for diferente de BRT, o componente UTC da data pode ser o dia anterior. Exemplo: se o preview do Lovable roda em UTC+0 ou se o browser tem timezone diferente, a conversão pode deslocar o dia.
-
-Mesmo em BRT, há um caso sutil: o react-day-picker retorna a data como `Date` local. Ao copiar com `new Date(scheduledDate)` e depois chamar `setUTCHours`, o **dia UTC** já está definido pela conversão implícita do construtor, podendo causar shift de 1 dia.
-
-### Correção
-
-**`src/components/campaigns/ScheduledMessageForm.tsx`** — Em 2 pontos, extrair ano/mês/dia explicitamente do `scheduledDate` local e construir a data UTC diretamente:
-
-1. **`computeNextRunAt()`** (linha ~216-218): Substituir por:
-```javascript
-const d = new Date(Date.UTC(
-  scheduledDate.getFullYear(),
-  scheduledDate.getMonth(),
-  scheduledDate.getDate(),
-  h + BRT_OFFSET, m, 0, 0
-));
-return d.toISOString();
+Para:
+```text
+for FUNC in evolution-api send-scheduled-messages admin-api backup-export generate-ai-message process-queue sync-group-stats group-events-webhook smart-link-redirect smart-link-api sync-invite-links; do
 ```
 
-2. **`handleSave` → `scheduledAtValue`** (linha ~318): Mesma correção:
-```javascript
-const d = new Date(Date.UTC(
-  scheduledDate.getFullYear(),
-  scheduledDate.getMonth(),
-  scheduledDate.getDate(),
-  h + BRT_OFFSET, m, 0, 0
-));
-return d.toISOString();
-```
+### Apos a implementacao
 
-Isso garante que o dia selecionado no calendário é preservado independente do timezone do navegador.
+Voce precisara rodar no servidor VPS:
+1. `git pull`
+2. `sudo ./scripts/deploy.sh`
 
+Isso copiara a versao corrigida do `smart-link-api` (com import `npm:`) para o ambiente Supabase local e reiniciara as functions.
