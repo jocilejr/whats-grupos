@@ -1,30 +1,30 @@
 
-## Adicionar `smart-link-api` ao script de deploy
 
-### Problema
+## Problem
 
-O script `scripts/deploy.sh` copia as edge functions para o servidor VPS, mas a funcao `smart-link-api` nao esta na lista de funcoes a serem copiadas (linha 24). Por isso, a versao corrigida (com `npm:` import) nunca chega ao servidor, e o erro `InvalidWorkerCreation` persiste.
+The `calculateNextRunAt` function in `send-scheduled-messages/index.ts` uses **local-timezone Date methods** (`setHours`, `setDate`, `getDay`) on a date that was manually shifted to represent BRT. Since Deno edge functions may run in any timezone, these methods produce wrong results. The fix applied via SQL was correct but the function will re-corrupt `next_run_at` on every subsequent run.
 
-### Solucao
+## Root Cause
 
-**Arquivo:** `scripts/deploy.sh`
-
-Adicionar `smart-link-api` na lista de funcoes copiadas na linha 24.
-
-De:
-```text
-for FUNC in evolution-api send-scheduled-messages admin-api backup-export generate-ai-message process-queue sync-group-stats group-events-webhook smart-link-redirect sync-invite-links; do
+```
+brtNow = new Date(now.getTime() - BRT_OFFSET_MS)
+candidate.setHours(brtH, brtM, 0, 0)   // ← uses SERVER local tz, not UTC
+candidate.getDay()                       // ← same problem
 ```
 
-Para:
-```text
-for FUNC in evolution-api send-scheduled-messages admin-api backup-export generate-ai-message process-queue sync-group-stats group-events-webhook smart-link-redirect smart-link-api sync-invite-links; do
-```
+All Date manipulation after the offset subtraction must use **UTC methods** (`setUTCHours`, `setUTCDate`, `getUTCDay`, `getUTCFullYear`, `getUTCMonth`) since `brtNow` is a "fake UTC" date representing BRT.
 
-### Apos a implementacao
+## Fix
 
-Voce precisara rodar no servidor VPS:
-1. `git pull`
-2. `sudo ./scripts/deploy.sh`
+Replace `calculateNextRunAt` function (lines 238-291) using UTC methods throughout:
 
-Isso copiara a versao corrigida do `smart-link-api` (com import `npm:`) para o ambiente Supabase local e reiniciara as functions.
+- `setHours` → `setUTCHours`
+- `setDate` → `setUTCDate`
+- `getDate` → `getUTCDate`
+- `getDay` → `getUTCDay`
+- `getFullYear` → `getUTCFullYear`
+- `getMonth` → `getUTCMonth`
+- `new Date(year, month, day, h, m)` → `Date.UTC(year, month, day, h, m)`
+
+All four schedule types (daily, weekly, monthly, custom) need this correction. No other files need changes.
+
