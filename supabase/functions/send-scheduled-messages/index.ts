@@ -241,23 +241,24 @@ function calculateNextRunAt(msg: any, now: Date): string | null {
 
   const [brtH, brtM] = (content_.runTime || "08:00").split(":").map(Number);
 
-  // Work in "BRT time" by subtracting the offset from now
+  // Work in "BRT time" by subtracting the offset from now.
+  // This creates a Date whose UTC fields represent BRT values.
   const brtNow = new Date(now.getTime() - BRT_OFFSET_MS);
 
   if (msg.schedule_type === "daily") {
-    const next = new Date(brtNow);
-    next.setDate(next.getDate() + 1);
-    next.setHours(brtH, brtM, 0, 0);
+    const next = new Date(brtNow.getTime());
+    next.setUTCDate(next.getUTCDate() + 1);
+    next.setUTCHours(brtH, brtM, 0, 0);
     return new Date(next.getTime() + BRT_OFFSET_MS).toISOString();
   }
 
   if (msg.schedule_type === "weekly") {
     const weekDays: number[] = content_.weekDays || [1];
     for (let i = 1; i <= 7; i++) {
-      const candidate = new Date(brtNow);
-      candidate.setDate(candidate.getDate() + i);
-      candidate.setHours(brtH, brtM, 0, 0);
-      if (weekDays.includes(candidate.getDay())) {
+      const candidate = new Date(brtNow.getTime());
+      candidate.setUTCDate(candidate.getUTCDate() + i);
+      candidate.setUTCHours(brtH, brtM, 0, 0);
+      if (weekDays.includes(candidate.getUTCDay())) {
         return new Date(candidate.getTime() + BRT_OFFSET_MS).toISOString();
       }
     }
@@ -266,12 +267,12 @@ function calculateNextRunAt(msg: any, now: Date): string | null {
   if (msg.schedule_type === "monthly") {
     const monthDay = content_.monthDay || 1;
     // Try current month first
-    const tryThis = new Date(brtNow.getFullYear(), brtNow.getMonth(), monthDay, brtH, brtM, 0, 0);
+    const tryThis = new Date(Date.UTC(brtNow.getUTCFullYear(), brtNow.getUTCMonth(), monthDay, brtH, brtM, 0, 0));
     if (new Date(tryThis.getTime() + BRT_OFFSET_MS) > now) {
       return new Date(tryThis.getTime() + BRT_OFFSET_MS).toISOString();
     }
     // Next month
-    const tryNext = new Date(brtNow.getFullYear(), brtNow.getMonth() + 1, monthDay, brtH, brtM, 0, 0);
+    const tryNext = new Date(Date.UTC(brtNow.getUTCFullYear(), brtNow.getUTCMonth() + 1, monthDay, brtH, brtM, 0, 0));
     return new Date(tryNext.getTime() + BRT_OFFSET_MS).toISOString();
   }
 
@@ -279,11 +280,11 @@ function calculateNextRunAt(msg: any, now: Date): string | null {
     const customDays: number[] = (content_.customDays || []).sort((a: number, b: number) => a - b);
     if (!customDays.length) return null;
     for (const day of customDays) {
-      const candidate = new Date(brtNow.getFullYear(), brtNow.getMonth(), day, brtH, brtM, 0, 0);
+      const candidate = new Date(Date.UTC(brtNow.getUTCFullYear(), brtNow.getUTCMonth(), day, brtH, brtM, 0, 0));
       const utc = new Date(candidate.getTime() + BRT_OFFSET_MS);
       if (utc > now) return utc.toISOString();
     }
-    const next = new Date(brtNow.getFullYear(), brtNow.getMonth() + 1, customDays[0], brtH, brtM, 0, 0);
+    const next = new Date(Date.UTC(brtNow.getUTCFullYear(), brtNow.getUTCMonth() + 1, customDays[0], brtH, brtM, 0, 0));
     return new Date(next.getTime() + BRT_OFFSET_MS).toISOString();
   }
 
