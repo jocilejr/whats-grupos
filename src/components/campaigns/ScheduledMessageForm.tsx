@@ -213,8 +213,12 @@ export function ScheduledMessageForm({
     if (scheduleType === "once") {
       if (!scheduledDate) return null;
       const [h, m] = scheduledTime.split(":").map(Number);
-      const d = new Date(scheduledDate);
-      d.setUTCHours(h + BRT_OFFSET, m, 0, 0);
+      const d = new Date(Date.UTC(
+        scheduledDate.getFullYear(),
+        scheduledDate.getMonth(),
+        scheduledDate.getDate(),
+        h + BRT_OFFSET, m, 0, 0
+      ));
       return d.toISOString();
     }
     const now = new Date();
