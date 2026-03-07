@@ -235,57 +235,53 @@ async function enqueueMessage(supabase: any, msg: any): Promise<number> {
   return finalGroupIds.length;
 }
 
+/** Convert BRT time components to UTC ISO string */
+function brtToUtc(y: number, mo: number, d: number, brtH: number, brtMin: number): string {
+  return new Date(Date.UTC(y, mo, d, brtH + 3, brtMin, 0, 0)).toISOString();
+}
+
 function calculateNextRunAt(msg: any, now: Date): string | null {
   const content_ = msg.content as any;
-  const BRT_OFFSET_MS = 3 * 3600000;
-
   const [brtH, brtM] = (content_.runTime || "08:00").split(":").map(Number);
 
-  // Work in "BRT time" by subtracting the offset from now.
-  // This creates a Date whose UTC fields represent BRT values.
-  const brtNow = new Date(now.getTime() - BRT_OFFSET_MS);
+  // Get current time decomposed as BRT components
+  const shifted = new Date(now.getTime() - 3 * 3600000);
+  const bY = shifted.getUTCFullYear();
+  const bMo = shifted.getUTCMonth();
+  const bD = shifted.getUTCDate();
 
   if (msg.schedule_type === "daily") {
-    const next = new Date(brtNow.getTime());
-    next.setUTCDate(next.getUTCDate() + 1);
-    next.setUTCHours(brtH, brtM, 0, 0);
-    return new Date(next.getTime() + BRT_OFFSET_MS).toISOString();
+    let utc = brtToUtc(bY, bMo, bD + 1, brtH, brtM);
+    return utc;
   }
 
   if (msg.schedule_type === "weekly") {
     const weekDays: number[] = content_.weekDays || [1];
     for (let i = 1; i <= 7; i++) {
-      const candidate = new Date(brtNow.getTime());
-      candidate.setUTCDate(candidate.getUTCDate() + i);
-      candidate.setUTCHours(brtH, brtM, 0, 0);
+      const candidate = new Date(Date.UTC(bY, bMo, bD + i));
       if (weekDays.includes(candidate.getUTCDay())) {
-        return new Date(candidate.getTime() + BRT_OFFSET_MS).toISOString();
+        return brtToUtc(candidate.getUTCFullYear(), candidate.getUTCMonth(), candidate.getUTCDate(), brtH, brtM);
       }
     }
   }
 
   if (msg.schedule_type === "monthly") {
     const monthDay = content_.monthDay || 1;
-    // Try current month first
-    const tryThis = new Date(Date.UTC(brtNow.getUTCFullYear(), brtNow.getUTCMonth(), monthDay, brtH, brtM, 0, 0));
-    if (new Date(tryThis.getTime() + BRT_OFFSET_MS) > now) {
-      return new Date(tryThis.getTime() + BRT_OFFSET_MS).toISOString();
+    let utc = brtToUtc(bY, bMo, monthDay, brtH, brtM);
+    if (new Date(utc) <= now) {
+      utc = brtToUtc(bY, bMo + 1, monthDay, brtH, brtM);
     }
-    // Next month
-    const tryNext = new Date(Date.UTC(brtNow.getUTCFullYear(), brtNow.getUTCMonth() + 1, monthDay, brtH, brtM, 0, 0));
-    return new Date(tryNext.getTime() + BRT_OFFSET_MS).toISOString();
+    return utc;
   }
 
   if (msg.schedule_type === "custom") {
     const customDays: number[] = (content_.customDays || []).sort((a: number, b: number) => a - b);
     if (!customDays.length) return null;
     for (const day of customDays) {
-      const candidate = new Date(Date.UTC(brtNow.getUTCFullYear(), brtNow.getUTCMonth(), day, brtH, brtM, 0, 0));
-      const utc = new Date(candidate.getTime() + BRT_OFFSET_MS);
-      if (utc > now) return utc.toISOString();
+      const utc = brtToUtc(bY, bMo, day, brtH, brtM);
+      if (new Date(utc) > now) return utc;
     }
-    const next = new Date(Date.UTC(brtNow.getUTCFullYear(), brtNow.getUTCMonth() + 1, customDays[0], brtH, brtM, 0, 0));
-    return new Date(next.getTime() + BRT_OFFSET_MS).toISOString();
+    return brtToUtc(bY, bMo + 1, customDays[0], brtH, brtM);
   }
 
   return null;
