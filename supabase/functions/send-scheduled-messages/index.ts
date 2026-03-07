@@ -237,52 +237,54 @@ async function enqueueMessage(supabase: any, msg: any): Promise<number> {
 
 function calculateNextRunAt(msg: any, now: Date): string | null {
   const content_ = msg.content as any;
-  const BRT_OFFSET = 3;
+  const BRT_OFFSET_MS = 3 * 3600000;
 
-  // Always use runTime (BRT) as source of truth
   const [brtH, brtM] = (content_.runTime || "08:00").split(":").map(Number);
-  const utcH = brtH + BRT_OFFSET;
-  const dayOverflow = utcH >= 24 ? 1 : 0;
-  const finalUtcH = utcH % 24;
+
+  // Work in "BRT time" by subtracting the offset from now
+  const brtNow = new Date(now.getTime() - BRT_OFFSET_MS);
 
   if (msg.schedule_type === "daily") {
-    const next = new Date(now);
-    next.setUTCDate(next.getUTCDate() + 1 + dayOverflow);
-    next.setUTCHours(finalUtcH, brtM, 0, 0);
-    return next.toISOString();
-  } else if (msg.schedule_type === "weekly") {
+    const next = new Date(brtNow);
+    next.setDate(next.getDate() + 1);
+    next.setHours(brtH, brtM, 0, 0);
+    return new Date(next.getTime() + BRT_OFFSET_MS).toISOString();
+  }
+
+  if (msg.schedule_type === "weekly") {
     const weekDays: number[] = content_.weekDays || [1];
     for (let i = 1; i <= 7; i++) {
-      const candidate = new Date(now);
-      candidate.setUTCDate(candidate.getUTCDate() + i + dayOverflow);
-      candidate.setUTCHours(finalUtcH, brtM, 0, 0);
-      const brtDay = (candidate.getUTCDay() - dayOverflow + 7) % 7;
-      if (weekDays.includes(brtDay)) {
-        return candidate.toISOString();
+      const candidate = new Date(brtNow);
+      candidate.setDate(candidate.getDate() + i);
+      candidate.setHours(brtH, brtM, 0, 0);
+      if (weekDays.includes(candidate.getDay())) {
+        return new Date(candidate.getTime() + BRT_OFFSET_MS).toISOString();
       }
     }
-  } else if (msg.schedule_type === "monthly") {
+  }
+
+  if (msg.schedule_type === "monthly") {
     const monthDay = content_.monthDay || 1;
-    const next = new Date(Date.UTC(
-      now.getUTCFullYear(), now.getUTCMonth() + 1,
-      monthDay + dayOverflow, finalUtcH, brtM, 0
-    ));
-    return next.toISOString();
-  } else if (msg.schedule_type === "custom") {
+    // Try current month first
+    const tryThis = new Date(brtNow.getFullYear(), brtNow.getMonth(), monthDay, brtH, brtM, 0, 0);
+    if (new Date(tryThis.getTime() + BRT_OFFSET_MS) > now) {
+      return new Date(tryThis.getTime() + BRT_OFFSET_MS).toISOString();
+    }
+    // Next month
+    const tryNext = new Date(brtNow.getFullYear(), brtNow.getMonth() + 1, monthDay, brtH, brtM, 0, 0);
+    return new Date(tryNext.getTime() + BRT_OFFSET_MS).toISOString();
+  }
+
+  if (msg.schedule_type === "custom") {
     const customDays: number[] = (content_.customDays || []).sort((a: number, b: number) => a - b);
     if (!customDays.length) return null;
     for (const day of customDays) {
-      const candidate = new Date(Date.UTC(
-        now.getUTCFullYear(), now.getUTCMonth(),
-        day + dayOverflow, finalUtcH, brtM, 0
-      ));
-      if (candidate > now) return candidate.toISOString();
+      const candidate = new Date(brtNow.getFullYear(), brtNow.getMonth(), day, brtH, brtM, 0, 0);
+      const utc = new Date(candidate.getTime() + BRT_OFFSET_MS);
+      if (utc > now) return utc.toISOString();
     }
-    const next = new Date(Date.UTC(
-      now.getUTCFullYear(), now.getUTCMonth() + 1,
-      customDays[0] + dayOverflow, finalUtcH, brtM, 0
-    ));
-    return next.toISOString();
+    const next = new Date(brtNow.getFullYear(), brtNow.getMonth() + 1, customDays[0], brtH, brtM, 0, 0);
+    return new Date(next.getTime() + BRT_OFFSET_MS).toISOString();
   }
 
   return null;

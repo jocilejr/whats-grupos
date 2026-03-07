@@ -210,50 +210,56 @@ export function ScheduledMessageForm({
   const BRT_OFFSET = 3;
 
   const computeNextRunAt = () => {
+    const BRT_OFFSET_MS = BRT_OFFSET * 3600000;
     if (scheduleType === "once") {
       if (!scheduledDate) return null;
       const [h, m] = scheduledTime.split(":").map(Number);
-      const d = new Date(Date.UTC(
-        scheduledDate.getFullYear(),
-        scheduledDate.getMonth(),
-        scheduledDate.getDate(),
-        h + BRT_OFFSET, m, 0, 0
-      ));
-      return d.toISOString();
+      // scheduledDate is in local tz, build BRT time then convert to UTC
+      const brt = new Date(scheduledDate.getFullYear(), scheduledDate.getMonth(), scheduledDate.getDate(), h, m, 0, 0);
+      return new Date(brt.getTime() + BRT_OFFSET_MS).toISOString();
     }
     const now = new Date();
     const [h, m] = runTime.split(":").map(Number);
+    const brtNow = new Date(now.getTime() - BRT_OFFSET_MS);
+
     if (scheduleType === "daily") {
-      const next = new Date(now);
-      next.setUTCHours(h + BRT_OFFSET, m, 0, 0);
-      if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
-      return next.toISOString();
+      const next = new Date(brtNow);
+      next.setHours(h, m, 0, 0);
+      if (new Date(next.getTime() + BRT_OFFSET_MS) <= now) next.setDate(next.getDate() + 1);
+      return new Date(next.getTime() + BRT_OFFSET_MS).toISOString();
     }
     if (scheduleType === "weekly") {
       for (let i = 0; i < 7; i++) {
-        const c = new Date(now);
-        c.setUTCDate(c.getUTCDate() + i);
-        c.setUTCHours(h + BRT_OFFSET, m, 0, 0);
-        if (weekDays.includes(c.getUTCDay()) && c > now) return c.toISOString();
+        const c = new Date(brtNow);
+        c.setDate(c.getDate() + i);
+        c.setHours(h, m, 0, 0);
+        const utc = new Date(c.getTime() + BRT_OFFSET_MS);
+        if (weekDays.includes(c.getDay()) && utc > now) return utc.toISOString();
       }
-      const f = new Date(now);
-      f.setUTCDate(f.getUTCDate() + 7);
-      f.setUTCHours(h + BRT_OFFSET, m, 0, 0);
-      return f.toISOString();
+      // fallback: first matching day next week
+      for (let i = 7; i < 14; i++) {
+        const c = new Date(brtNow);
+        c.setDate(c.getDate() + i);
+        c.setHours(h, m, 0, 0);
+        if (weekDays.includes(c.getDay())) return new Date(c.getTime() + BRT_OFFSET_MS).toISOString();
+      }
+      return null;
     }
     if (scheduleType === "monthly") {
-      const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), monthDay, h + BRT_OFFSET, m, 0));
-      if (next <= now) next.setUTCMonth(next.getUTCMonth() + 1);
-      return next.toISOString();
+      const tryThis = new Date(brtNow.getFullYear(), brtNow.getMonth(), monthDay, h, m, 0, 0);
+      if (new Date(tryThis.getTime() + BRT_OFFSET_MS) > now) return new Date(tryThis.getTime() + BRT_OFFSET_MS).toISOString();
+      const tryNext = new Date(brtNow.getFullYear(), brtNow.getMonth() + 1, monthDay, h, m, 0, 0);
+      return new Date(tryNext.getTime() + BRT_OFFSET_MS).toISOString();
     }
     if (scheduleType === "custom") {
       const sorted = [...customDays].sort((a, b) => a - b);
       for (const day of sorted) {
-        const candidate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), day, h + BRT_OFFSET, m, 0, 0));
-        if (candidate > now) return candidate.toISOString();
+        const candidate = new Date(brtNow.getFullYear(), brtNow.getMonth(), day, h, m, 0, 0);
+        const utc = new Date(candidate.getTime() + BRT_OFFSET_MS);
+        if (utc > now) return utc.toISOString();
       }
-      const nextMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, sorted[0], h + BRT_OFFSET, m, 0, 0));
-      return nextMonth.toISOString();
+      const next = new Date(brtNow.getFullYear(), brtNow.getMonth() + 1, sorted[0], h, m, 0, 0);
+      return new Date(next.getTime() + BRT_OFFSET_MS).toISOString();
     }
     return null;
   };
