@@ -209,58 +209,74 @@ export function ScheduledMessageForm({
   // BRT = UTC-3, so to convert BRT time to UTC we add 3 hours
   const BRT_OFFSET = 3;
 
+  /** Convert BRT components to UTC ISO string */
+  const brtToUtc = (y: number, mo: number, d: number, brtH: number, brtMin: number) =>
+    new Date(Date.UTC(y, mo, d, brtH + BRT_OFFSET, brtMin, 0, 0)).toISOString();
+
+  /** Get "now" decomposed into BRT components using only UTC methods */
+  const getBrtNow = () => {
+    const shifted = new Date(Date.now() - BRT_OFFSET * 3600000);
+    return {
+      y: shifted.getUTCFullYear(),
+      mo: shifted.getUTCMonth(),
+      d: shifted.getUTCDate(),
+      dow: shifted.getUTCDay(),
+      h: shifted.getUTCHours(),
+      m: shifted.getUTCMinutes(),
+    };
+  };
+
   const computeNextRunAt = () => {
-    const BRT_OFFSET_MS = BRT_OFFSET * 3600000;
+    const nowMs = Date.now();
+
     if (scheduleType === "once") {
       if (!scheduledDate) return null;
       const [h, m] = scheduledTime.split(":").map(Number);
-      // scheduledDate is in local tz, build BRT time then convert to UTC
-      const brt = new Date(scheduledDate.getFullYear(), scheduledDate.getMonth(), scheduledDate.getDate(), h, m, 0, 0);
-      return new Date(brt.getTime() + BRT_OFFSET_MS).toISOString();
+      return brtToUtc(scheduledDate.getFullYear(), scheduledDate.getMonth(), scheduledDate.getDate(), h, m);
     }
-    const now = new Date();
+
+    const brt = getBrtNow();
     const [h, m] = runTime.split(":").map(Number);
-    const brtNow = new Date(now.getTime() - BRT_OFFSET_MS);
 
     if (scheduleType === "daily") {
-      const next = new Date(brtNow);
-      next.setHours(h, m, 0, 0);
-      if (new Date(next.getTime() + BRT_OFFSET_MS) <= now) next.setDate(next.getDate() + 1);
-      return new Date(next.getTime() + BRT_OFFSET_MS).toISOString();
-    }
-    if (scheduleType === "weekly") {
-      for (let i = 0; i < 7; i++) {
-        const c = new Date(brtNow);
-        c.setDate(c.getDate() + i);
-        c.setHours(h, m, 0, 0);
-        const utc = new Date(c.getTime() + BRT_OFFSET_MS);
-        if (weekDays.includes(c.getDay()) && utc > now) return utc.toISOString();
+      // Try today, if already passed use tomorrow
+      let utc = brtToUtc(brt.y, brt.mo, brt.d, h, m);
+      if (new Date(utc).getTime() <= nowMs) {
+        utc = brtToUtc(brt.y, brt.mo, brt.d + 1, h, m);
       }
-      // fallback: first matching day next week
-      for (let i = 7; i < 14; i++) {
-        const c = new Date(brtNow);
-        c.setDate(c.getDate() + i);
-        c.setHours(h, m, 0, 0);
-        if (weekDays.includes(c.getDay())) return new Date(c.getTime() + BRT_OFFSET_MS).toISOString();
+      return utc;
+    }
+
+    if (scheduleType === "weekly") {
+      for (let i = 0; i < 14; i++) {
+        const candidate = new Date(Date.UTC(brt.y, brt.mo, brt.d + i));
+        const dow = candidate.getUTCDay();
+        if (weekDays.includes(dow)) {
+          const utc = brtToUtc(candidate.getUTCFullYear(), candidate.getUTCMonth(), candidate.getUTCDate(), h, m);
+          if (new Date(utc).getTime() > nowMs) return utc;
+        }
       }
       return null;
     }
+
     if (scheduleType === "monthly") {
-      const tryThis = new Date(brtNow.getFullYear(), brtNow.getMonth(), monthDay, h, m, 0, 0);
-      if (new Date(tryThis.getTime() + BRT_OFFSET_MS) > now) return new Date(tryThis.getTime() + BRT_OFFSET_MS).toISOString();
-      const tryNext = new Date(brtNow.getFullYear(), brtNow.getMonth() + 1, monthDay, h, m, 0, 0);
-      return new Date(tryNext.getTime() + BRT_OFFSET_MS).toISOString();
+      let utc = brtToUtc(brt.y, brt.mo, monthDay, h, m);
+      if (new Date(utc).getTime() <= nowMs) {
+        utc = brtToUtc(brt.y, brt.mo + 1, monthDay, h, m);
+      }
+      return utc;
     }
+
     if (scheduleType === "custom") {
       const sorted = [...customDays].sort((a, b) => a - b);
       for (const day of sorted) {
-        const candidate = new Date(brtNow.getFullYear(), brtNow.getMonth(), day, h, m, 0, 0);
-        const utc = new Date(candidate.getTime() + BRT_OFFSET_MS);
-        if (utc > now) return utc.toISOString();
+        const utc = brtToUtc(brt.y, brt.mo, day, h, m);
+        if (new Date(utc).getTime() > nowMs) return utc;
       }
-      const next = new Date(brtNow.getFullYear(), brtNow.getMonth() + 1, sorted[0], h, m, 0, 0);
-      return new Date(next.getTime() + BRT_OFFSET_MS).toISOString();
+      if (sorted.length) return brtToUtc(brt.y, brt.mo + 1, sorted[0], h, m);
+      return null;
     }
+
     return null;
   };
 
