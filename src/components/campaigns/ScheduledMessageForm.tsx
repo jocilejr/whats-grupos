@@ -319,7 +319,7 @@ export function ScheduledMessageForm({
       const content = buildContent();
       const nextRunAt = computeNextRunAt();
       const scheduledAtValue = scheduleType === "once" && scheduledDate
-        ? (() => { const [h, m] = scheduledTime.split(":").map(Number); const d = new Date(scheduledDate); d.setUTCHours(h + BRT_OFFSET, m, 0, 0); return d.toISOString(); })()
+        ? (() => { const [h, m] = scheduledTime.split(":").map(Number); const d = new Date(Date.UTC(scheduledDate.getFullYear(), scheduledDate.getMonth(), scheduledDate.getDate(), h + BRT_OFFSET, m, 0, 0)); return d.toISOString(); })()
         : null;
 
       const payload = {
