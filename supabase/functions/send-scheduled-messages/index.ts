@@ -237,51 +237,51 @@ async function enqueueMessage(supabase: any, msg: any): Promise<number> {
 
 function calculateNextRunAt(msg: any, now: Date): string | null {
   const content_ = msg.content as any;
-
-  // BRT = UTC-3. The runTime stored in content is in BRT.
-  // Convert BRT time to UTC by adding 3 hours.
   const BRT_OFFSET = 3;
 
-  // Prefer extracting hours from the existing next_run_at (already in UTC)
-  let h_: number, m_: number;
-  if (msg.next_run_at) {
-    const prevRun = new Date(msg.next_run_at);
-    h_ = prevRun.getUTCHours();
-    m_ = prevRun.getUTCMinutes();
-  } else {
-    // Fallback: convert runTime (BRT) to UTC
-    const parts = (content_.runTime || "08:00").split(":").map(Number);
-    h_ = parts[0] + BRT_OFFSET;
-    m_ = parts[1];
-  }
+  // Always use runTime (BRT) as source of truth
+  const [brtH, brtM] = (content_.runTime || "08:00").split(":").map(Number);
+  const utcH = brtH + BRT_OFFSET;
+  const dayOverflow = utcH >= 24 ? 1 : 0;
+  const finalUtcH = utcH % 24;
 
   if (msg.schedule_type === "daily") {
     const next = new Date(now);
-    next.setUTCDate(next.getUTCDate() + 1);
-    next.setUTCHours(h_, m_, 0, 0);
+    next.setUTCDate(next.getUTCDate() + 1 + dayOverflow);
+    next.setUTCHours(finalUtcH, brtM, 0, 0);
     return next.toISOString();
   } else if (msg.schedule_type === "weekly") {
     const weekDays: number[] = content_.weekDays || [1];
     for (let i = 1; i <= 7; i++) {
       const candidate = new Date(now);
-      candidate.setUTCDate(candidate.getUTCDate() + i);
-      candidate.setUTCHours(h_, m_, 0, 0);
-      if (weekDays.includes(candidate.getUTCDay())) {
+      candidate.setUTCDate(candidate.getUTCDate() + i + dayOverflow);
+      candidate.setUTCHours(finalUtcH, brtM, 0, 0);
+      const brtDay = (candidate.getUTCDay() - dayOverflow + 7) % 7;
+      if (weekDays.includes(brtDay)) {
         return candidate.toISOString();
       }
     }
   } else if (msg.schedule_type === "monthly") {
     const monthDay = content_.monthDay || 1;
-    const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, monthDay, h_, m_, 0));
+    const next = new Date(Date.UTC(
+      now.getUTCFullYear(), now.getUTCMonth() + 1,
+      monthDay + dayOverflow, finalUtcH, brtM, 0
+    ));
     return next.toISOString();
   } else if (msg.schedule_type === "custom") {
     const customDays: number[] = (content_.customDays || []).sort((a: number, b: number) => a - b);
     if (!customDays.length) return null;
     for (const day of customDays) {
-      const candidate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), day, h_, m_, 0, 0));
+      const candidate = new Date(Date.UTC(
+        now.getUTCFullYear(), now.getUTCMonth(),
+        day + dayOverflow, finalUtcH, brtM, 0
+      ));
       if (candidate > now) return candidate.toISOString();
     }
-    const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, customDays[0], h_, m_, 0, 0));
+    const next = new Date(Date.UTC(
+      now.getUTCFullYear(), now.getUTCMonth() + 1,
+      customDays[0] + dayOverflow, finalUtcH, brtM, 0
+    ));
     return next.toISOString();
   }
 
