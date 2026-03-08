@@ -17,7 +17,7 @@ const SESSIONS_DIR = process.env.SESSIONS_DIR || '/data/baileys-sessions';
 const logger = pino({ level: 'warn' });
 
 // Constants
-const MAX_MENTIONS_PARTICIPANTS = 300;
+const MAX_MENTIONS_PARTICIPANTS = 2000;
 const METADATA_TIMEOUT_MS = 5000;
 const RECONNECT_DELAYS = [5000, 15000, 60000]; // backoff: 5s, 15s, 60s
 
