@@ -261,7 +261,8 @@ function buildMessagePayload(messageType: string, apiUrl: string, instanceName: 
     body = { number: groupId, name: content.name || "", address: content.address || "", latitude: content.latitude, longitude: content.longitude };
   } else if (messageType === "contact") {
     endpoint = `${apiUrl}/message/sendContact/${instanceName}`;
-    body = { number: groupId, contact: [{ fullName: content.contactName, wuid: content.contactPhone, phoneNumber: content.contactPhone }] };
+    const cleanPhone = (content.contactPhone || "").replace(/\D/g, "");
+    body = { number: groupId, contact: [{ fullName: content.contactName, wuid: cleanPhone, phoneNumber: cleanPhone }] };
   } else if (messageType === "poll") {
     endpoint = `${apiUrl}/message/sendPoll/${instanceName}`;
     body = { number: groupId, name: content.pollName, selectableCount: content.pollSelectable || 1, values: content.pollOptions || [] };
