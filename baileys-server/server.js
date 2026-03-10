@@ -512,10 +512,13 @@ app.post('/message/sendContact/:name', async (req, res) => {
     const { number, contact } = req.body;
     const jid = number.includes('@') ? number : `${number}@g.us`;
 
-    const contacts = (contact || []).map(c => ({
-      displayName: c.fullName,
-      vcard: `BEGIN:VCARD\nVERSION:3.0\nFN:${c.fullName}\nTEL;type=CELL:${c.phoneNumber}\nEND:VCARD`,
-    }));
+    const contacts = (contact || []).map(c => {
+      const cleanNum = (c.phoneNumber || '').replace(/\D/g, '');
+      return {
+        displayName: c.fullName,
+        vcard: `BEGIN:VCARD\nVERSION:3.0\nFN:${c.fullName}\nTEL;type=CELL;type=VOICE;waid=${cleanNum}:+${cleanNum}\nEND:VCARD`,
+      };
+    });
 
     const result = await session.sock.sendMessage(jid, { contacts: { displayName: contacts[0]?.displayName || '', contacts } });
     res.json({ key: result.key, status: 'PENDING' });
