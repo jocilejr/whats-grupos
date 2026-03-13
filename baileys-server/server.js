@@ -446,19 +446,35 @@ app.post('/message/sendWhatsAppAudio/:name', async (req, res) => {
 
     if (audioUrl.includes('.mp3')) {
       mimetype = 'audio/mpeg';
+      ptt = false;
     } else if (audioUrl.includes('.m4a') || audioUrl.includes('.mp4')) {
       mimetype = 'audio/mp4';
+      ptt = false;
     } else if (audioUrl.includes('.wav')) {
       mimetype = 'audio/wav';
       ptt = false;
     } else if (audioUrl.includes('.aac')) {
       mimetype = 'audio/aac';
+      ptt = false;
     }
 
     console.log(`[sendAudio] ${jid} mimetype=${mimetype} ptt=${ptt}`);
 
+    // Download audio as buffer to avoid remote fetch issues
+    let audioSource;
+    try {
+      const response = await fetch(audio);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const arrayBuffer = await response.arrayBuffer();
+      audioSource = Buffer.from(arrayBuffer);
+      console.log(`[sendAudio] Downloaded ${audioSource.length} bytes`);
+    } catch (dlErr) {
+      console.log(`[sendAudio] Buffer download failed (${dlErr.message}), falling back to URL`);
+      audioSource = { url: audio };
+    }
+
     const result = await session.sock.sendMessage(jid, {
-      audio: { url: audio },
+      audio: audioSource,
       mimetype,
       ptt,
     });
