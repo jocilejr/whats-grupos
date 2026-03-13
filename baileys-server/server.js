@@ -439,10 +439,28 @@ app.post('/message/sendWhatsAppAudio/:name', async (req, res) => {
     const { number, audio } = req.body;
     const jid = number.includes('@') ? number : `${number}@g.us`;
 
+    // Detect mimetype from URL extension
+    const audioUrl = audio.toLowerCase();
+    let mimetype = 'audio/ogg; codecs=opus';
+    let ptt = true;
+
+    if (audioUrl.includes('.mp3')) {
+      mimetype = 'audio/mpeg';
+    } else if (audioUrl.includes('.m4a') || audioUrl.includes('.mp4')) {
+      mimetype = 'audio/mp4';
+    } else if (audioUrl.includes('.wav')) {
+      mimetype = 'audio/wav';
+      ptt = false;
+    } else if (audioUrl.includes('.aac')) {
+      mimetype = 'audio/aac';
+    }
+
+    console.log(`[sendAudio] ${jid} mimetype=${mimetype} ptt=${ptt}`);
+
     const result = await session.sock.sendMessage(jid, {
       audio: { url: audio },
-      mimetype: 'audio/ogg; codecs=opus',
-      ptt: true,
+      mimetype,
+      ptt,
     });
 
     res.json({ key: result.key, status: 'PENDING' });
