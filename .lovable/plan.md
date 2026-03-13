@@ -1,54 +1,30 @@
 
+## Adicionar `smart-link-api` ao script de deploy
 
-## Problema: Audio MP3 continua indisponivel no WhatsApp
+### Problema
 
-A deteccao de mimetype esta correta (`.mp3` → `audio/mpeg`), mas o problema real e que o **Baileys nao consegue enviar MP3 como voice note (`ptt: true`)**. O WhatsApp exige formato OGG Opus para voice notes. Quando recebe MP3 marcado como `ptt`, o arquivo fica corrompido.
+O script `scripts/deploy.sh` copia as edge functions para o servidor VPS, mas a funcao `smart-link-api` nao esta na lista de funcoes a serem copiadas (linha 24). Por isso, a versao corrigida (com `npm:` import) nunca chega ao servidor, e o erro `InvalidWorkerCreation` persiste.
 
-Alem disso, enviar audio via URL direta pode falhar se o Baileys tiver problemas ao baixar o arquivo remotamente.
+### Solucao
 
-### Correcao em `baileys-server/server.js`
+**Arquivo:** `scripts/deploy.sh`
 
-Duas mudancas:
+Adicionar `smart-link-api` na lista de funcoes copiadas na linha 24.
 
-**1. MP3 nao pode ser `ptt: true`** - apenas OGG Opus funciona como voice note no WhatsApp:
-
-```javascript
-if (audioUrl.includes('.mp3')) {
-  mimetype = 'audio/mpeg';
-  ptt = false; // MP3 não suporta voice note
-} else if (audioUrl.includes('.m4a') || audioUrl.includes('.mp4')) {
-  mimetype = 'audio/mp4';
-  ptt = false;
-} else if (audioUrl.includes('.wav')) {
-  mimetype = 'audio/wav';
-  ptt = false;
-} else if (audioUrl.includes('.aac')) {
-  mimetype = 'audio/aac';
-  ptt = false;
-}
-// Apenas OGG Opus (default) mantém ptt = true
+De:
+```text
+for FUNC in evolution-api send-scheduled-messages admin-api backup-export generate-ai-message process-queue sync-group-stats group-events-webhook smart-link-redirect sync-invite-links; do
 ```
 
-**2. Baixar o audio como buffer antes de enviar** - evita problemas de fetch remoto pelo Baileys:
-
-```javascript
-const axios = require('axios');
-// ...
-const response = await axios.get(audio, { responseType: 'arraybuffer' });
-const audioBuffer = Buffer.from(response.data);
-
-const result = await session.sock.sendMessage(jid, {
-  audio: audioBuffer,
-  mimetype,
-  ptt,
-});
+Para:
+```text
+for FUNC in evolution-api send-scheduled-messages admin-api backup-export generate-ai-message process-queue sync-group-stats group-events-webhook smart-link-redirect smart-link-api sync-invite-links; do
 ```
 
-### Resumo
-| Mudanca | Motivo |
-|---|---|
-| `ptt = false` para todos exceto OGG | WhatsApp so aceita OGG Opus como voice note |
-| Baixar audio como buffer | Evita falhas do Baileys ao buscar URLs remotas |
+### Apos a implementacao
 
-Isso fara o MP3 aparecer como mensagem de audio reproduzivel (nao como bolha de voz), mas funcionando corretamente.
+Voce precisara rodar no servidor VPS:
+1. `git pull`
+2. `sudo ./scripts/deploy.sh`
 
+Isso copiara a versao corrigida do `smart-link-api` (com import `npm:`) para o ambiente Supabase local e reiniciara as functions.
