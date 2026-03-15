@@ -10,6 +10,7 @@ import {
   Megaphone, Plus, Users, CalendarClock, Loader2, Pencil, Trash2,
   Zap, ZapOff, Sparkles, MessageSquare, Radio, Link,
 } from "lucide-react";
+import { calculateNextFutureRun } from "@/lib/scheduleUtils";
 import { useToast } from "@/hooks/use-toast";
 import { CampaignDialog } from "@/components/campaigns/CampaignDialog";
 import { CampaignMessagesDialog } from "@/components/campaigns/CampaignMessagesDialog";
@@ -65,6 +66,27 @@ export default function Campaigns() {
     mutationFn: async ({ id, is_active }: { id: string; is_active: boolean }) => {
       const { error } = await supabase.from("campaigns").update({ is_active }).eq("id", id);
       if (error) throw error;
+
+      if (is_active) {
+        const { data: msgs } = await supabase
+          .from("scheduled_messages")
+          .select("id, content, schedule_type")
+          .eq("campaign_id", id)
+          .eq("is_active", true)
+          .neq("schedule_type", "once");
+
+        if (msgs?.length) {
+          const now = new Date();
+          for (const msg of msgs) {
+            const nextRun = calculateNextFutureRun(msg, now);
+            if (nextRun) {
+              await supabase.from("scheduled_messages")
+                .update({ next_run_at: nextRun, processing_started_at: null })
+                .eq("id", msg.id);
+            }
+          }
+        }
+      }
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["campaigns"] }),
   });

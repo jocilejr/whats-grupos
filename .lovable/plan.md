@@ -1,55 +1,30 @@
 
+## Adicionar `smart-link-api` ao script de deploy
 
-## Problema: Reativacao de campanha dispara tudo de uma vez
+### Problema
 
-Quando uma campanha e reativada, os `scheduled_messages` vinculados ainda tem `next_run_at` no passado. O `claim_due_messages` pega tudo que esta dentro da janela de 2 horas, e os que estao alem disso ficam com `next_run_at` antigo que sera capturado assim que o cron rodar.
+O script `scripts/deploy.sh` copia as edge functions para o servidor VPS, mas a funcao `smart-link-api` nao esta na lista de funcoes a serem copiadas (linha 24). Por isso, a versao corrigida (com `npm:` import) nunca chega ao servidor, e o erro `InvalidWorkerCreation` persiste.
 
 ### Solucao
 
-Quando o usuario ativar uma campanha, recalcular o `next_run_at` de todas as mensagens agendadas dessa campanha para a proxima execucao futura.
+**Arquivo:** `scripts/deploy.sh`
 
-**Arquivo: `src/pages/Campaigns.tsx`** (toggleMutation)
+Adicionar `smart-link-api` na lista de funcoes copiadas na linha 24.
 
-Ao ativar (`is_active = true`), apos atualizar a campanha, buscar todos os `scheduled_messages` da campanha com `schedule_type != 'once'` e atualizar o `next_run_at` para o proximo horario futuro valido:
-
-```typescript
-const toggleMutation = useMutation({
-  mutationFn: async ({ id, is_active }: { id: string; is_active: boolean }) => {
-    const { error } = await supabase.from("campaigns").update({ is_active }).eq("id", id);
-    if (error) throw error;
-
-    if (is_active) {
-      // Recalcular next_run_at para evitar disparo em massa
-      const { data: msgs } = await supabase
-        .from("scheduled_messages")
-        .select("id, content, schedule_type")
-        .eq("campaign_id", id)
-        .eq("is_active", true)
-        .neq("schedule_type", "once");
-
-      if (msgs?.length) {
-        const now = new Date();
-        for (const msg of msgs) {
-          const nextRun = calculateNextFutureRun(msg, now);
-          if (nextRun) {
-            await supabase.from("scheduled_messages")
-              .update({ next_run_at: nextRun, processing_started_at: null })
-              .eq("id", msg.id);
-          }
-        }
-      }
-    }
-  },
-  onSuccess: () => queryClient.invalidateQueries({ queryKey: ["campaigns"] }),
-});
+De:
+```text
+for FUNC in evolution-api send-scheduled-messages admin-api backup-export generate-ai-message process-queue sync-group-stats group-events-webhook smart-link-redirect sync-invite-links; do
 ```
 
-A funcao `calculateNextFutureRun` sera uma versao client-side da mesma logica `calculateNextRunAt` que ja existe na edge function, adaptada para calcular o proximo horario futuro baseado no `schedule_type` e no conteudo (`runTime`, `weekDays`, `monthDay`, `customDays`).
+Para:
+```text
+for FUNC in evolution-api send-scheduled-messages admin-api backup-export generate-ai-message process-queue sync-group-stats group-events-webhook smart-link-redirect smart-link-api sync-invite-links; do
+```
 
-### Resumo
-| Arquivo | Mudanca |
-|---|---|
-| `src/pages/Campaigns.tsx` | Ao ativar campanha, recalcular `next_run_at` de todos os agendamentos para o proximo horario futuro |
+### Apos a implementacao
 
-Uma unica alteracao no frontend que impede o acumulo de execucoes antigas ao reativar uma campanha.
+Voce precisara rodar no servidor VPS:
+1. `git pull`
+2. `sudo ./scripts/deploy.sh`
 
+Isso copiara a versao corrigida do `smart-link-api` (com import `npm:`) para o ambiente Supabase local e reiniciara as functions.
