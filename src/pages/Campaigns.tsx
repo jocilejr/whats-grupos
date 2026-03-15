@@ -10,6 +10,7 @@ import {
   Megaphone, Plus, Users, CalendarClock, Loader2, Pencil, Trash2,
   Zap, ZapOff, Sparkles, MessageSquare, Radio, Link,
 } from "lucide-react";
+import { calculateNextFutureRun } from "@/lib/scheduleUtils";
 import { useToast } from "@/hooks/use-toast";
 import { CampaignDialog } from "@/components/campaigns/CampaignDialog";
 import { CampaignMessagesDialog } from "@/components/campaigns/CampaignMessagesDialog";
