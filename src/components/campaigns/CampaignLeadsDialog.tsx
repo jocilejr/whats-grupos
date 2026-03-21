@@ -459,63 +459,72 @@ export function CampaignLeadsDialog({ open, onOpenChange, campaign }: Props) {
                       return !!prevUrl && prevCount < maxMembers;
                     });
 
-                    return (
-                      <TableRow key={gl.group_id} className={isActive ? "bg-primary/5" : ""}>
-                        <TableCell className="text-muted-foreground text-center">{idx + 1}</TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium text-sm">{name}</span>
-                            {isActive && (
-                              <Badge variant="outline" className="text-xs gap-1 text-primary border-primary/30 bg-primary/10">
-                                Ativo
-                              </Badge>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <Badge variant={isFull ? "destructive" : "secondary"} className="text-xs">
-                            {count} / {maxMembers}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-center text-sm">{clicks}</TableCell>
-                        <TableCell className="text-center text-sm">{joins}</TableCell>
-                        <TableCell>
-                          {syncStatus[gl.group_id] === "syncing" ? (
-                            <Badge variant="outline" className="text-xs gap-1 text-primary border-primary/30 bg-primary/10">
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                              Buscando...
-                            </Badge>
-                          ) : syncStatus[gl.group_id] === "success" ? (
-                            <Badge variant="outline" className="text-xs gap-1 text-green-600 border-green-300 bg-green-50">
-                              <Check className="h-3 w-3" />
-                              Atualizado
-                            </Badge>
-                          ) : syncStatus[gl.group_id] === "error" ? (
-                            <Badge variant="outline" className="text-xs gap-1 text-destructive border-destructive/30 bg-destructive/5">
-                              <X className="h-3 w-3" />
-                              Falhou
-                            </Badge>
-                          ) : !syncing ? (
-                            hasUrl ? (
-                              <Badge variant="outline" className="text-xs gap-1 text-green-600 border-green-300 bg-green-50">
-                                <Link2 className="h-3 w-3" />
-                                Disponível
-                              </Badge>
-                            ) : (
-                              <Badge variant="outline" className="text-xs gap-1 text-destructive border-destructive/30 bg-destructive/5">
-                                <Link2Off className="h-3 w-3" />
-                                Sem link
-                              </Badge>
-                            )
-                          ) : (
-                            <Badge variant="outline" className="text-xs gap-1 text-muted-foreground border-muted">
-                              <Clock className="h-3 w-3" />
-                              Aguardando
-                            </Badge>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    );
+	                    return (
+	                      <TableRow key={gl.group_id} className={isActive ? "bg-primary/5" : ""}>
+	                        <TableCell className="text-muted-foreground text-center">{idx + 1}</TableCell>
+	                        <TableCell>
+	                          <div className="flex flex-col gap-1">
+	                            <div className="flex items-center gap-2">
+	                              <span className="font-medium text-sm">{name}</span>
+	                              {isActive && (
+	                                <Badge variant="outline" className="text-xs gap-1 text-primary border-primary/30 bg-primary/10">
+	                                  Ativo
+	                                </Badge>
+	                              )}
+	                            </div>
+	                            {hasUrl && (
+	                              <span className="text-[10px] text-muted-foreground truncate max-w-[200px]" title={inviteUrl}>
+	                                {inviteUrl}
+	                              </span>
+	                            )}
+	                          </div>
+	                        </TableCell>
+	                        <TableCell className="text-center">
+	                          <Badge variant={isFull ? "destructive" : "secondary"} className="text-xs">
+	                            {count} / {maxMembers}
+	                          </Badge>
+	                        </TableCell>
+	                        <TableCell className="text-center text-sm">{clicks}</TableCell>
+	                        <TableCell className="text-center text-sm">{joins}</TableCell>
+	                        <TableCell>
+	                          <div className="flex flex-col gap-1">
+	                            {syncStatus[gl.group_id] === "syncing" ? (
+	                              <Badge variant="outline" className="text-xs gap-1 text-primary border-primary/30 bg-primary/10 w-fit">
+	                                <Loader2 className="h-3 w-3 animate-spin" />
+	                                Buscando...
+	                              </Badge>
+	                            ) : syncStatus[gl.group_id] === "success" ? (
+	                              <Badge variant="outline" className="text-xs gap-1 text-green-600 border-green-300 bg-green-50 w-fit">
+	                                <Check className="h-3 w-3" />
+	                                Atualizado
+	                              </Badge>
+	                            ) : syncStatus[gl.group_id] === "error" ? (
+	                              <Badge variant="outline" className="text-xs gap-1 text-destructive border-destructive/30 bg-destructive/5 w-fit">
+	                                <X className="h-3 w-3" />
+	                                Falhou
+	                              </Badge>
+	                            ) : !syncing ? (
+	                              hasUrl ? (
+	                                <Badge variant="outline" className="text-xs gap-1 text-green-600 border-green-300 bg-green-50 w-fit">
+	                                  <Link2 className="h-3 w-3" />
+	                                  Disponível
+	                                </Badge>
+	                              ) : (
+	                                <Badge variant="outline" className="text-xs gap-1 text-destructive border-destructive/30 bg-destructive/5 w-fit">
+	                                  <Link2Off className="h-3 w-3" />
+	                                  Sem link
+	                                </Badge>
+	                              )
+	                            ) : (
+	                              <Badge variant="outline" className="text-xs gap-1 text-muted-foreground border-muted w-fit">
+	                                <Clock className="h-3 w-3" />
+	                                Aguardando
+	                              </Badge>
+	                            )}
+	                          </div>
+	                        </TableCell>
+	                      </TableRow>
+	                    );
                   })}
                 </TableBody>
               </Table>
