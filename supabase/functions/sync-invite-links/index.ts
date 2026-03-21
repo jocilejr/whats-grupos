@@ -18,22 +18,34 @@ Deno.serve(async (req) => {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, serviceKey);
 
-    // Check if a single group_id was requested
+    // Check if a single group_id or retry_mode was requested
     let singleGroupId: string | null = null;
+    let retryMode = false;
     if (req.method === "POST") {
       try {
         const body = await req.json();
         singleGroupId = body.group_id || null;
+        retryMode = body.retry_mode || false;
       } catch {
         // no body or invalid JSON, proceed with all groups
       }
     }
 
-    // Fetch all active smart links
-    const { data: smartLinks, error: slError } = await supabase
+    // Fetch active smart links
+    let slQuery = supabase
       .from("campaign_smart_links")
       .select("*")
       .eq("is_active", true);
+
+    // If in retry mode, only fetch links that have failed recently and are due for retry
+    if (retryMode) {
+      slQuery = slQuery
+        .gt("sync_retry_count", 0)
+        .lt("sync_retry_count", 3)
+        .lte("next_sync_retry_at", new Date().toISOString());
+    }
+
+    const { data: smartLinks, error: slError } = await slQuery;
 
     if (slError) throw slError;
     if (!smartLinks || smartLinks.length === 0) {
@@ -249,12 +261,46 @@ Deno.serve(async (req) => {
       .filter(([, url]) => !url)
       .map(([jid]) => jid);
 
+    // Update retry status for smart links that had failures
+    if (failedGroups.length > 0) {
+      for (const sl of smartLinks) {
+        const hasFailure = (sl.group_links as any[]).some(g => failedGroups.includes(g.group_id));
+        if (hasFailure) {
+          const nextRetry = new Date();
+          nextRetry.setHours(nextRetry.getHours() + 1); // Retry in 1 hour
+          
+          await supabase
+            .from("campaign_smart_links")
+            .update({
+              sync_retry_count: (sl.sync_retry_count || 0) + 1,
+              last_sync_error: errors.join("; "),
+              next_sync_retry_at: nextRetry.toISOString()
+            })
+            .eq("id", sl.id);
+        }
+      }
+    } else if (!retryMode && !singleGroupId) {
+      // If full sync succeeded, reset retry counts for all processed links
+      const processedIds = smartLinks.map(sl => sl.id);
+      if (processedIds.length > 0) {
+        await supabase
+          .from("campaign_smart_links")
+          .update({
+            sync_retry_count: 0,
+            last_sync_error: null,
+            next_sync_retry_at: null
+          })
+          .in("id", processedIds);
+      }
+    }
+
     return new Response(
       JSON.stringify({
         success: true,
         synced: totalSynced,
         failed_groups: failedGroups.length > 0 ? failedGroups : undefined,
         errors: errors.length > 0 ? errors : undefined,
+        retry_scheduled: failedGroups.length > 0
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
