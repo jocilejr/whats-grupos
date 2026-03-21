@@ -68,14 +68,18 @@ Deno.serve(async (req) => {
       .in("group_id", groupIds)
       .order("snapshot_date", { ascending: false });
 
-    // Build maps: group_id -> latest member_count, group_id -> invite_url
+    // Build maps: group_id -> latest member_count, group_id -> latest non-null invite_url
     const memberCounts: Record<string, number> = {};
     const inviteUrls: Record<string, string | null> = {};
     if (stats) {
       for (const s of stats) {
+        // Always take the first (latest) member count
         if (!(s.group_id in memberCounts)) {
           memberCounts[s.group_id] = s.member_count;
-          inviteUrls[s.group_id] = (s as any).invite_url || null;
+        }
+        // Take the first (latest) non-null invite_url
+        if (!(s.group_id in inviteUrls) && (s as any).invite_url) {
+          inviteUrls[s.group_id] = (s as any).invite_url;
         }
       }
     }

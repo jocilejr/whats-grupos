@@ -214,11 +214,14 @@ Deno.serve(async (req) => {
     // Update group_stats
     const today = new Date().toISOString().split("T")[0];
     for (const [groupId, inviteUrl] of Object.entries(inviteMap)) {
-      await supabase
-        .from("group_stats")
-        .update({ invite_url: inviteUrl } as any)
-        .eq("group_id", groupId)
-        .eq("snapshot_date", today);
+      // Only update if we actually got a link, to avoid clearing existing ones on transient failures
+      if (inviteUrl) {
+        await supabase
+          .from("group_stats")
+          .update({ invite_url: inviteUrl } as any)
+          .eq("group_id", groupId)
+          .eq("snapshot_date", today);
+      }
     }
 
     // Update campaign_smart_links
@@ -227,9 +230,10 @@ Deno.serve(async (req) => {
       let changed = false;
       const updatedLinks = links.map((g: any) => {
         const newUrl = inviteMap[g.group_id];
-        if (newUrl !== undefined && newUrl !== g.invite_url) {
+        // Only update if we actually got a link, to avoid clearing existing ones on transient failures
+        if (newUrl && newUrl !== g.invite_url) {
           changed = true;
-          return { ...g, invite_url: newUrl || "" };
+          return { ...g, invite_url: newUrl };
         }
         return g;
       });

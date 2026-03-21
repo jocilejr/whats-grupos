@@ -69,12 +69,25 @@ export function CampaignLeadsDialog({ open, onOpenChange, campaign }: Props) {
         .in("group_id", groupIds)
         .order("snapshot_date", { ascending: false });
       if (error) throw error;
+      const result: any[] = [];
       const seen = new Set<string>();
-      return (data || []).filter((s) => {
-        if (seen.has(s.group_id)) return false;
-        seen.add(s.group_id);
-        return true;
+      const inviteUrls: Record<string, string> = {};
+
+      (data || []).forEach((s) => {
+        if (!seen.has(s.group_id)) {
+          seen.add(s.group_id);
+          result.push(s);
+        }
+        if (!inviteUrls[s.group_id] && s.invite_url) {
+          inviteUrls[s.group_id] = s.invite_url;
+        }
       });
+
+      // Patch the result with the best invite_url found
+      return result.map(s => ({
+        ...s,
+        invite_url: inviteUrls[s.group_id] || s.invite_url
+      }));
     },
     enabled: groupIds.length > 0 && open,
   });
