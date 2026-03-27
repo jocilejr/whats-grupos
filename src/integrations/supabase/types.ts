@@ -54,6 +54,7 @@ export type Database = {
         Row: {
           campaign_id: string
           created_at: string
+          current_group_id: string | null
           group_links: Json
           id: string
           is_active: boolean
@@ -65,6 +66,7 @@ export type Database = {
         Insert: {
           campaign_id: string
           created_at?: string
+          current_group_id?: string | null
           group_links?: Json
           id?: string
           is_active?: boolean
@@ -76,6 +78,7 @@ export type Database = {
         Update: {
           campaign_id?: string
           created_at?: string
+          current_group_id?: string | null
           group_links?: Json
           id?: string
           is_active?: boolean
