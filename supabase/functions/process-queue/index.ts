@@ -200,11 +200,11 @@ Deno.serve(async (req) => {
           errors++;
           console.error(`Queue item ${item.id}: group ${item.group_id} → ERROR (${provider}). Continuing.`);
         }
-      } catch (e) {
-        const isTimeout = e.name === "TimeoutError" || e.name === "AbortError";
+      } catch (e: any) {
+        const isTimeout = e?.name === "TimeoutError" || e?.name === "AbortError";
         const errorMsg = isTimeout
           ? "Timeout: API não respondeu em 25s"
-          : e.message;
+          : e?.message;
         await supabase.from("message_queue").update({
           status: "error",
           error_message: errorMsg,
@@ -231,7 +231,7 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({ processed, errors }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Fatal error:", error);
     return new Response(JSON.stringify({ error: error.message }), {
       status: 500,
