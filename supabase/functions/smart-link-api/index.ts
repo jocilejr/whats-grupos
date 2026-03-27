@@ -67,14 +67,15 @@ Deno.serve(async (req) => {
 
     const maxMembers = smartLink.max_members_per_group;
     let redirectUrl: string | null = null;
+    let lowestCount = Infinity;
 
     for (const gl of groupLinks) {
       const u = inviteUrls[gl.group_id];
       if (!u) continue;
       const count = memberCounts[gl.group_id] ?? 0;
-      if (count < maxMembers) {
+      if (count < maxMembers && count < lowestCount) {
         redirectUrl = u;
-        break;
+        lowestCount = count;
       }
     }
 

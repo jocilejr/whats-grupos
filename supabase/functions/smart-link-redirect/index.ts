@@ -84,20 +84,21 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Find first group with available space AND a valid invite_url
+    // Find group with FEWEST members that still has space AND a valid invite_url
     const maxMembers = smartLink.max_members_per_group;
     let redirectUrl: string | null = null;
     let selectedGroupId: string | null = null;
+    let lowestCount = Infinity;
 
     for (const gl of groupLinks) {
       const url = inviteUrls[gl.group_id];
-      if (!url) continue; // Skip groups without invite URL (bot not admin)
+      if (!url) continue;
       
       const count = memberCounts[gl.group_id] ?? 0;
-      if (count < maxMembers) {
+      if (count < maxMembers && count < lowestCount) {
         redirectUrl = url;
         selectedGroupId = gl.group_id;
-        break;
+        lowestCount = count;
       }
     }
 
