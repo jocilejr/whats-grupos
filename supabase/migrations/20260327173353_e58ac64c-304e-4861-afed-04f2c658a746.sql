@@ -1,0 +1,1 @@
+ALTER TABLE public.campaign_smart_links ADD COLUMN current_group_id text DEFAULT NULL;

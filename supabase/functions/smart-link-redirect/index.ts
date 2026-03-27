@@ -27,7 +27,6 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // Fetch the smart link by slug
     const { data: smartLink, error: slError } = await serviceSupabase
       .from("campaign_smart_links")
       .select("*")
@@ -46,7 +45,7 @@ Deno.serve(async (req) => {
     }
 
     const groupLinks = (smartLink.group_links as any[]).sort(
-      (a, b) => (a.position ?? 0) - (b.position ?? 0)
+      (a: any, b: any) => (a.position ?? 0) - (b.position ?? 0)
     );
 
     if (!groupLinks.length) {
@@ -59,55 +58,63 @@ Deno.serve(async (req) => {
       );
     }
 
-    const groupIds = groupLinks.map((g) => g.group_id);
+    const groupIds = groupLinks.map((g: any) => g.group_id);
 
-    // Get latest member counts AND invite_url from group_stats
     const { data: stats } = await serviceSupabase
       .from("group_stats")
       .select("group_id, member_count, snapshot_date, invite_url")
       .in("group_id", groupIds)
       .order("snapshot_date", { ascending: false });
 
-    // Build maps: group_id -> latest member_count, group_id -> latest non-null invite_url
     const memberCounts: Record<string, number> = {};
     const inviteUrls: Record<string, string | null> = {};
     if (stats) {
       for (const s of stats) {
-        // Always take the first (latest) member count
         if (!(s.group_id in memberCounts)) {
           memberCounts[s.group_id] = s.member_count;
         }
-        // Take the first (latest) non-null invite_url
         if (!(s.group_id in inviteUrls) && (s as any).invite_url) {
           inviteUrls[s.group_id] = (s as any).invite_url;
         }
       }
     }
 
-    // Find group with FEWEST members that still has space AND a valid invite_url
     const maxMembers = smartLink.max_members_per_group;
+    const currentGroupId = smartLink.current_group_id;
     let redirectUrl: string | null = null;
     let selectedGroupId: string | null = null;
-    let lowestCount = Infinity;
 
-    for (const gl of groupLinks) {
-      const url = inviteUrls[gl.group_id];
-      if (!url) continue;
-      
-      const count = memberCounts[gl.group_id] ?? 0;
-      if (count < maxMembers && count < lowestCount) {
-        redirectUrl = url;
-        selectedGroupId = gl.group_id;
-        lowestCount = count;
+    // If there's a current group, check if it's still valid (below max and has invite URL)
+    if (currentGroupId) {
+      const currentUrl = inviteUrls[currentGroupId];
+      const currentCount = memberCounts[currentGroupId] ?? 0;
+      if (currentUrl && currentCount < maxMembers) {
+        redirectUrl = currentUrl;
+        selectedGroupId = currentGroupId;
+      }
+    }
+
+    // If current group is full or invalid, find next group with fewest members
+    if (!redirectUrl) {
+      let lowestCount = Infinity;
+      for (const gl of groupLinks) {
+        const u = inviteUrls[gl.group_id];
+        if (!u) continue;
+        const count = memberCounts[gl.group_id] ?? 0;
+        if (count < maxMembers && count < lowestCount) {
+          redirectUrl = u;
+          selectedGroupId = gl.group_id;
+          lowestCount = count;
+        }
       }
     }
 
     // Fallback: last group with a valid URL
     if (!redirectUrl) {
       for (let i = groupLinks.length - 1; i >= 0; i--) {
-        const url = inviteUrls[groupLinks[i].group_id];
-        if (url) {
-          redirectUrl = url;
+        const u = inviteUrls[groupLinks[i].group_id];
+        if (u) {
+          redirectUrl = u;
           selectedGroupId = groupLinks[i].group_id;
           break;
         }
@@ -122,6 +129,14 @@ Deno.serve(async (req) => {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         }
       );
+    }
+
+    // Update current_group_id if it changed
+    if (selectedGroupId !== currentGroupId) {
+      await serviceSupabase
+        .from("campaign_smart_links")
+        .update({ current_group_id: selectedGroupId })
+        .eq("id", smartLink.id);
     }
 
     // Record the click
