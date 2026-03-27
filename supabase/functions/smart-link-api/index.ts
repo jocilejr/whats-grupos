@@ -35,14 +35,14 @@ Deno.serve(async (req) => {
     }
 
     const groupLinks = (smartLink.group_links as any[]).sort(
-      (a, b) => (a.position ?? 0) - (b.position ?? 0)
+      (a: any, b: any) => (a.position ?? 0) - (b.position ?? 0)
     );
 
     if (!groupLinks.length) {
       return new Response("No groups configured", { status: 404, headers: corsHeaders });
     }
 
-    const groupIds = groupLinks.map((g) => g.group_id);
+    const groupIds = groupLinks.map((g: any) => g.group_id);
 
     const { data: stats } = await supabase
       .from("group_stats")
@@ -54,11 +54,9 @@ Deno.serve(async (req) => {
     const inviteUrls: Record<string, string | null> = {};
     if (stats) {
       for (const s of stats) {
-        // Always take the first (latest) member count
         if (!(s.group_id in memberCounts)) {
           memberCounts[s.group_id] = s.member_count;
         }
-        // Take the first (latest) non-null invite_url
         if (!(s.group_id in inviteUrls) && (s as any).invite_url) {
           inviteUrls[s.group_id] = (s as any).invite_url;
         }
@@ -66,24 +64,42 @@ Deno.serve(async (req) => {
     }
 
     const maxMembers = smartLink.max_members_per_group;
+    const currentGroupId = smartLink.current_group_id;
     let redirectUrl: string | null = null;
-    let lowestCount = Infinity;
+    let selectedGroupId: string | null = null;
 
-    for (const gl of groupLinks) {
-      const u = inviteUrls[gl.group_id];
-      if (!u) continue;
-      const count = memberCounts[gl.group_id] ?? 0;
-      if (count < maxMembers && count < lowestCount) {
-        redirectUrl = u;
-        lowestCount = count;
+    // Stick with current group if still below max
+    if (currentGroupId) {
+      const currentUrl = inviteUrls[currentGroupId];
+      const currentCount = memberCounts[currentGroupId] ?? 0;
+      if (currentUrl && currentCount < maxMembers) {
+        redirectUrl = currentUrl;
+        selectedGroupId = currentGroupId;
       }
     }
 
+    // Current group full or invalid — find next with fewest members
+    if (!redirectUrl) {
+      let lowestCount = Infinity;
+      for (const gl of groupLinks) {
+        const u = inviteUrls[gl.group_id];
+        if (!u) continue;
+        const count = memberCounts[gl.group_id] ?? 0;
+        if (count < maxMembers && count < lowestCount) {
+          redirectUrl = u;
+          selectedGroupId = gl.group_id;
+          lowestCount = count;
+        }
+      }
+    }
+
+    // Fallback
     if (!redirectUrl) {
       for (let i = groupLinks.length - 1; i >= 0; i--) {
         const u = inviteUrls[groupLinks[i].group_id];
         if (u) {
           redirectUrl = u;
+          selectedGroupId = groupLinks[i].group_id;
           break;
         }
       }
@@ -91,6 +107,14 @@ Deno.serve(async (req) => {
 
     if (!redirectUrl) {
       return new Response("No available groups with invite links", { status: 404, headers: corsHeaders });
+    }
+
+    // Update current_group_id if changed
+    if (selectedGroupId && selectedGroupId !== currentGroupId) {
+      await supabase
+        .from("campaign_smart_links")
+        .update({ current_group_id: selectedGroupId })
+        .eq("id", smartLink.id);
     }
 
     return new Response(redirectUrl, {

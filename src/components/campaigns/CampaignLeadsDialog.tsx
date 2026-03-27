@@ -452,14 +452,8 @@ export function CampaignLeadsDialog({ open, onOpenChange, campaign }: Props) {
                     const joins = joinsMap[gl.group_id] ?? 0;
                     const inviteUrl = (stat as any)?.invite_url || gl.invite_url || null;
                     const hasUrl = !!inviteUrl;
-                    // Match the redirect logic: active = group with lowest member count below limit
-                    const isActive = hasUrl && !isFull && !groupLinks.some((other) => {
-                      if (other.group_id === gl.group_id) return false;
-                      const otherStat = statsMap[other.group_id];
-                      const otherUrl = (otherStat as any)?.invite_url || other.invite_url || null;
-                      const otherCount = otherStat?.member_count ?? 0;
-                      return !!otherUrl && otherCount < maxMembers && otherCount < count;
-                    });
+                    // Active = current_group_id from smart link (sticks until max is reached)
+                    const isActive = hasUrl && !isFull && gl.group_id === smartLink?.current_group_id;
 
 	                    return (
 	                      <TableRow key={gl.group_id} className={isActive ? "bg-primary/5" : ""}>
